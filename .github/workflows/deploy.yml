@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -20,6 +20,7 @@ jobs:
           username: if0_42054781
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
+          protocol: ftps
           local-dir: ./
           server-dir: /htdocs/
           exclude: |
