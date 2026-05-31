@@ -1,19 +1,22 @@
 <?php
-$host = getenv('DB_HOST') ?: 'sql113.infinityfree.com';
-$db   = getenv('DB_NAME') ?: 'if0_42054781_portfolio_db';
-$user = getenv('DB_USER') ?: 'if0_42054781';
-$pass = getenv('DB_PASS') ?: 'zK0B2jMfGj1MX';
+$host = getenv('DB_HOST') ?: 'localhost';
+$db   = getenv('DB_NAME') ?: 'portfolio_db';
+$user = getenv('DB_USER') ?: 'postgres';
+$pass = getenv('DB_PASS') ?: '';
+$port = getenv('DB_PORT') ?: '5432';
 
 try {
     $pdo = new PDO(
-        "mysql:host=$host;dbname=$db;charset=utf8mb4",
-        $user, $pass,
+        "pgsql:host=$host;port=$port;dbname=$db",
+        $user,
+        $pass,
         [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => true,
         ]
     );
+    $pdo->exec("SET NAMES 'UTF8'");
 } catch (PDOException $e) {
     die('DB Error: ' . $e->getMessage());
 }

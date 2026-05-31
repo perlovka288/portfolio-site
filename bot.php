@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/config/db.php';
 
-$token    = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
-$admin_id = getenv('ADMIN_ID')  ?: "1710365896";
-$site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
+$token    = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$admin_id = getenv('ADMIN_ID')     ?: "1710365896";
+$site_url = getenv('SITE_URL')     ?: "https://kostlimdzn.kesug.com/";
 
 $input  = file_get_contents('php://input');
 $update = json_decode($input, true);
@@ -141,11 +141,9 @@ if (isset($update['message'])) {
             $uan   = mdEscape((string)($p['price_uan'] ?? 0));
             $desc  = trim((string)($p['description'] ?? ''));
             $price_msg .= "▪️ *{$title}:* {$rub} ₽ / {$uan} ₴\n";
-
             if ($desc !== '') {
                 $price_msg .= "_" . mdEscape($desc) . "_\n";
             }
-
             foreach (explode('|', (string)($p['features'] ?? '')) as $feature) {
                 $feature = trim($feature);
                 if ($feature !== '') {
@@ -223,7 +221,6 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // Неизвестная команда
     sendTelegram($token, 'sendMessage', [
         'chat_id'      => $chat_id,
         'text'         => "Не понял команду. Нажми /menu, чтобы открыть кнопки.",
@@ -344,10 +341,10 @@ function buildOrderCard($item, $price_info, $site_url) {
     $days_left = 5 - $created->diff($now)->days;
     $days_str  = ($days_left < 0) ? '🚨 ДЕДЛАЙН ПРОСРОЧЕН' : "{$days_left} дн.";
 
-    $status_text = ['pending' => '⏳ Ожидает подтверждения', 'in_progress' => '🎨 В процессе'][$item['status']] ?? $item['status'];
+    $status_text   = ['pending' => '⏳ Ожидает подтверждения', 'in_progress' => '🎨 В процессе'][$item['status']] ?? $item['status'];
     $service_title = $price_info['title'] ?? $item['service_key'];
-    $p_rub = $price_info['price_rub'] ?? 0;
-    $p_uan = $price_info['price_uan'] ?? 0;
+    $p_rub         = $price_info['price_rub'] ?? 0;
+    $p_uan         = $price_info['price_uan'] ?? 0;
 
     $msg  = "📦 *ЗАКАЗ #{$item['id']}*\n";
     $msg .= "-------------------------\n";
@@ -425,6 +422,10 @@ function normalizeBotText($text) {
     return function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
 }
 
+function mdEscape($text) {
+    return str_replace(['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'], ['\_', '\*', '\[', '\]', '\(', '\)', '\~', '\`', '\>', '\#', '\+', '\-', '\=', '\|', '\{', '\}', '\.', '\!'], (string)$text);
+}
+
 function botLog($message) {
     $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
     file_put_contents(__DIR__ . '/bot_debug.log', $line, FILE_APPEND);
@@ -458,4 +459,4 @@ function sendTelegramFile($token, $method, $params = []) {
         botLog("telegram file error method={$method} error={$error} response={$res}");
     }
     return $res;
-}В
+}
