@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/config/db.php';
 
-$token    = "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
-$admin_id = "1710365896";
-$site_url = "https://kostlimdzn.kesug.com/";
+$token    = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$admin_id = getenv('ADMIN_ID')  ?: "1710365896";
+$site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
 
 $input  = file_get_contents('php://input');
 $update = json_decode($input, true);
@@ -458,4 +458,4 @@ function sendTelegramFile($token, $method, $params = []) {
         botLog("telegram file error method={$method} error={$error} response={$res}");
     }
     return $res;
-}
+}В
