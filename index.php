@@ -2,6 +2,11 @@
 session_start();
 require_once 'config/db.php';
 
+function imgSrc(string $val, string $base = 'uploads/'): string {
+    if ($val === '') return '';
+    return (str_starts_with($val,'http://') || str_starts_with($val,'https://')) ? $val : $base . $val;
+}
+
 $categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $categoryMap = [];
 foreach ($categories as $category) {
@@ -86,7 +91,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <header>
     <div class="header-left">
         <div class="avatar-container" style="display: flex; align-items: center; gap: 10px;">
-            <img src="uploads/<?= htmlspecialchars($avatar) ?>" class="avatar-mini" alt="Kostlim">
+            <img src="<?= htmlspecialchars(imgSrc($avatar)) ?>" class="avatar-mini" alt="Kostlim">
             <a href="https://t.me/designkostlim" target="_blank" class="hicon-btn" title="Telegram">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>
             </a>
@@ -137,10 +142,10 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 
             <article class="portfolio-card filter-item <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?> <?= ($isDesign && $ava_file !== '') ? 'has-avatar' : '' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
                 <div class="portfolio-media">
-                    <img src="uploads/<?= htmlspecialchars($img_file) ?>" class="<?= $isDesign ? 'design-banner' : '' ?>" alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>">
+                    <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>" class="<?= $isDesign ? 'design-banner' : '' ?>" alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>">
                     <?php if ($isDesign && $ava_file !== ''): ?>
                         <div class="design-avatar-frame">
-                            <img src="uploads/<?= htmlspecialchars($ava_file) ?>" class="design-avatar" alt="Аватарка">
+                            <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка">
                         </div>
                     <?php endif; ?>
                 </div>

@@ -176,101 +176,124 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
     return (bool)($result['ok'] ?? false);
 }
 
+// ── ImgBB upload helper ──────────────────────────────────────
+function uploadToImgBB(string $tmpPath, string $name = 'image'): string
+{
+    $apiKey = getenv('IMGBB_API_KEY') ?: '';
+    if ($apiKey === '' || !is_file($tmpPath)) return '';
+
+    $b64 = base64_encode(file_get_contents($tmpPath));
+    $ch  = curl_init('https://api.imgbb.com/1/upload');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
+    ]);
+    $res  = curl_exec($ch);
+    $cerr = curl_error($ch);
+    curl_close($ch);
+
+    if ($res === false || $res === '') { error_log("ImgBB curl error: $cerr"); return ''; }
+    $data = json_decode($res, true);
+    return $data['data']['url'] ?? '';
+}
+
+// ── Try local save, fallback to ImgBB ────────────────────────
 function uploadImage(string $field, string $prefix, string $uploadDir): string
 {
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
-    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) {
-        return '';
-    }
+    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return '';
     if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
         global $message;
-        $message = '❌ Файл слишком большой. Максимальный размер: ' . ini_get('upload_max_filesize') . '.';
+        $message = '❌ Файл слишком большой для прямой загрузки. Уменьши размер файла до 8 МБ.';
         return '';
     }
     if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
-        error_log("UPLOAD[$field]: err=$err");
-        return '';
+        error_log("UPLOAD[$field]: err=$err"); return '';
     }
 
-    if (!is_dir($uploadDir)) {
-        $mk = mkdir($uploadDir, 0777, true);
-        error_log("UPLOAD[$field]: mkdir=$uploadDir ok=" . ($mk ? '1' : '0'));
-    }
-
-    if (!is_writable($uploadDir)) {
-        error_log("UPLOAD[$field]: not writable: $uploadDir");
-        @chmod($uploadDir, 0777);
-    }
-
-    $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $allowed = ['jpg','jpeg','png','webp','gif'];
     $ext     = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed, true)) { error_log("UPLOAD[$field]: bad ext=$ext"); return ''; }
 
-    if (!in_array($ext, $allowed, true)) {
-        error_log("UPLOAD[$field]: bad ext=$ext");
-        return '';
+    $tmp = $_FILES[$field]['tmp_name'];
+
+    // 1. Try local save (works if disk is writable)
+    if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0777, true); }
+    if (is_writable($uploadDir)) {
+        $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
+        $dest     = $uploadDir . $filename;
+        if (move_uploaded_file($tmp, $dest)) {
+            error_log("UPLOAD[$field]: local OK => $dest");
+            return $filename;
+        }
     }
 
-    $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
-    $dest     = $uploadDir . $filename;
-    $ok       = move_uploaded_file($_FILES[$field]['tmp_name'], $dest);
-    error_log("UPLOAD[$field]: move=" . ($ok ? "OK dest=$dest" : "FAIL dest=$dest err=" . ($_FILES[$field]['error'] ?? '?')));
+    // 2. Fallback: upload to ImgBB and return full URL
+    error_log("UPLOAD[$field]: local failed, trying ImgBB");
+    $url = uploadToImgBB($tmp, $prefix . '_' . time());
+    if ($url !== '') {
+        error_log("UPLOAD[$field]: ImgBB OK => $url");
+        return $url;
+    }
 
-    return $ok ? $filename : '';
+    error_log("UPLOAD[$field]: both methods failed");
+    return '';
 }
 
 function uploadNestedImage(string $field, int $id, string $prefix, string $uploadDir): string
 {
-    if (empty($_FILES[$field]['name'][$id]) || empty($_FILES[$field]['tmp_name'][$id])) {
-        return '';
-    }
+    if (empty($_FILES[$field]['name'][$id]) || empty($_FILES[$field]['tmp_name'][$id])) return '';
+    $err = $_FILES[$field]['error'][$id] ?? UPLOAD_ERR_NO_FILE;
+    if ($err !== UPLOAD_ERR_OK) { error_log("UPLOAD_NESTED[$field][$id]: err=$err"); return ''; }
 
-    if (!is_dir($uploadDir)) {
-        $mk = mkdir($uploadDir, 0777, true);
-        error_log("UPLOAD_NESTED[$field][$id]: mkdir=$uploadDir ok=" . ($mk ? '1' : '0'));
-    }
-
-    if (!is_writable($uploadDir)) {
-        error_log("UPLOAD_NESTED[$field][$id]: not writable: $uploadDir");
-        @chmod($uploadDir, 0777);
-    }
-
-    $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $allowed = ['jpg','jpeg','png','webp','gif'];
     $ext     = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed, true)) return '';
 
-    if (!in_array($ext, $allowed, true)) {
-        error_log("UPLOAD_NESTED[$field][$id]: bad ext=$ext");
-        return '';
+    $tmp = $_FILES[$field]['tmp_name'][$id];
+
+    // 1. Try local
+    if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0777, true); }
+    if (is_writable($uploadDir)) {
+        $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
+        $dest = $uploadDir . $filename;
+        if (move_uploaded_file($tmp, $dest)) return $filename;
     }
 
-    $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
-    $dest     = $uploadDir . $filename;
-    $ok       = move_uploaded_file($_FILES[$field]['tmp_name'][$id], $dest);
-    error_log("UPLOAD_NESTED[$field][$id]: move=" . ($ok ? "OK dest=$dest" : "FAIL dest=$dest"));
-
-    return $ok ? $filename : '';
+    // 2. ImgBB fallback
+    $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
+    return $url;
 }
 
 function money(int|float $value): string
 {
     return number_format((float)$value, 0, '.', ' ');
 }
+// ── Resolve image src (filename or full URL) ─────────────────
+function imgSrc(string $val, string $baseUrl = '../uploads/'): string
+{
+    if ($val === '') return '';
+    if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+    return $baseUrl . $val;
+}
+
+
 
 // ===================== UPLOAD SITE AVATAR =====================
 if (isset($_POST['upload_site_avatar'])) {
     $newAvatar = uploadImage('site_avatar', 'avatar', $uploadDir);
     if ($newAvatar !== '') {
-        // Сохраняем в таблице users
         $pdo->prepare("UPDATE users SET avatar = ? WHERE username = 'Kostlim'")->execute([$newAvatar]);
-        // Также копируем как avatar.jpg для совместимости с хедером
-        $destPath = $uploadDir . 'avatar.jpg';
-        $srcPath  = $uploadDir . $newAvatar;
-        $info     = @getimagesize($srcPath);
-        if ($info) {
-            copy($srcPath, $destPath);
+        // Если локальный файл — копируем как avatar.jpg для совместимости
+        if (!str_starts_with($newAvatar, 'http')) {
+            $srcPath = $uploadDir . $newAvatar;
+            if (is_file($srcPath)) { @copy($srcPath, $uploadDir . 'avatar.jpg'); }
         }
         $message = '✅ Аватарка сайта обновлена.';
     } else {
-        $message = '❌ Не удалось загрузить аватарку. Проверь формат (jpg, png, webp, gif).';
+        $message = '❌ Не удалось загрузить аватарку. Проверь формат (jpg, png, webp, gif) и размер.';
     }
 }
 
@@ -1019,7 +1042,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
                                     <tr>
                                         <td>
                                             <?php if (!empty($service['image'])): ?>
-                                                <img src="../uploads/<?= htmlspecialchars($service['image']) ?>" class="price-thumb" alt="">
+                                                <img src="<?= htmlspecialchars(imgSrc($service['image'] ?? '')) ?>" class="price-thumb" alt="">
                                             <?php else: ?>
                                                 <span style="color:#666674; font-size:11px;">Нет обложки</span>
                                             <?php endif; ?>
@@ -1070,10 +1093,10 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
                                     <td>
                                         <div class="thumb-pair">
                                             <?php if ($img !== ''): ?>
-                                                <img src="../uploads/<?= htmlspecialchars($img) ?>" class="case-thumb" alt="">
+                                                <img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="case-thumb" alt="">
                                             <?php endif; ?>
                                             <?php if ($ava !== ''): ?>
-                                                <img src="../uploads/<?= htmlspecialchars($ava) ?>" class="case-ava" alt="">
+                                                <img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-ava" alt="">
                                             <?php endif; ?>
                                         </div>
                                     </td>

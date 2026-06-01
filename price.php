@@ -2,6 +2,11 @@
 session_start();
 require_once 'config/db.php';
 
+function imgSrc(string $val, string $base = 'uploads/'): string {
+    if ($val === '') return '';
+    return (str_starts_with($val,'http://') || str_starts_with($val,'https://')) ? $val : $base . $val;
+}
+
 $stmt     = $pdo->query("SELECT * FROM prices ORDER BY id ASC");
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -192,7 +197,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="service-cover">
                     <?php if (!empty($service['image'])): ?>
                         <img
-                            src="uploads/<?= htmlspecialchars($service['image']) ?>"
+                            src="<?= htmlspecialchars(imgSrc($service['image'] ?? '')) ?>"
                             alt="<?= htmlspecialchars($service['title']) ?>"
                             loading="lazy"
                         >
