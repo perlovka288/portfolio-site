@@ -1,22 +1,30 @@
 <?php
-$host = getenv('DB_HOST') ?: 'localhost';
-$db   = getenv('DB_NAME') ?: 'portfolio_db';
-$user = getenv('DB_USER') ?: 'postgres';
-$pass = getenv('DB_PASS') ?: '';
-$port = getenv('DB_PORT') ?: '5432';
+class Database {
+    private static $pdo = null;
 
-try {
-    $pdo = new PDO(
-        "pgsql:host=$host;port=$port;dbname=$db",
-        $user,
-        $pass,
-        [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => true,
-        ]
-    );
-    $pdo->exec("SET NAMES 'UTF8'");
-} catch (PDOException $e) {
-    die('DB Error: ' . $e->getMessage());
+    public static function getConnection(): PDO {
+        if (self::$pdo === null) {
+            $host = getenv('DB_HOST') ?: 'localhost';
+            $db   = getenv('DB_NAME') ?: 'portfolio_db';
+            $user = getenv('DB_USER') ?: 'postgres';
+            $pass = getenv('DB_PASS') ?: '';
+            $port = getenv('DB_PORT') ?: '5432';
+
+            self::$pdo = new PDO(
+                "pgsql:host=$host;port=$port;dbname=$db;sslmode=require",
+                $user,
+                $pass,
+                [
+                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES   => true,
+                ]
+            );
+            self::$pdo->exec("SET NAMES 'UTF8'");
+        }
+        return self::$pdo;
+    }
 }
+
+// Обратная совместимость — $pdo доступен везде как раньше
+$pdo = Database::getConnection();
