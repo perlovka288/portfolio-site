@@ -61,7 +61,7 @@ if (isset($update['callback_query'])) {
             'message_id'   => $msg_id,
             'text'         => "🚀 *Заказ #{$order_id} взят в работу.*",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(orderKeyboard($order_id, 'in_progress', getOrderTelegram($pdo, $order_id)), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => orderKeyboard($order_id, 'in_progress', getOrderTelegram($pdo, $order_id)),
         ]);
         notifyClient($pdo, $token, $order_id, "🎨 Ваш заказ *#{$order_id}* взят в работу\\. Дизайнер уже начал выполнение\\.");
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ взят в работу']);
@@ -114,7 +114,7 @@ if (isset($update['message'])) {
             'chat_id'      => $chat_id,
             'text'         => "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nЗдесь можно посмотреть портфолио, узнать актуальный прайс, отправить ТЗ и проверить статус заказа.",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => mainKeyboard((string)$chat_id === $admin_id),
         ]);
         exit;
     }
@@ -187,7 +187,7 @@ if (isset($update['message'])) {
             'chat_id'      => $admin_id,
             'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие:",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(adminKeyboard(), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => adminKeyboard(),
         ]);
         exit;
     }
@@ -236,8 +236,10 @@ if (isset($update['message'])) {
     }
 
     // ── /status_XX — расширенная инфо по заказу ──────────────────
-    if (strpos($text, '/status_') === 0) {
-        $order_id = (int)str_replace('/status_', '', $text);
+    // Убираем @botname если есть: /status_11@MyBot -> /status_11
+    $text_cmd = explode('@', $text)[0];
+    if (strpos($text_cmd, '/status_') === 0) {
+        $order_id = (int)str_replace('/status_', '', $text_cmd);
 
         // Привязываем chat_id клиента к заказу
         $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
@@ -318,7 +320,7 @@ if (isset($update['message'])) {
     sendTelegram($token, 'sendMessage', [
         'chat_id'      => $chat_id,
         'text'         => "Не понял команду. Нажми /menu, чтобы открыть кнопки.",
-        'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+        'reply_markup' => mainKeyboard((string)$chat_id === $admin_id),
     ]);
 }
 
@@ -407,7 +409,7 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
         'chat_id'      => $admin_id,
         'text'         => $message,
         'parse_mode'   => 'Markdown',
-        'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        'reply_markup' => $keyboard,
     ]);
 }
 
@@ -445,7 +447,7 @@ function showUrgentQueue($pdo, $token, $admin_id, $site_url) {
         'chat_id'      => $admin_id,
         'text'         => $message,
         'parse_mode'   => 'Markdown',
-        'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        'reply_markup' => $keyboard,
     ]);
 }
 
@@ -513,7 +515,7 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
         'text'                     => buildOrderCard($item, $price_info ?: [], $site_url),
         'parse_mode'               => 'Markdown',
         'disable_web_page_preview' => true,
-        'reply_markup'             => json_encode(orderKeyboard($item['id'], $item['status'], $item['telegram']), JSON_UNESCAPED_UNICODE),
+        'reply_markup'             => orderKeyboard($item['id'], $item['status'], $item['telegram']),
     ]);
 }
 
@@ -599,7 +601,8 @@ function cleanTelegramUsername($value) {
 
 function normalizeBotText($text) {
     $text = trim((string)$text);
-    $text = preg_replace('/[^\p{L}\p{N}\s_\-\/]+/u', '', $text);
+    // Убираем emoji и спецсимволы, сохраняем буквы, цифры, пробелы, дефис, слэш, подчёркивание
+    $text = preg_replace('/[^\p{L}\p{N}\s\-_\/]/u', '', $text);
     $text = preg_replace('/\s+/u', ' ', $text);
     $text = trim($text);
     return function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
@@ -621,8 +624,10 @@ function botLog($message) {
 function sendTelegram($token, $method, $params = []) {
     $ch = curl_init("https://api.telegram.org/bot{$token}/{$method}");
     curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    // Отправляем как JSON — надёжнее для reply_markup и вложенных структур
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params, JSON_UNESCAPED_UNICODE));
     $res   = curl_exec($ch);
     $error = curl_error($ch);
     curl_close($ch);

@@ -4,7 +4,6 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 if (!isset($_SESSION['admin_logged']) || $_SESSION['admin_logged'] !== true) {
-    header('Location: /portfolio-site/admin/login.php');
+    header('Location: login.php');
     exit;
 }
-?>
