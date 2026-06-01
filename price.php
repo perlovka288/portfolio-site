@@ -15,12 +15,17 @@ if ($isAdmin && isset($_POST['save_all_inline'])) {
     foreach ($items as $item) {
         $id = (int)($item['id'] ?? 0);
         if (!$id) continue;
-        $pdo->prepare("UPDATE prices SET title=?, description=?, price_rub=?, price_uan=? WHERE id=?")
+        // Фичи: строки → через |
+        $featuresRaw = $item['features'] ?? '';
+        $featuresArr = array_filter(array_map('trim', explode("\n", $featuresRaw)));
+        $features    = implode('|', $featuresArr);
+        $pdo->prepare("UPDATE prices SET title=?, description=?, price_rub=?, price_uan=?, features=? WHERE id=?")
             ->execute([
                 $item['title']     ?? '',
                 $item['desc']      ?? '',
                 (int)($item['rub'] ?? 0),
                 (int)($item['uan'] ?? 0),
+                $features,
                 $id
             ]);
     }
@@ -195,14 +200,16 @@ body::before {
 
             <?php
             $features = array_filter(array_map('trim', explode('|', (string)($service['features'] ?? ''))));
-            if (!empty($features)):
+            $featuresRaw = implode("\n", $features);
             ?>
-            <ul class="service-features">
+            <!-- Фичи: в обычном режиме — список, в режиме редактирования — textarea -->
+            <ul class="service-features features-view">
                 <?php foreach ($features as $feature): ?>
                 <li><?= htmlspecialchars($feature) ?></li>
                 <?php endforeach; ?>
+                <?php if (empty($features)): ?><li style="opacity:.4;font-style:italic;">Нет фич</li><?php endif; ?>
             </ul>
-            <?php endif; ?>
+            <textarea class="features-edit ef" data-field="features" style="display:none;width:100%;background:#0e0e16;border:1px solid rgba(249,115,22,.4);color:#e0e0ec;border-radius:8px;padding:10px;font-size:12px;font-family:inherit;resize:vertical;min-height:80px;box-sizing:border-box;line-height:1.6;" placeholder="Каждая фича с новой строки&#10;Например:&#10;PSD-файл&#10;2 правки&#10;Быстрая сдача"><?= htmlspecialchars($featuresRaw) ?></textarea>
 
             <div class="service-footer">
                 <div class="service-price">
@@ -236,14 +243,28 @@ function toggleEditMode() {
         main.classList.add('edit-mode');
         banner.classList.add('show');
         btn.classList.add('active');
-        btn.querySelector('span') && (btn.lastChild.textContent = ' Режим вкл');
-        // Включаем contenteditable у всех полей
-        document.querySelectorAll('.ef').forEach(el => el.setAttribute('contenteditable', 'true'));
+        // Включаем contenteditable у текстовых полей (не textarea)
+        document.querySelectorAll('.ef[data-field]:not(textarea)').forEach(el => el.setAttribute('contenteditable', 'true'));
+        // Показываем textarea фич, скрываем ul
+        document.querySelectorAll('.features-view').forEach(ul => ul.style.display = 'none');
+        document.querySelectorAll('.features-edit').forEach(ta => { ta.style.display = 'block'; ta.setAttribute('contenteditable', 'false'); });
     } else {
         main.classList.remove('edit-mode');
         banner.classList.remove('show');
         btn.classList.remove('active');
-        document.querySelectorAll('.ef').forEach(el => el.setAttribute('contenteditable', 'false'));
+        document.querySelectorAll('.ef[data-field]:not(textarea)').forEach(el => el.setAttribute('contenteditable', 'false'));
+        // Восстанавливаем ul из textarea и скрываем textarea
+        document.querySelectorAll('.service-card').forEach(card => {
+            const ta = card.querySelector('.features-edit');
+            const ul = card.querySelector('.features-view');
+            if (!ta || !ul) return;
+            const lines = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
+            ul.innerHTML = lines.length
+                ? lines.map(l => `<li>${l.replace(/</g,'&lt;')}</li>`).join('')
+                : '<li style="opacity:.4;font-style:italic;">Нет фич</li>';
+            ul.style.display = '';
+            ta.style.display = 'none';
+        });
     }
 }
 
@@ -253,7 +274,8 @@ async function saveAll() {
     cards.forEach(card => {
         const id = card.dataset.id;
         const get = (field) => (card.querySelector(`.ef[data-field="${field}"]`)?.innerText || '').trim();
-        items.push({ id, title: get('title'), desc: get('desc'), rub: get('rub'), uan: get('uan') });
+        const features = (card.querySelector('.features-edit')?.value || '').trim();
+        items.push({ id, title: get('title'), desc: get('desc'), rub: get('rub'), uan: get('uan'), features });
     });
 
     const fd = new FormData();
