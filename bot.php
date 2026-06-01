@@ -107,6 +107,7 @@ if (isset($update['message'])) {
     $text_key = normalizeBotText($text);
 
     botLog("message chat={$chat_id} text={$text} key={$text_key}");
+    try {
 
     // /start и /menu
     if ($text === '/start' || $text === '/menu') {
@@ -297,25 +298,20 @@ if (isset($update['message'])) {
             $has_check = !empty($order['screenshot']) ? "✅ Прикреплён" : "❌ Не прикреплён";
             $has_ref   = !empty($order['example_photo']) ? "✅ Прикреплён" : "❌ Не прикреплён";
 
-            $msg  = "📦 *Заказ #{$order['id']}*\n";
-            $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-            $msg .= "🔹 *Статус:* {$cur_status}\n";
-            $msg .= "🎨 *Услуга:* " . mdEscape($service) . "\n";
-            $msg .= "💰 *Цена:* " . mdEscape($price) . "\n";
-            $msg .= "🚀 *Срочный:* {$urgent}\n";
-            $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-            $msg .= "📝 *ТЗ:* " . mdEscape($details) . "\n";
-            $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-            $msg .= "📅 *Создан:* " . mdEscape($order['created_at']) . "\n";
+            $msg  = "📦 Заказ #{$order['id']}\n";
+            $msg .= "Статус: {$cur_status}\n";
+            $msg .= "Услуга: {$service}\n";
+            $msg .= "Цена: {$price}\n";
+            $msg .= "Срочный: {$urgent}\n";
+            $msg .= "\nТЗ: {$details}\n";
+            $msg .= "\nСоздан: {$order['created_at']}\n";
             $msg .= "{$deadline_str}\n";
-            $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-            $msg .= "📸 *Чек оплаты:* {$has_check}\n";
-            $msg .= "🖼 *Референс:* {$has_ref}\n";
+            $msg .= "Чек оплаты: {$has_check}\n";
+            $msg .= "Референс: {$has_ref}\n";
 
             sendTelegram($token, 'sendMessage', [
-                'chat_id'    => $chat_id,
-                'text'       => $msg,
-                'parse_mode' => 'Markdown',
+                'chat_id' => $chat_id,
+                'text'    => $msg,
             ]);
         } else {
             sendTelegram($token, 'sendMessage', [
@@ -333,6 +329,13 @@ if (isset($update['message'])) {
         'text'         => "Не понял команду. Нажми /menu, чтобы открыть кнопки.",
         'reply_markup' => mainKeyboard((string)$chat_id === $admin_id),
     ]);
+    } catch (Throwable $e) {
+        botLog("MESSAGE HANDLER ERROR: " . $e->getMessage() . " | text=" . ($text ?? ''));
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chat_id,
+            'text'    => "Ошибка: " . $e->getMessage(),
+        ]);
+    }
 }
 
 // ── FUNCTIONS ────────────────────────────────────────────────────
@@ -468,43 +471,37 @@ function showUrgentQueue($pdo, $token, $admin_id, $site_url) {
 
 // Отправить статистику
 function sendAdminStats($pdo, $token, $admin_id) {
-    $total     = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
-    $ready     = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
-    $active    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'in_progress')")->fetchColumn();
-    $declined  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
-    $urgent    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND is_urgent=1")->fetchColumn();
-    $overdue   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND created_at <= NOW() - INTERVAL '5 days'")->fetchColumn();
+    try {
+        $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+        $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
+        $active   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress')")->fetchColumn();
+        $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
+        $urgent   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND is_urgent=1")->fetchColumn();
+        $overdue  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND created_at <= NOW() - INTERVAL '5 days'")->fetchColumn();
 
-    // Доход (готовые заказы)
-    $income_rub = (float)$pdo->query("
-        SELECT COALESCE(SUM(p.price_rub), 0)
-        FROM orders o
-        LEFT JOIN prices p ON p.category_key = o.service_key
-        WHERE o.status = 'ready'
-    ")->fetchColumn();
-    $income_uan = (float)$pdo->query("
-        SELECT COALESCE(SUM(p.price_uan), 0)
-        FROM orders o
-        LEFT JOIN prices p ON p.category_key = o.service_key
-        WHERE o.status = 'ready'
-    ")->fetchColumn();
+        $income_rub = (float)$pdo->query("SELECT COALESCE(SUM(p.price_rub),0) FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'")->fetchColumn();
+        $income_uan = (float)$pdo->query("SELECT COALESCE(SUM(p.price_uan),0) FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'")->fetchColumn();
 
-    $msg  = "📊 *Статистика Kostlim Design*\n";
-    $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-    $msg .= "📥 Всего заказов: *{$total}*\n";
-    $msg .= "🔥 Активных: *{$active}*\n";
-    $msg .= "🔴 Срочных: *{$urgent}*\n";
-    $msg .= "🚨 Просроченных: *{$overdue}*\n";
-    $msg .= "✅ Выполненных: *{$ready}*\n";
-    $msg .= "❌ Отклонённых: *{$declined}*\n";
-    $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-    $msg .= "💰 Заработано: *" . number_format($income_rub, 0, '.', ' ') . " ₽* / *" . number_format($income_uan, 0, '.', ' ') . " ₴*\n";
+        $msg  = "Статистика Kostlim Design\n\n";
+        $msg .= "Всего заказов: {$total}\n";
+        $msg .= "Активных: {$active}\n";
+        $msg .= "Срочных: {$urgent}\n";
+        $msg .= "Просроченных: {$overdue}\n";
+        $msg .= "Выполненных: {$ready}\n";
+        $msg .= "Отклонённых: {$declined}\n\n";
+        $msg .= "Заработано: " . number_format($income_rub, 0, '.', ' ') . " руб / " . number_format($income_uan, 0, '.', ' ') . " грн";
 
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $admin_id,
-        'text'       => $msg,
-        'parse_mode' => 'Markdown',
-    ]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $admin_id,
+            'text'    => $msg,
+        ]);
+    } catch (Throwable $e) {
+        botLog("sendAdminStats error: " . $e->getMessage());
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $admin_id,
+            'text'    => "Ошибка статистики: " . $e->getMessage(),
+        ]);
+    }
 }
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
