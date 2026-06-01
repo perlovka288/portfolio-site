@@ -314,20 +314,19 @@ function applyWatermark(string $img_data, string $avatar_url, string $line1, str
 // ═══════════════════════════════════════════════════════════════
 function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url) {
     try {
-        $caption = "🔥 *Новая работа в портфолио!*\n\n"
-            . "📌 *Название:* {$title}\n"
-            . "💵 *Цена работы:* {$price_rub} ₽ / {$price_uah} грн\n\n"
+        $caption = "🔥 Новая работа в портфолио!\n\n"
+            . "📌 Название: {$title}\n"
+            . "💵 Цена работы: {$price_rub} ₽ / {$price_uah} грн\n\n"
             . "💬 Оценить данную работу можно в комментариях.\n"
-            . "🚀 Заказать дизайн можно тут — [Kostlim Design]({$site_url})";
+            . "🚀 Заказать дизайн можно тут — {$site_url}";
 
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            'chat_id'    => $channel_id,
-            'photo'      => $image_url,
-            'caption'    => $caption,
-            'parse_mode' => 'Markdown',
+            'chat_id'  => $channel_id,
+            'photo'    => $image_url,
+            'caption'  => $caption,
         ], JSON_UNESCAPED_UNICODE));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 20);
