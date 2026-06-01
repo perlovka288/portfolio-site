@@ -322,12 +322,13 @@ function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $ima
 
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
             'chat_id'    => $channel_id,
             'photo'      => $image_url,
             'caption'    => $caption,
             'parse_mode' => 'Markdown',
-        ]));
+        ], JSON_UNESCAPED_UNICODE));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 20);
         $res  = curl_exec($ch);
