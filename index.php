@@ -2,20 +2,18 @@
 session_start();
 require_once 'config/db.php';
 
-// ── Auto-login via Telegram ID (переход по ссылке из TG с ?tg_id=...) ──
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
-// ── Inline-edit AJAX для прайса (если залогинен) ──
 if ($isAdmin && isset($_POST['inline_edit_price'])) {
     header('Content-Type: application/json');
-    $id       = (int)($_POST['id'] ?? 0);
-    $field    = $_POST['field'] ?? '';
-    $value    = trim($_POST['value'] ?? '');
-    $allowed  = ['title', 'price_rub', 'price_uan', 'description', 'features'];
+    $id      = (int)($_POST['id'] ?? 0);
+    $field   = $_POST['field'] ?? '';
+    $value   = trim($_POST['value'] ?? '');
+    $allowed = ['title', 'price_rub', 'price_uan', 'description', 'features'];
     if ($id > 0 && in_array($field, $allowed, true)) {
         $pdo->prepare("UPDATE prices SET {$field} = ? WHERE id = ?")->execute([$value, $id]);
         echo json_encode(['ok' => true]);
@@ -25,18 +23,15 @@ if ($isAdmin && isset($_POST['inline_edit_price'])) {
     exit;
 }
 
-// ── Resolve image src ──
 function imgSrc(string $val, string $base = 'uploads/'): string {
     if ($val === '') return '';
     if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
     return $base . $val;
 }
 
-$categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
-$categoryMap = [];
-foreach ($categories as $category) {
-    $categoryMap[$category['category_key']] = $category;
-}
+$categories   = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+$categoryMap  = [];
+foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
 $works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
 $admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
@@ -55,35 +50,29 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <title>Kostlim Design | Портфолио</title>
 <link rel="stylesheet" href="style.css">
 <style>
-/* ── Фоновое оранжевое свечение главной страницы ── */
 body::before {
     content: '';
     position: fixed;
-    top: -120px;
-    left: 50%;
+    top: -120px; left: 50%;
     transform: translateX(-50%);
-    width: 700px;
-    height: 400px;
+    width: 700px; height: 400px;
     background: radial-gradient(ellipse at center, rgba(249,115,22,0.13) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
+    pointer-events: none; z-index: 0;
 }
 body::after {
     content: '';
     position: fixed;
-    bottom: -100px;
-    right: -100px;
-    width: 500px;
-    height: 500px;
+    bottom: -100px; right: -100px;
+    width: 500px; height: 500px;
     background: radial-gradient(ellipse at center, rgba(249,115,22,0.07) 0%, transparent 65%);
-    pointer-events: none;
-    z-index: 0;
+    pointer-events: none; z-index: 0;
 }
 
 .portfolio-stage { margin-top: 34px; padding-bottom: 70px; position: relative; z-index: 1; }
 .portfolio-grid { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 28px; align-items: start; }
 .portfolio-card { background: transparent; display: flex; flex-direction: column; gap: 12px; }
 
+/* ── Антивор: обёртка превью ── */
 .portfolio-media {
     position: relative; width: 100%;
     aspect-ratio: 16 / 9; overflow: hidden;
@@ -91,19 +80,42 @@ body::after {
     border: 1px solid var(--border);
     transition: border-color var(--t), box-shadow var(--t);
 }
-.portfolio-media img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .5s cubic-bezier(.4,0,.2,1); }
+
+/* Прозрачный overlay поверх картинки — блокирует ПКМ "открыть в новой вкладке" */
+.portfolio-media::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: transparent;
+    cursor: default;
+}
+
+.portfolio-media img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+    transition: transform .5s cubic-bezier(.4,0,.2,1);
+    /* Антивор: запрет выделения и drag */
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    -moz-user-select: none;
+}
 .portfolio-card:hover .portfolio-media {
     border-color: var(--border-accent);
     box-shadow: 0 0 32px rgba(249,115,22,0.22);
 }
 .portfolio-card:hover .portfolio-media img { transform: scale(1.04); }
 
+/* Кнопка ЗАКАЗАТЬ должна быть поверх overlay */
+.order-pill { position: relative; z-index: 3; }
+
 .custom-ratio .portfolio-media { aspect-ratio: var(--card-ratio, 16 / 9); }
 .portfolio-meta { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 0 6px; }
 .portfolio-title { color: var(--text); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; line-height: 1.35; }
 .portfolio-price { color: var(--accent); font-size: 15px; font-weight: 800; white-space: nowrap; }
 
-/* ── Кнопка ЗАКАЗАТЬ — оранжевая с свечением ── */
 .order-pill {
     grid-column: 1 / -1;
     text-decoration: none; text-align: center;
@@ -121,7 +133,6 @@ body::after {
     background: linear-gradient(135deg, #fb923c, #ea580c);
 }
 
-/* ── Навигационные иконки-кнопки с оранжевым свечением ── */
 .nav-icon-btn {
     width: 42px; height: 42px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -132,26 +143,21 @@ body::after {
 }
 .nav-icon-btn svg { color: var(--accent); transition: color .22s; filter: drop-shadow(0 0 4px rgba(249,115,22,0.4)); }
 .nav-icon-btn:hover {
-    background: rgba(249,115,22,0.12);
-    border-color: rgba(249,115,22,0.4);
+    background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.4);
     box-shadow: 0 0 18px rgba(249,115,22,0.35), 0 0 6px rgba(249,115,22,0.2);
     transform: translateY(-1px);
 }
 .nav-icon-btn:hover svg { filter: drop-shadow(0 0 8px rgba(249,115,22,0.8)); }
 
-/* ── Карандаш инлайн-редактирования ── */
 .inline-edit-wrap { position: relative; display: inline-block; }
 .inline-pencil {
-    display: none;
-    position: absolute;
+    display: none; position: absolute;
     top: -8px; right: -26px;
     width: 20px; height: 20px;
-    background: var(--accent);
-    border: none; border-radius: 5px;
+    background: var(--accent); border: none; border-radius: 5px;
     cursor: pointer; align-items: center; justify-content: center;
     box-shadow: 0 0 10px rgba(249,115,22,0.5);
-    z-index: 10; padding: 0;
-    transition: box-shadow .2s;
+    z-index: 10; padding: 0; transition: box-shadow .2s;
 }
 .inline-pencil:hover { box-shadow: 0 0 18px rgba(249,115,22,0.8); }
 .inline-pencil svg { width: 11px; height: 11px; color: #fff; }
@@ -162,13 +168,21 @@ body::after {
 .design-card { grid-column: 1 / -1; margin-top: 28px; }
 .design-card .portfolio-media { aspect-ratio: 1590 / 400; min-height: 220px; border-radius: 22px; background: #08080b; border: 1px solid rgba(255,255,255,.08); }
 .design-card .portfolio-media > .design-banner { width: 100%; height: 100%; object-fit: cover; object-position: center; }
-.design-avatar-frame { position: absolute; right: clamp(18px, 3vw, 38px); top: 50%; transform: translateY(-50%); width: clamp(96px, 12vw, 156px); height: clamp(96px, 12vw, 156px); border-radius: 50%; overflow: hidden; border: 3px solid rgba(255,255,255,.9); background: #111116; box-shadow: 0 14px 34px rgba(0,0,0,.45); z-index: 3; }
-.design-avatar-frame .design-avatar { width: 100%; height: 100%; object-fit: cover; display: block; }
+.design-avatar-frame {
+    position: absolute;
+    right: clamp(18px, 3vw, 38px); top: 50%; transform: translateY(-50%);
+    width: clamp(96px, 12vw, 156px); height: clamp(96px, 12vw, 156px);
+    border-radius: 50%; overflow: hidden;
+    border: 3px solid rgba(255,255,255,.9); background: #111116;
+    box-shadow: 0 14px 34px rgba(0,0,0,.45);
+    /* Аватарка поверх overlay */
+    z-index: 3;
+}
+.design-avatar-frame .design-avatar { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .design-card .portfolio-meta { grid-template-columns: 1fr auto auto; padding: 0 8px; }
 
 .tabs-container { display: flex; justify-content: center; gap: 10px; margin: 36px 0 30px; flex-wrap: wrap; position: relative; z-index: 1; }
 
-/* Telegram-ссылка (самолётик) с оранжевым свечением */
 .tg-glow-btn {
     width: 42px; height: 42px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -179,10 +193,8 @@ body::after {
 }
 .tg-glow-btn svg { color: var(--accent); filter: drop-shadow(0 0 5px rgba(249,115,22,0.5)); transition: filter .22s; }
 .tg-glow-btn:hover {
-    background: rgba(249,115,22,0.12);
-    border-color: rgba(249,115,22,0.45);
-    box-shadow: 0 0 20px rgba(249,115,22,0.4);
-    transform: translateY(-1px);
+    background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.45);
+    box-shadow: 0 0 20px rgba(249,115,22,0.4); transform: translateY(-1px);
 }
 .tg-glow-btn:hover svg { filter: drop-shadow(0 0 10px rgba(249,115,22,0.9)); }
 
@@ -211,7 +223,6 @@ body::after {
             <img src="https://i.imgur.com/w9NThbA.png" class="avatar-mini" alt="Kostlim">
         <?php endif; ?>
 
-        <!-- Telegram самолётик с оранжевым свечением -->
         <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
@@ -219,7 +230,6 @@ body::after {
         </a>
 
         <?php if ($isAdmin): ?>
-        <!-- Шестерёнка только для админа -->
         <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"/>
@@ -232,12 +242,10 @@ body::after {
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
 
     <div class="header-right" style="display:flex; align-items:center; gap:10px;">
-        <!-- Прайс — иконка прайса с текстом -->
         <a href="price.php" class="nav-link nav-price">
             <span class="icon"></span>
             Прайс
         </a>
-        <!-- Бот — иконка бота с текстом и оранжевым свечением -->
         <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link nav-bot">
             <span class="icon"></span>
             Бот для заказов
@@ -258,10 +266,10 @@ body::after {
     <section class="portfolio-grid">
         <?php foreach ($works as $work): ?>
         <?php
-            $img_file = $work['image'] ?? '';
-            $ava_file = $work['avatar_image'] ?? '';
-            $key      = strtolower($work['category_key'] ?? '');
-            $category = $categoryMap[$key] ?? null;
+            $img_file  = $work['image'] ?? '';
+            $ava_file  = $work['avatar_image'] ?? '';
+            $key       = strtolower($work['category_key'] ?? '');
+            $category  = $categoryMap[$key] ?? null;
             $cat_class = 'cat-' . $key;
             $isDesign  = !empty($category['is_design']) || in_array($key, ['design', 'design_pack', 'banner_avatar'], true);
             $width     = (int)($category['width_px'] ?? 0);
@@ -274,10 +282,11 @@ body::after {
                 <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
                      class="<?= $isDesign ? 'design-banner' : '' ?>"
                      alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
+                     draggable="false"
                      onerror="this.style.opacity='0.3'">
                 <?php if ($isDesign && $ava_file !== ''): ?>
                     <div class="design-avatar-frame">
-                        <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка">
+                        <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
                     </div>
                 <?php endif; ?>
             </div>
@@ -301,6 +310,7 @@ body::after {
 </footer>
 
 <script>
+// ── Фильтрация по категориям ─────────────────────────────────
 function filterPortfolio(category, event) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     event.currentTarget.classList.add('active');
@@ -308,6 +318,29 @@ function filterPortfolio(category, event) {
         item.style.display = (category === 'all' || item.classList.contains(category)) ? 'flex' : 'none';
     });
 }
+
+// ── Антивор: блок ПКМ и drag на превью ───────────────────────
+(function () {
+    // Блок правой кнопки мыши на картинках портфолио
+    document.addEventListener('contextmenu', function (e) {
+        const t = e.target;
+        if (
+            t.closest('.portfolio-media') ||
+            t.classList.contains('design-avatar')
+        ) {
+            e.preventDefault();
+            return false;
+        }
+    }, true);
+
+    // Блок drag & drop картинок
+    document.addEventListener('dragstart', function (e) {
+        if (e.target.tagName === 'IMG' && e.target.closest('.portfolio-media')) {
+            e.preventDefault();
+            return false;
+        }
+    }, true);
+})();
 </script>
 </body>
 </html>
