@@ -4,9 +4,9 @@ class Database {
 
     public static function getConnection(): PDO {
         if (self::$pdo === null) {
-            $host = getenv('DB_HOST') ?: 'localhost';
-            $db   = getenv('DB_NAME') ?: 'portfolio_db';
-            $user = getenv('DB_USER') ?: 'postgres';
+            $host = getenv('DB_HOST') ?: 'ep-broad-mode-ape68llm-pooler.c-7.us-east-1.aws.neon.tech';
+            $db   = getenv('DB_NAME') ?: 'neondb';
+            $user = getenv('DB_USER') ?: 'neondb_owner';
             $pass = getenv('DB_PASS') ?: '';
             $port = getenv('DB_PORT') ?: '5432';
 
