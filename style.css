@@ -918,3 +918,61 @@ body.admin-body table tr:hover {
 body.admin-body table th {
     border-bottom: 2px solid rgba(249,115,22,0.20) !important;
 }
+/* ── Иконки в шапке светятся оранжевым ── */
+.nav-link svg,
+.nav-link .icon {
+    filter: drop-shadow(0 0 4px rgba(249,115,22,0.45));
+}
+.nav-link:hover svg,
+.nav-link:hover .icon {
+    filter: drop-shadow(0 0 9px rgba(249,115,22,0.85));
+}
+ 
+/* ── Свечение кнопок "Прайс" и "Бот" ── */
+.nav-link.nav-price:hover,
+.nav-link.nav-bot:hover {
+    box-shadow: 0 0 22px rgba(249,115,22,0.35), 0 4px 14px rgba(249,115,22,0.15);
+}
+ 
+/* ── Кастомные кнопки загрузки файлов в order.php (на случай если style.css загружается) ── */
+.file-choose-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    background: linear-gradient(135deg, #fb923c, #f97316) !important;
+    border: none !important; border-radius: 8px !important;
+    padding: 9px 16px !important; color: #fff !important;
+    font-size: 11px !important; font-weight: 800 !important;
+    text-transform: uppercase !important; letter-spacing: .7px !important;
+    cursor: pointer !important; font-family: inherit !important;
+    box-shadow: 0 4px 14px rgba(249,115,22,0.3) !important;
+    transition: all .22s !important; white-space: nowrap !important;
+    margin: 0 !important;
+}
+.file-choose-btn:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 0 22px rgba(249,115,22,.5), 0 6px 20px rgba(249,115,22,.25) !important;
+}
+ 
+/* ── Аватар-кнопки иконки в шапке светятся ── */
+.tg-glow-btn,
+.nav-icon-btn {
+    box-shadow: none;
+    transition: all .22s cubic-bezier(.4,0,.2,1);
+}
+.tg-glow-btn:hover,
+.nav-icon-btn:hover {
+    box-shadow: 0 0 20px rgba(249,115,22,0.4), 0 0 6px rgba(249,115,22,0.2) !important;
+}
+ 
+/* ── Фон главной — мягкое оранжевое свечение (если нет ::before в inline) ── */
+.portfolio-stage::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background:
+        radial-gradient(ellipse 600px 300px at 50% -60px, rgba(249,115,22,0.10) 0%, transparent 70%),
+        radial-gradient(ellipse 400px 400px at 90% 110%, rgba(249,115,22,0.06) 0%, transparent 60%);
+    pointer-events: none; z-index: -1;
+}
+ 

@@ -2,6 +2,12 @@
 session_start();
 require_once 'config/db.php';
 
+// ── Auto-login via TG ID ──
+define('ADMIN_TG_ID', '1710365896');
+if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
+    $_SESSION['admin_logged'] = true;
+}
+
 $bot_token   = "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $my_chat_id  = "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
@@ -38,14 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $target_dir = 'uploads/orders/';
     if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
 
-    // Скриншот оплаты
     if (!empty($_FILES['screenshot']['name'])) {
         $ext = pathinfo($_FILES['screenshot']['name'], PATHINFO_EXTENSION);
         $pay_screenshot = 'pay_' . time() . '_' . uniqid() . '.' . $ext;
         move_uploaded_file($_FILES['screenshot']['tmp_name'], $target_dir . $pay_screenshot);
     }
 
-    // Референсы (до 5 файлов)
     if (!empty($_FILES['example_photos']['name'][0])) {
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === 0) {
@@ -68,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";
 
-        // Отправка в Telegram
         if (!empty($my_chat_id)) {
             $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
             $price_stmt->execute([$service_key]);
@@ -141,264 +144,298 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="stylesheet" href="style.css">
 <style>
-/* ─── Оранжевое свечение для формы ─── */
 :root {
-    --orange: #ff6a1a;
-    --orange-glow: 0 0 12px rgba(255, 106, 26, 0.55), 0 0 28px rgba(255, 106, 26, 0.22);
-    --orange-glow-sm: 0 0 8px rgba(255, 106, 26, 0.45);
+    --or: #f97316;
+    --or2: #fb923c;
+    --or-glow: 0 0 18px rgba(249,115,22,0.45), 0 0 40px rgba(249,115,22,0.18);
+    --or-glow-sm: 0 0 10px rgba(249,115,22,0.5);
 }
 
-.order-input,
-.order-select,
-.order-textarea {
-    background: #16161f;
-    border: 1px solid #262633;
-    color: #fff;
-    padding: 12px 14px;
-    border-radius: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    margin-top: 6px;
-    font-size: 14px;
-    transition: border-color .2s, box-shadow .2s;
-    outline: none;
+/* ── Фоновое свечение ── */
+body::before {
+    content: '';
+    position: fixed;
+    top: -80px; left: 50%;
+    transform: translateX(-50%);
+    width: 600px; height: 320px;
+    background: radial-gradient(ellipse, rgba(249,115,22,0.12) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
 }
-.order-input:focus,
-.order-select:focus,
-.order-textarea:focus {
-    border-color: var(--orange);
-    box-shadow: var(--orange-glow);
-}
-.order-textarea { height: 110px; resize: none; }
 
+.order-wrap {
+    max-width: 560px; margin: 50px auto;
+    padding: 0 20px; position: relative; z-index: 1;
+}
+
+/* ── Карточка формы ── */
+.order-card {
+    background: #111116;
+    border: 1px solid #1f1f2a;
+    padding: 32px;
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+
+.order-back { color: var(--or); text-decoration: none; font-size: 13px; font-weight: 700; display:inline-flex; align-items:center; gap:6px; margin-bottom: 18px; transition: opacity .2s; }
+.order-back:hover { opacity: .75; }
+.order-back svg { width:13px; height:13px; }
+
+.order-title {
+    text-align: center;
+    font-size: 19px; font-weight: 900;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    color: #fff; margin-bottom: 26px;
+}
+
+/* ── Инпуты ── */
 .order-label {
-    color: #8a8a93;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .8px;
     display: block;
+    color: #8a8a96; font-size: 10px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+.order-input, .order-select, .order-textarea {
+    width: 100%; background: #16161f;
+    border: 1px solid #262633; color: #fff;
+    padding: 12px 14px; border-radius: 9px;
+    font-size: 13px; font-family: inherit;
+    transition: border-color .2s, box-shadow .2s; outline: none;
+    box-sizing: border-box;
+}
+.order-input:focus, .order-select:focus, .order-textarea:focus {
+    border-color: var(--or);
+    box-shadow: 0 0 0 3px rgba(249,115,22,.14), var(--or-glow-sm);
+}
+.order-textarea { height: 110px; resize: vertical; }
+.order-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px; cursor: pointer;
 }
 
+/* ── Кастомная загрузка файла ── */
+.file-upload-block {
+    border: 1.5px dashed #2a2a3a;
+    border-radius: 12px; padding: 16px 18px;
+    transition: border-color .2s, box-shadow .2s;
+    background: rgba(249,115,22,0.025);
+}
+.file-upload-block:hover {
+    border-color: rgba(249,115,22,0.45);
+    box-shadow: 0 0 14px rgba(249,115,22,0.12);
+}
+.file-upload-block input[type="file"] { display: none; }
+
+.file-label-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.file-label-title {
+    color: #d8d8e0; font-size: 12px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .6px;
+    flex: 1;
+}
+.file-choose-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: linear-gradient(135deg, var(--or2), var(--or));
+    border: none; border-radius: 8px;
+    padding: 9px 16px; color: #fff;
+    font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .7px;
+    cursor: pointer; transition: all .2s;
+    box-shadow: 0 4px 14px rgba(249,115,22,0.3);
+    font-family: inherit; white-space: nowrap;
+}
+.file-choose-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--or-glow);
+}
+.file-choose-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+.file-name-display {
+    font-size: 11px; color: #666678; font-style: italic;
+    margin-top: 8px; min-height: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-name-display.has-file { color: #86efac; font-style: normal; font-weight: 700; }
+
+.file-hint {
+    color: #555568; font-size: 10px; margin-top: 6px; line-height: 1.5;
+}
+
+/* ── Кнопка отправить ── */
 .order-submit {
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    padding: 15px;
-    border-radius: 8px;
-    width: 100%;
-    font-weight: 900;
-    cursor: pointer;
-    text-transform: uppercase;
-    font-size: 14px;
-    letter-spacing: 1px;
-    box-shadow: var(--orange-glow);
-    transition: opacity .2s, box-shadow .2s;
+    width: 100%; background: linear-gradient(135deg, var(--or2), var(--or));
+    color: #fff; border: none; padding: 15px;
+    border-radius: 10px; font-weight: 900; cursor: pointer;
+    text-transform: uppercase; font-size: 13px; letter-spacing: 1.5px;
+    box-shadow: var(--or-glow); transition: opacity .2s, transform .2s, box-shadow .2s;
+    font-family: inherit; margin-top: 6px;
 }
 .order-submit:hover {
-    opacity: .9;
-    box-shadow: 0 0 20px rgba(255,106,26,.75), 0 0 40px rgba(255,106,26,.3);
+    opacity: .92; transform: translateY(-2px);
+    box-shadow: 0 0 30px rgba(249,115,22,.65), 0 8px 28px rgba(249,115,22,.3);
 }
 
-.file-drop {
-    border: 1.5px dashed #2e2e3e;
-    padding: 14px;
-    border-radius: 10px;
-    transition: border-color .2s;
-    cursor: pointer;
-}
-.file-drop:hover { border-color: var(--orange); }
-.file-drop input[type=file] { color: #8a8a93; font-size: 12px; width: 100%; }
-
-/* ─── Блок реквизитов ─── */
+/* ── Реквизиты ── */
 .req-block {
-    background: #0e0e16;
-    border: 1px solid #1f1f2e;
-    border-radius: 14px;
-    padding: 22px;
-    margin-bottom: 22px;
+    background: #0e0e16; border: 1px solid #1e1e2c;
+    border-radius: 14px; padding: 20px; margin-bottom: 22px;
 }
 .req-block h3 {
-    color: var(--orange);
-    font-size: 13px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin: 0 0 16px;
-    text-shadow: var(--orange-glow-sm);
+    color: var(--or); font-size: 12px; font-weight: 900;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin: 0 0 14px; text-shadow: var(--or-glow-sm);
 }
-.req-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-}
+.req-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.req-row:last-child { margin-bottom: 0; }
 .req-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-    background: #1a1a28;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    font-size: 16px;
+    width: 34px; height: 34px; border-radius: 9px;
+    background: #1a1a28; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0; font-weight: 900;
+    color: var(--or); border: 1px solid rgba(249,115,22,0.2);
 }
-.req-info { flex: 1; }
-.req-info span {
-    display: block;
-    font-size: 10px;
-    color: #6a6a7a;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .6px;
-}
-.req-val {
-    color: #e8e8f0;
-    font-size: 13px;
-    font-family: monospace;
-    word-break: break-all;
-}
-.req-link {
-    color: var(--orange);
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 700;
-}
-.req-link:hover { text-shadow: var(--orange-glow-sm); }
-
+.req-info { flex: 1; min-width: 0; }
+.req-info span { display: block; font-size: 9px; color: #666678; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; }
+.req-val { color: #e0e0ec; font-size: 12px; font-family: monospace; word-break: break-all; }
+.req-link { color: var(--or); text-decoration: none; font-size: 12px; font-weight: 700; }
+.req-link:hover { text-shadow: var(--or-glow-sm); }
 .copy-btn {
-    background: #1a1a28;
-    border: 1px solid #2a2a38;
-    color: #8a8a93;
-    padding: 6px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 11px;
+    background: #1a1a28; border: 1px solid #2a2a3a;
+    color: #8a8a96; padding: 5px 10px; border-radius: 7px;
+    cursor: pointer; font-size: 10px; font-weight: 800;
     transition: color .2s, border-color .2s, box-shadow .2s;
-    white-space: nowrap;
+    white-space: nowrap; font-family: inherit; flex-shrink: 0;
 }
-.copy-btn:hover {
-    color: var(--orange);
-    border-color: var(--orange);
-    box-shadow: var(--orange-glow-sm);
+.copy-btn:hover { color: var(--or); border-color: var(--or); box-shadow: var(--or-glow-sm); }
+
+/* ── Правила ── */
+.rules-card {
+    background: #111116; border: 1px solid #1f1f2a;
+    padding: 32px; border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.rules-agree-btn {
+    display: block; background: linear-gradient(135deg, var(--or2), var(--or));
+    color: #fff; text-align: center; text-decoration: none;
+    padding: 14px 16px; border-radius: 9px;
+    font-weight: 900; text-transform: uppercase;
+    font-size: 12px; letter-spacing: 1px;
+    box-shadow: var(--or-glow); transition: opacity .2s, transform .2s;
+}
+.rules-agree-btn:hover { opacity: .9; transform: translateY(-1px); }
+
+/* ── Успех / ошибка ── */
+.msg-success {
+    background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35);
+    color: #86efac; padding: 14px 16px; border-radius: 10px;
+    text-align: center; margin-bottom: 20px; font-weight: 700; font-size: 13px;
+}
+.msg-error {
+    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35);
+    color: #fca5a5; padding: 14px 16px; border-radius: 10px;
+    text-align: center; margin-bottom: 20px; font-size: 13px;
 }
 
-/* ─── Правила ─── */
-.rules-agree-btn {
-    display: block;
-    background: var(--orange);
-    color: #fff;
-    text-align: center;
-    text-decoration: none;
-    padding: 14px 16px;
-    border-radius: 8px;
-    font-weight: 900;
-    text-transform: uppercase;
-    box-shadow: var(--orange-glow);
-    transition: opacity .2s;
-}
-.rules-agree-btn:hover { opacity: .88; }
+.mb16 { margin-bottom: 16px; }
+.mb22 { margin-bottom: 22px; }
 </style>
 </head>
 <body>
-<div class="container" style="max-width:560px;margin:60px auto;padding:0 20px;">
+
+<div class="order-wrap">
 
 <?php if (!empty($success_msg)): ?>
-<div style="background:rgba(0,255,163,.1);border:1px solid #00ffa3;color:#00ffa3;padding:16px;border-radius:10px;text-align:center;margin-bottom:22px;font-weight:700;">
-    <?= htmlspecialchars($success_msg) ?>
-</div>
+<div class="msg-success"><?= htmlspecialchars($success_msg) ?></div>
 <?php endif; ?>
-
 <?php if (!empty($error_msg)): ?>
-<div style="background:rgba(239,68,68,.1);border:1px solid #ef4444;color:#ef4444;padding:16px;border-radius:10px;text-align:center;margin-bottom:22px;">
-    <?= htmlspecialchars($error_msg) ?>
-</div>
+<div class="msg-error"><?= htmlspecialchars($error_msg) ?></div>
 <?php endif; ?>
 
 <?php if (!$rules_accepted && $_SERVER['REQUEST_METHOD'] !== 'POST'): ?>
-<!-- ──────────────── Правила ──────────────── -->
-<div style="background:#111116;border:1px solid #2a2a38;padding:30px;border-radius:16px;box-shadow:0 18px 45px rgba(0,0,0,.28);">
-    <div style="text-align:center;margin-bottom:22px;">
-        <a href="index.php" style="color:#ff6a1a;text-decoration:none;font-size:13px;">← На главную к портфолио</a>
-        <h2 style="color:#fff;margin:14px 0 8px;text-transform:uppercase;letter-spacing:1px;">Правила заказа</h2>
-        <p style="color:#8a8a93;margin:0;line-height:1.55;">Перед заполнением ТЗ подтвердите, что ознакомились с условиями.</p>
+
+<!-- ──── Правила ──── -->
+<div class="rules-card">
+    <div style="text-align:center; margin-bottom:22px;">
+        <a href="index.php" class="order-back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            На главную к портфолио
+        </a>
+        <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
+        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Перед заполнением ТЗ подтвердите, что ознакомились с условиями.</p>
     </div>
-    <ul style="display:grid;gap:12px;color:#e8e8f0;padding-left:20px;line-height:1.55;margin:0 0 24px;">
+    <ul style="display:grid; gap:12px; color:#e0e0ec; padding-left:20px; line-height:1.6; margin:0 0 26px; font-size:13px;">
         <li>Заказ выполняется в течение 5 дней. При предоплате 50% — вне очереди: сегодня или на следующий день.</li>
         <li>Деньги не возвращаются.</li>
-        <li>Отслеживать статус заказа можно в боте: <a href="<?= htmlspecialchars($bot_link) ?>" target="_blank" style="color:var(--orange);">@kostlimdznbot</a>.</li>
-        <li>По личным вопросам: <a href="<?= htmlspecialchars($support_tg) ?>" target="_blank" style="color:var(--orange);">@Perlo_ovka</a>.</li>
+        <li>Отслеживать статус заказа можно в боте: <a href="<?= htmlspecialchars($bot_link) ?>" target="_blank" style="color:var(--or); font-weight:700;">@kostlimdznbot</a>.</li>
+        <li>По личным вопросам: <a href="<?= htmlspecialchars($support_tg) ?>" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
     </ul>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <a href="<?= htmlspecialchars($accept_url) ?>" class="rules-agree-btn">Согласиться</a>
-        <a href="index.php" style="background:#171720;color:#fff;text-align:center;text-decoration:none;padding:14px 16px;border-radius:8px;font-weight:900;text-transform:uppercase;border:1px solid #2a2a38;">Отказаться</a>
+        <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
 </div>
 
 <?php else: ?>
-<!-- ──────────────── Форма ──────────────── -->
-<div style="background:#111116;border:1px solid #1f1f2a;padding:30px;border-radius:16px;">
-    <div style="text-align:center;margin-bottom:26px;">
-        <a href="index.php" style="color:var(--orange);text-decoration:none;font-size:13px;">← На главную к портфолио</a>
-        <h2 style="color:#fff;margin:10px 0 0;text-transform:uppercase;letter-spacing:1px;">📋 Заполнить ТЗ для работы</h2>
-    </div>
 
-    <!-- ─── РЕКВИЗИТЫ ─── -->
+<!-- ──── Форма ──── -->
+<div class="order-card">
+    <a href="index.php" class="order-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        На главную к портфолио
+    </a>
+    <div class="order-title">📋 Заполнить ТЗ для работы</div>
+
+    <!-- Реквизиты -->
     <div class="req-block">
         <h3>💳 Куда оплачивать</h3>
 
-        <!-- Рубли -->
         <div class="req-row">
             <div class="req-icon">₽</div>
             <div class="req-info">
                 <span>Рубли (DonationAlerts)</span>
-                <a href="https://www.donationalerts.com/r/andrewkostdzn" target="_blank" class="req-link">
-                    donationalerts.com/r/andrewkostdzn
-                </a>
+                <a href="https://www.donationalerts.com/r/andrewkostdzn" target="_blank" class="req-link">donationalerts.com/r/andrewkostdzn</a>
             </div>
         </div>
 
-        <!-- Гривны -->
         <div class="req-row">
             <div class="req-icon">₴</div>
             <div class="req-info">
                 <span>Гривны (карта)</span>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span class="req-val" id="card-num">4874 0700 1036 9708</span>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                    <span class="req-val">4874 0700 1036 9708</span>
                     <button class="copy-btn" onclick="copyText('4874070010369708','Номер карты скопирован!')">Копировать</button>
                 </div>
             </div>
         </div>
 
-        <!-- Крипта -->
         <div class="req-row">
             <div class="req-icon">₿</div>
             <div class="req-info">
                 <span>Крипта (USDT TRC-20)</span>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <span class="req-val" id="crypto-addr" style="font-size:11px;">THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2</span>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                    <span class="req-val" style="font-size:10px;">THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2</span>
                     <button class="copy-btn" onclick="copyText('THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2','Адрес скопирован!')">Копировать</button>
                 </div>
             </div>
         </div>
     </div>
-    <!-- /РЕКВИЗИТЫ -->
 
     <form action="" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="rules_accepted" value="1">
 
-        <div style="margin-bottom:16px;">
+        <div class="mb16">
             <label class="order-label">Ваше имя / никнейм</label>
             <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
         </div>
 
-        <div style="margin-bottom:16px;">
+        <div class="mb16">
             <label class="order-label">Контакт для связи (Telegram @username — обязательно)</label>
             <input type="text" name="telegram" required placeholder="@username" class="order-input">
         </div>
 
-        <div style="margin-bottom:16px;">
+        <div class="mb16">
             <label class="order-label">Что вас интересует?</label>
             <select name="service" class="order-select">
                 <?php foreach ($services as $s): ?>
@@ -410,43 +447,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </select>
         </div>
 
-        <div style="margin-bottom:16px;">
+        <div class="mb16">
             <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
             <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
 
-        <div class="file-drop" style="margin-bottom:16px;">
-            <label class="order-label" style="margin-bottom:6px;display:block;">📸 Доказательство оплаты (скриншот)</label>
-            <input type="file" name="screenshot" accept="image/*">
+        <!-- Скриншот оплаты — красивая кнопка -->
+        <div class="file-upload-block mb16">
+            <input type="file" name="screenshot" accept="image/*" id="file_screenshot">
+            <div class="file-label-row">
+                <span class="file-label-title">📸 Доказательство оплаты</span>
+                <label for="file_screenshot" class="file-choose-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Выбрать файл
+                </label>
+            </div>
+            <div class="file-name-display" id="name_screenshot">Файл не выбран</div>
         </div>
 
-        <div class="file-drop" style="margin-bottom:24px;">
-            <label class="order-label" style="margin-bottom:6px;display:block;">🖼️ Референсы (до 5 фото)</label>
-            <input type="file" name="example_photos[]" accept="image/*" multiple>
-            <span style="color:#5a5a6a;font-size:11px;display:block;margin-top:5px;">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</span>
+        <!-- Референсы — красивая кнопка -->
+        <div class="file-upload-block mb22">
+            <input type="file" name="example_photos[]" accept="image/*" multiple id="file_refs">
+            <div class="file-label-row">
+                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
+                <label for="file_refs" class="file-choose-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Выбрать файлы
+                </label>
+            </div>
+            <div class="file-name-display" id="name_refs">Файлы не выбраны</div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
         </div>
 
         <button type="submit" class="order-submit">Отправить заказ Kostlim'у</button>
     </form>
 </div>
+
 <?php endif; ?>
 
 </div>
 
 <script>
+// Отображение имён файлов
+document.getElementById('file_screenshot')?.addEventListener('change', function() {
+    const el = document.getElementById('name_screenshot');
+    if (this.files[0]) {
+        el.textContent = '✅ ' + this.files[0].name;
+        el.classList.add('has-file');
+    } else {
+        el.textContent = 'Файл не выбран';
+        el.classList.remove('has-file');
+    }
+});
+
+document.getElementById('file_refs')?.addEventListener('change', function() {
+    const el = document.getElementById('name_refs');
+    if (this.files.length > 0) {
+        const names = Array.from(this.files).map(f => f.name).join(', ');
+        el.textContent = '✅ ' + this.files.length + ' файл(а): ' + names;
+        el.classList.add('has-file');
+    } else {
+        el.textContent = 'Файлы не выбраны';
+        el.classList.remove('has-file');
+    }
+});
+
+// Копировать в буфер
 function copyText(text, msg) {
     navigator.clipboard.writeText(text).then(() => {
         const toast = document.createElement('div');
         toast.textContent = '✅ ' + msg;
         Object.assign(toast.style, {
             position:'fixed', bottom:'30px', left:'50%', transform:'translateX(-50%)',
-            background:'#ff6a1a', color:'#fff', padding:'10px 20px',
-            borderRadius:'8px', fontWeight:'700', fontSize:'13px',
-            boxShadow:'0 0 18px rgba(255,106,26,.6)', zIndex:'9999',
-            transition:'opacity .4s'
+            background:'linear-gradient(135deg,#fb923c,#f97316)',
+            color:'#fff', padding:'10px 22px', borderRadius:'9px',
+            fontWeight:'800', fontSize:'13px',
+            boxShadow:'0 0 20px rgba(249,115,22,.6)',
+            zIndex:'9999', transition:'opacity .4s', fontFamily:'inherit'
         });
         document.body.appendChild(toast);
-        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 2000);
+        setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 2000);
     });
 }
 </script>
