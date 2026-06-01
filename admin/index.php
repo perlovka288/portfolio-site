@@ -179,24 +179,34 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 function uploadImage(string $field, string $prefix, string $uploadDir): string
 {
     if (empty($_FILES[$field]['name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
+        error_log("UPLOAD[$field]: no file. err=" . ($_FILES[$field]['error'] ?? 'n/a'));
         return '';
     }
 
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0777, true);
+        $mk = mkdir($uploadDir, 0777, true);
+        error_log("UPLOAD[$field]: mkdir=$uploadDir ok=" . ($mk ? '1' : '0'));
+    }
+
+    if (!is_writable($uploadDir)) {
+        error_log("UPLOAD[$field]: not writable: $uploadDir");
+        @chmod($uploadDir, 0777);
     }
 
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
     $ext     = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
 
     if (!in_array($ext, $allowed, true)) {
+        error_log("UPLOAD[$field]: bad ext=$ext");
         return '';
     }
 
     $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
-    move_uploaded_file($_FILES[$field]['tmp_name'], $uploadDir . $filename);
+    $dest     = $uploadDir . $filename;
+    $ok       = move_uploaded_file($_FILES[$field]['tmp_name'], $dest);
+    error_log("UPLOAD[$field]: move=" . ($ok ? "OK dest=$dest" : "FAIL dest=$dest err=" . ($_FILES[$field]['error'] ?? '?')));
 
-    return $filename;
+    return $ok ? $filename : '';
 }
 
 function uploadNestedImage(string $field, int $id, string $prefix, string $uploadDir): string
@@ -206,20 +216,29 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     }
 
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0777, true);
+        $mk = mkdir($uploadDir, 0777, true);
+        error_log("UPLOAD_NESTED[$field][$id]: mkdir=$uploadDir ok=" . ($mk ? '1' : '0'));
+    }
+
+    if (!is_writable($uploadDir)) {
+        error_log("UPLOAD_NESTED[$field][$id]: not writable: $uploadDir");
+        @chmod($uploadDir, 0777);
     }
 
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
     $ext     = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
 
     if (!in_array($ext, $allowed, true)) {
+        error_log("UPLOAD_NESTED[$field][$id]: bad ext=$ext");
         return '';
     }
 
     $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
-    move_uploaded_file($_FILES[$field]['tmp_name'][$id], $uploadDir . $filename);
+    $dest     = $uploadDir . $filename;
+    $ok       = move_uploaded_file($_FILES[$field]['tmp_name'][$id], $dest);
+    error_log("UPLOAD_NESTED[$field][$id]: move=" . ($ok ? "OK dest=$dest" : "FAIL dest=$dest"));
 
-    return $filename;
+    return $ok ? $filename : '';
 }
 
 function money(int|float $value): string
