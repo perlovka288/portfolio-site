@@ -254,11 +254,12 @@ if (isset($update['message'])) {
         $order_id = (int)str_replace('/status_', '', $text_cmd);
 
         // Привязываем chat_id клиента к заказу
-        $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
+        try { $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]); } catch (Throwable $e) { botLog("client_chat_id update failed: " . $e->getMessage()); }
 
         $o_stmt = $pdo->prepare("
             SELECT o.id, o.status, o.created_at, o.details, o.username, o.telegram,
-                   o.service_key, o.screenshot, o.example_photo, o.is_urgent,
+                   o.service_key, o.screenshot, o.example_photo,
+                   COALESCE(o.is_urgent, 0) AS is_urgent,
                    p.title AS service_title, p.price_rub, p.price_uan
             FROM orders o
             LEFT JOIN prices p ON p.category_key = o.service_key
@@ -435,11 +436,12 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 function showUrgentQueue($pdo, $token, $admin_id, $site_url) {
     // Срочные = is_urgent = 1 ИЛИ дедлайн просрочен
     $q_stmt = $pdo->query("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, is_urgent
+        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at,
+               COALESCE(is_urgent, 0) AS is_urgent
         FROM orders
         WHERE status IN ('pending', 'in_progress')
-          AND (is_urgent = 1 OR created_at <= NOW() - INTERVAL '5 days')
-        ORDER BY is_urgent DESC, created_at ASC
+          AND (COALESCE(is_urgent, 0) = 1 OR created_at <= NOW() - INTERVAL '5 days')
+        ORDER BY COALESCE(is_urgent, 0) DESC, created_at ASC
     ");
     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -476,7 +478,7 @@ function sendAdminStats($pdo, $token, $admin_id) {
         $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
         $active   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress')")->fetchColumn();
         $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
-        $urgent   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND is_urgent=1")->fetchColumn();
+        $urgent   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND COALESCE(is_urgent,0)=1")->fetchColumn();
         $overdue  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND created_at <= NOW() - INTERVAL '5 days'")->fetchColumn();
 
         $income_rub = (float)$pdo->query("SELECT COALESCE(SUM(p.price_rub),0) FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'")->fetchColumn();
@@ -506,7 +508,8 @@ function sendAdminStats($pdo, $token, $admin_id) {
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, is_urgent
+        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at,
+               COALESCE(is_urgent, 0) AS is_urgent
         FROM orders WHERE id = ? AND status IN ('pending', 'in_progress') LIMIT 1
     ");
     $o_stmt->execute([$order_id]);
