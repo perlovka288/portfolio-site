@@ -19,7 +19,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="header-left">
         <!-- Назад -->
         <a href="index.php" class="nav-link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>
             На главную
@@ -31,10 +31,10 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="header-right">
         <!-- Бот -->
         <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="6" width="20" height="14" rx="3"/>
-                <circle cx="9" cy="13" r="1.5" fill="#f97316" stroke="none"/>
-                <circle cx="15" cy="13" r="1.5" fill="#f97316" stroke="none"/>
+                <circle cx="9" cy="13" r="1.5" fill="currentColor" stroke="none"/>
+                <circle cx="15" cy="13" r="1.5" fill="currentColor" stroke="none"/>
                 <path d="M8 6V4a4 4 0 0 1 8 0v2"/>
             </svg>
             Бот для заказов

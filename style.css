@@ -178,6 +178,13 @@ header {
     gap: 7px;
     white-space: nowrap;
     letter-spacing: .3px;
+    /* иконки всегда оранжевые */
+    --icon-color: var(--accent);
+}
+.nav-link svg {
+    color: var(--accent);
+    flex-shrink: 0;
+    transition: color var(--t);
 }
 .nav-link:hover {
     background: var(--accent-dim);
