@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once 'auth.php';
 require_once '../config/db.php';
@@ -52,10 +52,10 @@ function imageFromFile(string $path)
 
     return match ($info[2]) {
         IMAGETYPE_JPEG => imagecreatefromjpeg($path),
-        IMAGETYPE_PNG => imagecreatefrompng($path),
+        IMAGETYPE_PNG  => imagecreatefrompng($path),
         IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? imagecreatefromwebp($path) : null,
-        IMAGETYPE_GIF => imagecreatefromgif($path),
-        default => null,
+        IMAGETYPE_GIF  => imagecreatefromgif($path),
+        default        => null,
     };
 }
 
@@ -64,7 +64,7 @@ function getCurrentAvatarPath(PDO $pdo, string $uploadDir): string
     $avatar = '';
 
     try {
-        $stmt = $pdo->query('SELECT avatar FROM users LIMIT 1');
+        $stmt   = $pdo->query('SELECT avatar FROM users LIMIT 1');
         $avatar = (string)($stmt->fetchColumn() ?: '');
     } catch (Throwable $e) {
         $avatar = '';
@@ -91,7 +91,7 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
         return $mainPath;
     }
 
-    $main = imageFromFile($mainPath);
+    $main   = imageFromFile($mainPath);
     $avatar = imageFromFile($avatarPath);
     if (!$main || !$avatar) {
         return $mainPath;
@@ -100,12 +100,12 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
     imagealphablending($main, true);
     imagesavealpha($main, true);
 
-    $mainW = imagesx($main);
-    $mainH = imagesy($main);
+    $mainW    = imagesx($main);
+    $mainH    = imagesy($main);
     $markSize = max(72, (int)round(min($mainW, $mainH) * 0.18));
-    $pad = max(18, (int)round($markSize * 0.22));
-    $x = $pad;
-    $y = $pad;
+    $pad      = max(18, (int)round($markSize * 0.22));
+    $x        = $pad;
+    $y        = $pad;
 
     $resized = imagecreatetruecolor($markSize, $markSize);
     imagealphablending($resized, false);
@@ -153,21 +153,17 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
     }
 
     $avatarPath = getCurrentAvatarPath($pdo, $uploadDir);
-    $photoPath = $avatarPath !== '' ? createWatermarkedImage($mainPath, $avatarPath) : $mainPath;
-    $caption = "Новый кейс в портфолио\n\n";
-    $caption .= (string)($case['title'] ?? 'Без названия') . "\n";
-    $caption .= "Цена: " . (int)($case['price_rub'] ?? 0) . " ₽ / " . (int)($case['price_uan'] ?? 0) . " ₴\n";
-    $caption .= PUBLIC_SITE_URL;
+    $photoPath  = $avatarPath !== '' ? createWatermarkedImage($mainPath, $avatarPath) : $mainPath;
 
-    $rub = (int)($case['price_rub'] ?? 0);
-    $uan = (int)($case['price_uan'] ?? 0);
+    $rub     = (int)($case['price_rub'] ?? 0);
+    $uan     = (int)($case['price_uan'] ?? 0);
     $caption = "Цена работы: {$rub}₽ | {$uan}₴\n\n";
     $caption .= "Оценить данную работу можно в комментариях.\n\n";
     $caption .= 'Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
 
     $result = sendTelegramRequest('sendPhoto', [
-        'chat_id' => PORTFOLIO_CHANNEL_CHAT,
-        'caption' => $caption,
+        'chat_id'    => PORTFOLIO_CHANNEL_CHAT,
+        'caption'    => $caption,
         'parse_mode' => 'HTML',
     ], [
         'photo' => new CURLFile($photoPath),
@@ -191,7 +187,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     }
 
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    $ext     = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
 
     if (!in_array($ext, $allowed, true)) {
         return '';
@@ -214,7 +210,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     }
 
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
+    $ext     = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
 
     if (!in_array($ext, $allowed, true)) {
         return '';
@@ -231,13 +227,33 @@ function money(int|float $value): string
     return number_format((float)$value, 0, '.', ' ');
 }
 
-if (isset($_POST['add_portfolio'])) {
-    $title = trim($_POST['title'] ?? '');
-    $category_key = $_POST['category_key'] ?? 'preview';
-    $price_rub = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
-    $price_uan = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
+// ===================== UPLOAD SITE AVATAR =====================
+if (isset($_POST['upload_site_avatar'])) {
+    $newAvatar = uploadImage('site_avatar', 'avatar', $uploadDir);
+    if ($newAvatar !== '') {
+        // Сохраняем в таблице users
+        $pdo->prepare("UPDATE users SET avatar = ? WHERE username = 'Kostlim'")->execute([$newAvatar]);
+        // Также копируем как avatar.jpg для совместимости с хедером
+        $destPath = $uploadDir . 'avatar.jpg';
+        $srcPath  = $uploadDir . $newAvatar;
+        $info     = @getimagesize($srcPath);
+        if ($info) {
+            copy($srcPath, $destPath);
+        }
+        $message = '✅ Аватарка сайта обновлена.';
+    } else {
+        $message = '❌ Не удалось загрузить аватарку. Проверь формат (jpg, png, webp, gif).';
+    }
+}
 
-    $filename_main = uploadImage('image', 'main', $uploadDir);
+// ===================== PORTFOLIO =====================
+if (isset($_POST['add_portfolio'])) {
+    $title        = trim($_POST['title'] ?? '');
+    $category_key = $_POST['category_key'] ?? 'preview';
+    $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
+    $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
+
+    $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
 
     if ($title === '') {
@@ -251,10 +267,10 @@ if (isset($_POST['add_portfolio'])) {
         ");
         $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
         $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-            'title' => $title,
+            'title'     => $title,
             'price_rub' => $price_rub,
             'price_uan' => $price_uan,
-            'image' => $filename_main,
+            'image'     => $filename_main,
         ]);
         $message = '✅ Кейс добавлен в портфолио.' . ($postedToChannel ? ' Пост отправлен в Telegram-канал.' : ' Но пост в Telegram-канал не отправился: ' . ($telegramLastError !== '' ? $telegramLastError : 'проверь, что бот добавлен админом в @gfasasdasasd.'));
     }
@@ -279,13 +295,13 @@ if (isset($_GET['delete_portfolio_id'])) {
 }
 
 if (isset($_POST['update_portfolio_media'])) {
-    $caseId = (int)($_POST['portfolio_id'] ?? 0);
+    $caseId   = (int)($_POST['portfolio_id'] ?? 0);
     $img_stmt = $pdo->prepare("SELECT image, avatar_image FROM portfolio WHERE id = ?");
     $img_stmt->execute([$caseId]);
     $currentFiles = $img_stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($currentFiles) {
-        $newMain = uploadImage('portfolio_image', 'main', $uploadDir);
+        $newMain   = uploadImage('portfolio_image', 'main', $uploadDir);
         $newAvatar = uploadImage('portfolio_avatar', 'ava', $uploadDir);
 
         if ($newMain !== '') {
@@ -308,9 +324,10 @@ if (isset($_POST['update_portfolio_media'])) {
     }
 }
 
+// ===================== PRICES =====================
 if (isset($_POST['save_all_prices'])) {
     foreach (($_POST['prices'] ?? []) as $id => $data) {
-        $id = (int)$id;
+        $id       = (int)$id;
         $newImage = uploadNestedImage('price_images', $id, 'price', $uploadDir);
 
         if ($newImage !== '') {
@@ -327,11 +344,11 @@ if (isset($_POST['save_all_prices'])) {
                 WHERE id = ?
             ");
             $stmt->execute([
-                $data['title'] ?? '',
+                $data['title']       ?? '',
                 $data['description'] ?? '',
-                $data['features'] ?? '',
-                $data['price_uan'] ?? 0,
-                $data['price_rub'] ?? 0,
+                $data['features']    ?? '',
+                $data['price_uan']   ?? 0,
+                $data['price_rub']   ?? 0,
                 $newImage,
                 $id,
             ]);
@@ -342,11 +359,11 @@ if (isset($_POST['save_all_prices'])) {
                 WHERE id = ?
             ");
             $stmt->execute([
-                $data['title'] ?? '',
+                $data['title']       ?? '',
                 $data['description'] ?? '',
-                $data['features'] ?? '',
-                $data['price_uan'] ?? 0,
-                $data['price_rub'] ?? 0,
+                $data['features']    ?? '',
+                $data['price_uan']   ?? 0,
+                $data['price_rub']   ?? 0,
                 $id,
             ]);
         }
@@ -355,13 +372,13 @@ if (isset($_POST['save_all_prices'])) {
 }
 
 if (isset($_POST['add_price_service'])) {
-    $title = trim($_POST['service_title'] ?? '');
+    $title        = trim($_POST['service_title'] ?? '');
     $category_key = trim($_POST['service_key'] ?? '');
-    $description = trim($_POST['service_description'] ?? '');
-    $features = trim($_POST['service_features'] ?? '');
-    $price_rub = !empty($_POST['service_price_rub']) ? (int)$_POST['service_price_rub'] : 0;
-    $price_uan = !empty($_POST['service_price_uan']) ? (int)$_POST['service_price_uan'] : 0;
-    $image = uploadImage('service_image', 'price', $uploadDir);
+    $description  = trim($_POST['service_description'] ?? '');
+    $features     = trim($_POST['service_features'] ?? '');
+    $price_rub    = !empty($_POST['service_price_rub']) ? (int)$_POST['service_price_rub'] : 0;
+    $price_uan    = !empty($_POST['service_price_uan']) ? (int)$_POST['service_price_uan'] : 0;
+    $image        = uploadImage('service_image', 'price', $uploadDir);
 
     if ($category_key === '') {
         $category_key = 'service_' . time();
@@ -384,7 +401,7 @@ if (isset($_POST['add_price_service'])) {
 }
 
 if (isset($_GET['delete_price_id'])) {
-    $del_id = (int)$_GET['delete_price_id'];
+    $del_id   = (int)$_GET['delete_price_id'];
     $img_stmt = $pdo->prepare("SELECT image FROM prices WHERE id = ?");
     $img_stmt->execute([$del_id]);
     $priceImage = $img_stmt->fetchColumn();
@@ -398,11 +415,12 @@ if (isset($_GET['delete_price_id'])) {
     $message = '🗑️ Услуга удалена из прайса.';
 }
 
+// ===================== CATEGORIES =====================
 if (isset($_POST['add_portfolio_category'])) {
-    $catTitle = trim($_POST['cat_title'] ?? '');
-    $catKey = trim($_POST['cat_key'] ?? '');
-    $catWidth = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
-    $catHeight = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
+    $catTitle    = trim($_POST['cat_title'] ?? '');
+    $catKey      = trim($_POST['cat_key'] ?? '');
+    $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
+    $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
     $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
 
     if ($catKey === '') {
@@ -429,12 +447,13 @@ if (isset($_POST['add_portfolio_category'])) {
 
 if (isset($_GET['delete_portfolio_category_id'])) {
     $catId = (int)$_GET['delete_portfolio_category_id'];
-    $stmt = $pdo->prepare("DELETE FROM portfolio_categories WHERE id = ?");
+    $stmt  = $pdo->prepare("DELETE FROM portfolio_categories WHERE id = ?");
     $stmt->execute([$catId]);
     $message = '🗑️ Категория удалена из меню.';
 }
 
-$services = $pdo->query("SELECT * FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+// ===================== FETCH DATA =====================
+$services   = $pdo->query("SELECT * FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $categoryMap = [];
 foreach ($categories as $category) {
@@ -487,11 +506,15 @@ foreach ($categories as $category) {
 }
 
 $statusLabels = [
-    'pending' => 'Ожидает',
+    'pending'     => 'Ожидает',
     'in_progress' => 'В процессе',
-    'ready' => 'Готов',
-    'declined' => 'Отклонен',
+    'ready'       => 'Готов',
+    'declined'    => 'Отклонен',
 ];
+
+// Текущая аватарка сайта
+$currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+$currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -536,6 +559,12 @@ $statusLabels = [
         .admin-layout.single-column { grid-template-columns: 1fr; }
         .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
         .panel h2 { font-size: 16px; margin-bottom: 14px; }
+
+        /* ===== AVATAR PANEL ===== */
+        .avatar-preview-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #a95851; background: #0b0b10; flex-shrink: 0; }
+        .avatar-preview-info { color: #8a8a96; font-size: 12px; line-height: 1.6; }
+        .avatar-preview-info strong { display: block; color: #d8d8e8; margin-bottom: 2px; font-size: 13px; }
 
         /* ===== FORMS ===== */
         label { display: block; color: #d9d9e4; font-size: 12px; font-weight: 800; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
@@ -650,14 +679,16 @@ $statusLabels = [
             block.style.display = designCategories.includes(category) ? 'block' : 'none';
         }
         function activateAdminTab(tab) {
+            // panel indices: 0=portfolio-add, 1=categories, 2=orders, 3=price-manager, 4=price-add, 5=portfolio-list, 6=avatar
             const groups = {
-                overview: [2],
-                portfolio: [0, 5],
-                price: [3, 4],
-                orders: [2],
+                overview:   [2],
+                portfolio:  [0, 5],
+                price:      [3, 4],
+                orders:     [2],
                 categories: [1],
+                avatar:     [6],
             };
-            const stats = document.querySelector('.stats-grid');
+            const stats  = document.querySelector('.stats-grid');
             const layout = document.querySelector('.admin-layout');
             const panels = [...document.querySelectorAll('.panel')];
             const visible = groups[tab] || groups.overview;
@@ -675,7 +706,7 @@ $statusLabels = [
             });
 
             if (layout) {
-                layout.classList.toggle('single-column', tab === 'overview' || tab === 'orders' || tab === 'categories');
+                layout.classList.toggle('single-column', tab === 'overview' || tab === 'orders' || tab === 'categories' || tab === 'avatar');
             }
         }
 
@@ -686,7 +717,7 @@ $statusLabels = [
                 input.dataset.styled = '1';
 
                 const isMini = input.closest('.mini-media-form') !== null;
-                const wrap = document.createElement('div');
+                const wrap   = document.createElement('div');
                 wrap.className = isMini ? 'mini-file-wrap' : 'file-upload-wrap';
 
                 const label = document.createElement('label');
@@ -702,7 +733,7 @@ $statusLabels = [
                 nameSpan.textContent = 'Файл не выбран';
 
                 input.addEventListener('change', () => {
-                    const name = input.files[0]?.name || 'Файл не выбран';
+                    const name    = input.files[0]?.name || 'Файл не выбран';
                     const hasFile = !!input.files[0];
                     nameSpan.textContent = hasFile ? name : 'Файл не выбран';
                     nameSpan.classList.toggle('has-file', hasFile);
@@ -748,11 +779,12 @@ $statusLabels = [
 
     <div class="admin-board">
         <nav class="admin-tabs" aria-label="Разделы админ-панели">
-            <button type="button" class="admin-tab active" data-tab="overview" onclick="activateAdminTab('overview')">📊 Обзор</button>
-            <button type="button" class="admin-tab" data-tab="portfolio" onclick="activateAdminTab('portfolio')">🎬 Портфолио</button>
-            <button type="button" class="admin-tab" data-tab="price" onclick="activateAdminTab('price')">💲 Прайс</button>
-            <button type="button" class="admin-tab" data-tab="orders" onclick="activateAdminTab('orders')">🧾 Заказы</button>
-            <button type="button" class="admin-tab" data-tab="categories" onclick="activateAdminTab('categories')">🧩 Категории</button>
+            <button type="button" class="admin-tab active" data-tab="overview"    onclick="activateAdminTab('overview')">📊 Обзор</button>
+            <button type="button" class="admin-tab"        data-tab="portfolio"   onclick="activateAdminTab('portfolio')">🎬 Портфолио</button>
+            <button type="button" class="admin-tab"        data-tab="price"       onclick="activateAdminTab('price')">💲 Прайс</button>
+            <button type="button" class="admin-tab"        data-tab="orders"      onclick="activateAdminTab('orders')">🧾 Заказы</button>
+            <button type="button" class="admin-tab"        data-tab="categories"  onclick="activateAdminTab('categories')">🧩 Категории</button>
+            <button type="button" class="admin-tab"        data-tab="avatar"      onclick="activateAdminTab('avatar')">🖼️ Аватарка</button>
         </nav>
 
         <div class="admin-content">
@@ -767,6 +799,7 @@ $statusLabels = [
 
     <div class="admin-layout">
         <aside>
+            <!-- PANEL 0: Добавить в портфолио -->
             <section class="panel">
                 <h2>📁 Добавить в портфолио</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
@@ -802,13 +835,14 @@ $statusLabels = [
                     <div id="avatar_upload_block" style="display:none;">
                         <label>Аватарка к оформлению</label>
                         <input type="file" name="avatar_image" accept="image/*">
-                        <div class="avatar-hint">Для категории “Оформление” шапка будет широкой, а аватарка появится круглым превью справа.</div>
+                        <div class="avatar-hint">Для категории "Оформление" шапка будет широкой, а аватарка появится круглым превью справа.</div>
                     </div>
 
                     <button type="submit" name="add_portfolio" class="btn-panel">Загрузить в кейсы</button>
                 </form>
             </section>
 
+            <!-- PANEL 1: Создать категорию -->
             <section class="panel">
                 <h2>🧩 Создать категорию</h2>
                 <form action="" method="POST">
@@ -853,6 +887,7 @@ $statusLabels = [
                 </div>
             </section>
 
+            <!-- PANEL 2: Последние заказы -->
             <section class="panel">
                 <h2>🧾 Последние заказы</h2>
                 <div class="admin-table-wrap">
@@ -874,6 +909,7 @@ $statusLabels = [
                 </div>
             </section>
 
+            <!-- PANEL 4: Добавить услугу в прайс -->
             <section class="panel">
                 <h2>➕ Добавить услугу в прайс</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
@@ -901,22 +937,48 @@ $statusLabels = [
                     <label>Фичи</label>
                     <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
 
-                    <label>Фото для прайса</label>
+                    <label>Обложка услуги (фото для прайса)</label>
                     <input type="file" name="service_image" accept="image/*">
+                    <div class="avatar-hint">Картинка отображается на карточке услуги в прайс-листе сайта. Рекомендуется 16:9.</div>
 
                     <button type="submit" name="add_price_service" class="btn-panel">Добавить услугу</button>
+                </form>
+            </section>
+
+            <!-- PANEL 6: Аватарка сайта -->
+            <section class="panel">
+                <h2>🖼️ Аватарка сайта</h2>
+                <div class="avatar-preview-wrap">
+                    <img
+                        src="../uploads/<?= htmlspecialchars($currentAvatarFile) ?>"
+                        class="avatar-preview-img"
+                        alt="Текущая аватарка"
+                        onerror="this.src='https://i.imgur.com/w9NThbA.png'"
+                    >
+                    <div class="avatar-preview-info">
+                        <strong>Текущая аватарка</strong>
+                        <?= htmlspecialchars($currentAvatarFile) ?><br>
+                        Отображается в шапке сайта и на водяном знаке постов в Telegram.
+                    </div>
+                </div>
+                <form action="" method="POST" enctype="multipart/form-data">
+                    <label>Новая аватарка сайта</label>
+                    <input type="file" name="site_avatar" accept="image/*" required>
+                    <div class="avatar-hint">Форматы: jpg, png, webp, gif. Рекомендуется квадратное фото (например 512×512). После загрузки аватарка сразу появится в шапке сайта.</div>
+                    <button type="submit" name="upload_site_avatar" class="btn-panel">Загрузить аватарку</button>
                 </form>
             </section>
         </aside>
 
         <section>
+            <!-- PANEL 3: Менеджер цен -->
             <div class="panel">
                 <h2>💲 Менеджер цен и прайс-листа</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
                     <div class="admin-table-wrap">
                         <table>
                             <thead>
-                                <tr><th>Фото</th><th>Услуга</th><th>Описание и фичи</th><th>Цены</th><th></th></tr>
+                                <tr><th>Обложка</th><th>Услуга</th><th>Описание и фичи</th><th>Цены</th><th></th></tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($services as $service): $id = (int)$service['id']; ?>
@@ -925,9 +987,11 @@ $statusLabels = [
                                             <?php if (!empty($service['image'])): ?>
                                                 <img src="../uploads/<?= htmlspecialchars($service['image']) ?>" class="price-thumb" alt="">
                                             <?php else: ?>
-                                                <span style="color:#666674;">Без фото</span>
+                                                <span style="color:#666674; font-size:11px;">Нет обложки</span>
                                             <?php endif; ?>
-                                            <input type="file" name="price_images[<?= $id ?>]" accept="image/*" style="margin-top:8px;">
+                                            <div style="margin-top:8px;">
+                                                <input type="file" name="price_images[<?= $id ?>]" accept="image/*">
+                                            </div>
                                         </td>
                                         <td>
                                             <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title'] ?? '') ?>">
@@ -935,7 +999,7 @@ $statusLabels = [
                                         </td>
                                         <td>
                                             <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description'] ?? '') ?></textarea>
-                                            <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features'] ?? '') ?>" placeholder="Фичи через запятую">
+                                            <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features'] ?? '') ?>" placeholder="Фичи через |">
                                         </td>
                                         <td>
                                             <input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub'] ?? '0') ?>">
@@ -953,6 +1017,7 @@ $statusLabels = [
                 </form>
             </div>
 
+            <!-- PANEL 5: Управление кейсами -->
             <div class="panel">
                 <h2>🎬 Управление кейсами</h2>
                 <div class="admin-table-wrap">
