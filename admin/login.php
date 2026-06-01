@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="form-group">
                 <label>Пароль доступа</label>
-                <input type="password" name="password" class="form-input" placeholder="60667543" required>
+                <input type="password" name="password" class="form-input" placeholder="Пароль" required>
             </div>
 
             <button type="submit" class="btn-submit">Авторизоваться</button>
