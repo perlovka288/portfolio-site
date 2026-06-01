@@ -462,13 +462,13 @@ foreach ($categories as $category) {
 $works = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
 
 $orderStats = $pdo->query("
-    SELECT
-        COUNT(*) AS total,
-        SUM(status = 'pending') AS pending,
-        SUM(status = 'in_progress') AS in_progress,
-        SUM(status = 'ready') AS ready,
-        SUM(status = 'declined') AS declined
-    FROM orders
+SELECT
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+    COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+    COUNT(*) FILTER (WHERE status = 'ready') AS ready,
+    COUNT(*) FILTER (WHERE status = 'declined') AS declined
+FROM orders
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $revenue = $pdo->query("
