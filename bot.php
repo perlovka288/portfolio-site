@@ -435,7 +435,7 @@ function showUrgentQueue($pdo, $token, $admin_id, $site_url) {
         SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, is_urgent
         FROM orders
         WHERE status IN ('pending', 'in_progress')
-          AND (is_urgent = 1 OR created_at <= DATE_SUB(NOW(), INTERVAL 5 DAY))
+          AND (is_urgent = 1 OR created_at <= NOW() - INTERVAL '5 days')
         ORDER BY is_urgent DESC, created_at ASC
     ");
     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -473,7 +473,7 @@ function sendAdminStats($pdo, $token, $admin_id) {
     $active    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'in_progress')")->fetchColumn();
     $declined  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
     $urgent    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND is_urgent=1")->fetchColumn();
-    $overdue   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND created_at <= DATE_SUB(NOW(), INTERVAL 5 DAY)")->fetchColumn();
+    $overdue   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress') AND created_at <= NOW() - INTERVAL '5 days'")->fetchColumn();
 
     // Доход (готовые заказы)
     $income_rub = (float)$pdo->query("
