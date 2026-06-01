@@ -13,6 +13,9 @@ memory_limit = 128M\n\
 max_execution_time = 60\n\
 max_input_time = 60" > /usr/local/etc/php/conf.d/uploads.ini
 
+RUN echo "Listen 0.0.0.0:80" > /etc/apache2/ports.conf \
+    && echo "ServerName localhost" >> /etc/apache2/apache2.conf
+    
 COPY . /var/www/html/
 
 RUN chown -R www-data:www-data /var/www/html \
