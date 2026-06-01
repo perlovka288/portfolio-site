@@ -2,6 +2,13 @@
 session_start();
 require_once 'config/db.php';
 
+// ── Resolve image src: полный https:// URL или uploads/ + имя файла ──
+function imgSrc(string $val, string $base = 'uploads/'): string {
+    if ($val === '') return '';
+    if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+    return $base . $val;
+}
+
 $stmt     = $pdo->query("SELECT * FROM prices ORDER BY id ASC");
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -17,7 +24,6 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <header>
     <div class="header-left">
-        <!-- Назад -->
         <a href="index.php" class="nav-link">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
@@ -29,7 +35,6 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
 
     <div class="header-right">
-        <!-- Бот -->
         <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="6" width="20" height="14" rx="3"/>
@@ -39,7 +44,6 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </svg>
             Бот для заказов
         </a>
-        <!-- Заказать -->
         <a href="order.php" class="nav-link" style="background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border-color:transparent;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/>
@@ -60,8 +64,9 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <?php foreach ($services as $service): ?>
     <article class="service-card">
         <div class="service-cover">
-            <?php if (!empty($service['image'])): ?>
-            <img src="uploads/<?= htmlspecialchars($service['image']) ?>"
+            <?php $coverSrc = imgSrc($service['image'] ?? ''); ?>
+            <?php if ($coverSrc !== ''): ?>
+            <img src="<?= htmlspecialchars($coverSrc) ?>"
                  alt="<?= htmlspecialchars($service['title']) ?>"
                  onerror="this.parentElement.innerHTML='<div class=\'service-cover-placeholder\'><svg width=\'32\' height=\'32\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.5\'><rect x=\'3\' y=\'3\' width=\'18\' height=\'18\' rx=\'3\'/><circle cx=\'8.5\' cy=\'8.5\' r=\'1.5\'/><polyline points=\'21 15 16 10 5 21\'/></svg><span>Нет фото</span></div>'">
             <?php else: ?>
