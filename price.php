@@ -2,185 +2,52 @@
 session_start();
 require_once 'config/db.php';
 
-function imgSrc(string $val, string $base = 'uploads/'): string {
-    if ($val === '') return '';
-    return (str_starts_with($val,'http://') || str_starts_with($val,'https://')) ? $val : $base . $val;
-}
-
 $stmt     = $pdo->query("SELECT * FROM prices ORDER BY id ASC");
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kostlim Design | Прайс-лист</title>
-    <link rel="stylesheet" href="style.css">
-    <style>
-        .price-page { padding: 42px 24px 70px; }
-        .price-head { text-align: center; margin-bottom: 34px; }
-        .price-head h1 { font-size: clamp(28px, 4vw, 48px); margin-bottom: 10px; }
-        .price-head p { color: #8a8a96; }
-
-        .price-grid-local {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-            gap: 22px;
-        }
-
-        /* ===== КАРТОЧКА УСЛУГИ ===== */
-        .service-card {
-            position: relative;
-            overflow: hidden;
-            background: #111116;
-            border: 1px solid #222230;
-            border-radius: 16px;
-            display: flex;
-            flex-direction: column;
-            transition: border-color .2s, transform .2s;
-        }
-        .service-card:hover {
-            border-color: rgba(249,115,22,.6);
-            transform: translateY(-3px);
-        }
-
-        /* ===== ОБЛОЖКА ===== */
-        .service-cover {
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            overflow: hidden;
-            background: #171720;
-            position: relative;
-            flex-shrink: 0;
-        }
-        .service-cover img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-            transition: transform .35s ease;
-        }
-        .service-card:hover .service-cover img {
-            transform: scale(1.04);
-        }
-
-        /* Плейсхолдер когда нет обложки */
-        .service-cover-placeholder {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            background: linear-gradient(135deg, #171720 0%, #1e1e2c 100%);
-            color: #3a3a4e;
-        }
-        .service-cover-placeholder svg {
-            opacity: .45;
-        }
-        .service-cover-placeholder span {
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            opacity: .4;
-        }
-
-        /* ===== ТЕЛО КАРТОЧКИ ===== */
-        .service-body {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-        }
-        .service-body h2 {
-            font-size: 18px;
-            margin: 0 0 10px;
-            color: #fff;
-            line-height: 1.3;
-        }
-        .service-body p {
-            color: #a5a5b2;
-            line-height: 1.55;
-            font-size: 14px;
-            margin: 0 0 14px;
-            flex-grow: 0;
-        }
-        .service-features {
-            list-style: none;
-            padding: 0;
-            margin: 0 0 18px;
-            color: #d6d6df;
-            font-size: 13px;
-            display: grid;
-            gap: 7px;
-        }
-        .service-features li {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-        }
-        .service-features li::before {
-            content: '✦';
-            color: #f97316;
-            flex-shrink: 0;
-            font-size: 10px;
-        }
-
-        /* ===== ФУТЕР КАРТОЧКИ ===== */
-        .service-footer {
-            margin-top: auto;
-            border-top: 1px solid #252532;
-            padding-top: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-        }
-        .service-price {
-            font-size: 20px;
-            font-weight: 900;
-            color: #f97316;
-            line-height: 1.35;
-            white-space: nowrap;
-        }
-        .service-price small {
-            display: block;
-            font-size: 13px;
-            color: #fb923c;
-            font-weight: 700;
-        }
-        .service-order {
-            text-decoration: none;
-            color: #fff;
-            background: linear-gradient(135deg, #f97316, #ea580c);
-            border-radius: 10px;
-            padding: 11px 18px;
-            font-weight: 900;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: .5px;
-            white-space: nowrap;
-            transition: opacity .2s, transform .2s;
-            box-shadow: 0 6px 18px rgba(249,115,22,.3);
-        }
-        .service-order:hover {
-            opacity: .88;
-            transform: translateY(-1px);
-        }
-
-        @media (max-width: 680px) {
-            .price-grid-local { grid-template-columns: 1fr; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kostlim Design | Прайс-лист</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
+
 <header>
-    <div class="header-left"><a href="index.php" class="nav-link">← На главную</a></div>
+    <div class="header-left">
+        <!-- Назад -->
+        <a href="index.php" class="nav-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+            На главную
+        </a>
+    </div>
+
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
-    <div class="header-right"><a href="order.php" class="nav-link" style="background: linear-gradient(135deg,#f97316,#ea580c); border-color:transparent; color:#fff; box-shadow:0 4px 16px rgba(249,115,22,.3);">🤖 К заказу</a></div>
+
+    <div class="header-right">
+        <!-- Бот -->
+        <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="6" width="20" height="14" rx="3"/>
+                <circle cx="9" cy="13" r="1.5" fill="#f97316" stroke="none"/>
+                <circle cx="15" cy="13" r="1.5" fill="#f97316" stroke="none"/>
+                <path d="M8 6V4a4 4 0 0 1 8 0v2"/>
+            </svg>
+            Бот для заказов
+        </a>
+        <!-- Заказать -->
+        <a href="order.php" class="nav-link" style="background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border-color:transparent;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/>
+                <path d="M16 10a4 4 0 0 1-8 0"/>
+            </svg>
+            К заказу
+        </a>
+    </div>
 </header>
 
 <main class="container price-page">
@@ -190,62 +57,62 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 
     <section class="price-grid-local">
-        <?php foreach ($services as $service): ?>
-            <article class="service-card">
+    <?php foreach ($services as $service): ?>
+    <article class="service-card">
+        <div class="service-cover">
+            <?php if (!empty($service['image'])): ?>
+            <img src="uploads/<?= htmlspecialchars($service['image']) ?>"
+                 alt="<?= htmlspecialchars($service['title']) ?>"
+                 onerror="this.parentElement.innerHTML='<div class=\'service-cover-placeholder\'><svg width=\'32\' height=\'32\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.5\'><rect x=\'3\' y=\'3\' width=\'18\' height=\'18\' rx=\'3\'/><circle cx=\'8.5\' cy=\'8.5\' r=\'1.5\'/><polyline points=\'21 15 16 10 5 21\'/></svg><span>Нет фото</span></div>'">
+            <?php else: ?>
+            <div class="service-cover-placeholder">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <span>Нет фото</span>
+            </div>
+            <?php endif; ?>
+        </div>
 
-                <!-- Обложка услуги -->
-                <div class="service-cover">
-                    <?php if (!empty($service['image'])): ?>
-                        <img
-                            src="<?= htmlspecialchars(imgSrc($service['image'] ?? '')) ?>"
-                            alt="<?= htmlspecialchars($service['title']) ?>"
-                            loading="lazy"
-                        >
-                    <?php else: ?>
-                        <div class="service-cover-placeholder">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5"/>
-                                <polyline points="21 15 16 10 5 21"/>
-                            </svg>
-                            <span>Обложка не загружена</span>
-                        </div>
-                    <?php endif; ?>
+        <div class="service-body">
+            <h2><?= htmlspecialchars($service['title']) ?></h2>
+            <?php if (!empty($service['description'])): ?>
+            <p><?= htmlspecialchars($service['description']) ?></p>
+            <?php endif; ?>
+
+            <?php
+            $features = array_filter(array_map('trim', explode('|', (string)($service['features'] ?? ''))));
+            if (!empty($features)):
+            ?>
+            <ul class="service-features">
+                <?php foreach ($features as $feature): ?>
+                <li><?= htmlspecialchars($feature) ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+
+            <div class="service-footer">
+                <div class="service-price">
+                    <?= (int)$service['price_rub'] ?> ₽
+                    <small><?= (int)$service['price_uan'] ?> ₴</small>
                 </div>
-
-                <!-- Тело карточки -->
-                <div class="service-body">
-                    <h2><?= htmlspecialchars($service['title']) ?></h2>
-
-                    <?php if (!empty(trim($service['description'] ?? ''))): ?>
-                        <p><?= htmlspecialchars($service['description']) ?></p>
-                    <?php endif; ?>
-
-                    <?php
-                        $features = array_filter(array_map('trim', explode('|', (string)($service['features'] ?? ''))));
-                    ?>
-                    <?php if (!empty($features)): ?>
-                        <ul class="service-features">
-                            <?php foreach ($features as $feature): ?>
-                                <li><?= htmlspecialchars($feature) ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    <?php endif; ?>
-
-                    <div class="service-footer">
-                        <div class="service-price">
-                            <?= (int)$service['price_rub'] ?> ₽
-                            <small><?= (int)$service['price_uan'] ?> ₴</small>
-                        </div>
-                        <a href="order.php?service=<?= htmlspecialchars($service['category_key']) ?>" class="service-order">
-                            Заказать
-                        </a>
-                    </div>
-                </div>
-
-            </article>
-        <?php endforeach; ?>
+                <a href="order.php?service=<?= htmlspecialchars($service['category_key']) ?>" class="service-order">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                    </svg>
+                    Заказать
+                </a>
+            </div>
+        </div>
+    </article>
+    <?php endforeach; ?>
     </section>
 </main>
+
+<footer>
+    <div class="container">© <?= date('Y') ?> Kostlim Design</div>
+</footer>
+
 </body>
 </html>

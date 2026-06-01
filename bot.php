@@ -5,6 +5,17 @@ $token    = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261
 $admin_id = getenv('ADMIN_ID')     ?: "1710365896";
 $site_url = getenv('SITE_URL')     ?: "https://kostlimdzn.kesug.com/";
 
+// ── CRON-режим: напоминания (вызывать через ?cron=remind&secret=XXX) ─────────
+if (isset($_GET['cron']) && $_GET['cron'] === 'remind') {
+    $cron_secret = getenv('CRON_SECRET') ?: 'kostlim_cron_2024';
+    if (($_GET['secret'] ?? '') !== $cron_secret) {
+        http_response_code(403);
+        exit('Forbidden');
+    }
+    sendReminders($pdo, $token, $admin_id);
+    exit('ok');
+}
+
 $input  = file_get_contents('php://input');
 $update = json_decode($input, true);
 
@@ -28,12 +39,63 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Показать очередь
     if ($callback_data === 'adm_show_queue') {
         showAdminQueue($pdo, $token, $admin_id, $site_url);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
         exit;
     }
 
+    // ── Показать срочные заказы
+    if ($callback_data === 'adm_show_urgent') {
+        showUrgentOrders($pdo, $token, $admin_id, $site_url);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // ── Статистика
+    if ($callback_data === 'adm_stats') {
+        $total   = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+        $ready   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
+        $active  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'in_progress')")->fetchColumn();
+        $urgent  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE is_urgent=1 AND status IN ('pending','in_progress')")->fetchColumn();
+        $overdue = (int)$pdo->query("
+            SELECT COUNT(*) FROM orders
+            WHERE status IN ('pending','in_progress')
+              AND (
+                (is_urgent=1 AND created_at < NOW() - INTERVAL 24 HOUR)
+                OR
+                (is_urgent=0 AND created_at < NOW() - INTERVAL 5 DAY)
+              )
+        ")->fetchColumn();
+
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "📊 *Быстрая статистика*\n\n"
+                          . "📥 Всего заказов: *{$total}*\n"
+                          . "🔥 Активных: *{$active}*\n"
+                          . "🚨 Срочных: *{$urgent}*\n"
+                          . "🚫 Просроченных: *{$overdue}*\n"
+                          . "✅ Выполненных: *{$ready}*",
+            'parse_mode' => 'Markdown',
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // ── Вернуться в главное меню (из админки)
+    if ($callback_data === 'adm_back_main') {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $admin_id,
+            'text'         => "👋 *Главное меню*\n\nВыбери раздел:",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode(mainKeyboard(true), JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // ── Детали конкретного заказа
     if (strpos($callback_data, 'adm_view_') === 0) {
         $order_id = (int)str_replace('adm_view_', '', $callback_data);
         showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id);
@@ -41,20 +103,7 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
-    if ($callback_data === 'adm_stats') {
-        $total  = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
-        $ready  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
-        $active = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'in_progress')")->fetchColumn();
-
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $admin_id,
-            'text'       => "📊 *Быстрая статистика*\n\n📥 Всего заказов: *{$total}*\n🔥 Активных: *{$active}*\n✅ Выполненных: *{$ready}*",
-            'parse_mode' => 'Markdown',
-        ]);
-        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
-        exit;
-    }
-
+    // ── Взять в работу
     if (strpos($callback_data, 'adm_work_') === 0) {
         $order_id = (int)str_replace('adm_work_', '', $callback_data);
         $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$order_id]);
@@ -71,6 +120,7 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Выполнен
     if (strpos($callback_data, 'adm_ready_') === 0) {
         $order_id = (int)str_replace('adm_ready_', '', $callback_data);
         $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$order_id]);
@@ -86,6 +136,7 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Отклонить
     if (strpos($callback_data, 'adm_dec_') === 0) {
         $order_id = (int)str_replace('adm_dec_', '', $callback_data);
         $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$order_id]);
@@ -101,6 +152,28 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Сделать срочным
+    if (strpos($callback_data, 'adm_urgent_') === 0) {
+        $order_id = (int)str_replace('adm_urgent_', '', $callback_data);
+        // Сбрасываем created_at на сейчас, ставим is_urgent=1 — дедлайн 24ч с момента пометки
+        $pdo->prepare("UPDATE orders SET is_urgent = 1, urgent_at = NOW() WHERE id = ?")->execute([$order_id]);
+
+        $o_stmt = $pdo->prepare("SELECT status, telegram FROM orders WHERE id = ? LIMIT 1");
+        $o_stmt->execute([$order_id]);
+        $row = $o_stmt->fetch(PDO::FETCH_ASSOC);
+
+        sendTelegram($token, 'editMessageText', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'text'         => "🔴🚨 *Заказ #{$order_id} помечен как СРОЧНЫЙ!*\n⏰ Срок: 24 часа",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode(orderKeyboard($order_id, $row['status'] ?? 'pending', $row['telegram'] ?? ''), JSON_UNESCAPED_UNICODE),
+        ]);
+        notifyClient($pdo, $token, $order_id, "⚡ Ваш заказ #{$order_id} переведён в *срочный режим*. Срок выполнения: 24 часа.");
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🔴 Заказ помечен срочным!', 'show_alert' => true]);
+        exit;
+    }
+
     sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
     exit;
 }
@@ -110,18 +183,21 @@ if (isset($update['message'])) {
     $chat_id  = $update['message']['chat']['id'];
     $text     = $update['message']['text'] ?? '';
     $text_key = normalizeBotText($text);
+    $is_admin = (string)$chat_id === $admin_id;
     botLog("message chat={$chat_id} text={$text} key={$text_key}");
 
+    // /start или /menu
     if ($text === '/start' || $text === '/menu') {
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nЗдесь можно посмотреть портфолио, узнать актуальный прайс, отправить ТЗ и проверить статус заказа.",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => json_encode(mainKeyboard($is_admin), JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
 
+    // Портфолио
     if ($text_key === 'смотреть portfolio' || $text_key === 'portfolio' || $text_key === 'портфолио') {
         sendTelegram($token, 'sendMessage', [
             'chat_id' => $chat_id,
@@ -130,6 +206,7 @@ if (isset($update['message'])) {
         exit;
     }
 
+    // Прайс
     if ($text_key === 'прайс-лист' || $text_key === 'прайс лист' || $text_key === 'прайс') {
         $p_stmt = $pdo->query("SELECT title, description, features, price_uan, price_rub, image FROM prices ORDER BY id ASC");
         $prices = $p_stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -172,6 +249,7 @@ if (isset($update['message'])) {
         exit;
     }
 
+    // Сделать заказ
     if ($text_key === 'сделать заказ' || $text_key === 'заказ') {
         sendTelegram($token, 'sendMessage', [
             'chat_id' => $chat_id,
@@ -180,20 +258,65 @@ if (isset($update['message'])) {
         exit;
     }
 
-    if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель') {
-        if ((string)$chat_id !== $admin_id) {
+    // ── ADMIN PANEL ──────────────────────────────────────────────
+    if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель' || $text_key === '⚙️ admin panel') {
+        if (!$is_admin) {
             sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => '⛔ Доступ закрыт.']);
             exit;
         }
+        sendAdminPanel($token, $admin_id);
+        exit;
+    }
+
+    // ── Кнопки ReplyKeyboard для админа ─────────────────────────
+
+    // 📋 Очередь заказов
+    if ($is_admin && ($text_key === 'очередь заказов' || $text_key === '📋 очередь заказов')) {
+        showAdminQueue($pdo, $token, $admin_id, $site_url);
+        exit;
+    }
+
+    // 🔴 Срочные заказы
+    if ($is_admin && ($text_key === 'срочные заказы' || $text_key === '🔴 срочные заказы')) {
+        showUrgentOrders($pdo, $token, $admin_id, $site_url);
+        exit;
+    }
+
+    // 📊 Статистика
+    if ($is_admin && ($text_key === 'статистика' || $text_key === '📊 статистика')) {
+        $total   = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+        $ready   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
+        $active  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'in_progress')")->fetchColumn();
+        $urgent  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE is_urgent=1 AND status IN ('pending','in_progress')")->fetchColumn();
+
         sendTelegram($token, 'sendMessage', [
-            'chat_id'      => $admin_id,
-            'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие:",
-            'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(adminKeyboard(), JSON_UNESCAPED_UNICODE),
+            'chat_id'    => $admin_id,
+            'text'       => "📊 *Статистика*\n\n📥 Всего: *{$total}*\n🔥 Активных: *{$active}*\n🚨 Срочных: *{$urgent}*\n✅ Готово: *{$ready}*",
+            'parse_mode' => 'Markdown',
         ]);
         exit;
     }
 
+    // 🌐 Открыть сайт
+    if ($is_admin && ($text_key === 'открыть сайт' || $text_key === '🌐 открыть сайт')) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $admin_id,
+            'text'    => "🌐 Ссылка на сайт:\n{$site_url}",
+        ]);
+        exit;
+    }
+
+    // 🔙 Вернуться в обычный режим
+    if ($is_admin && ($text_key === 'вернуться в обычный режим' || $text_key === '🔙 вернуться в обычный режим')) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $admin_id,
+            'text'         => "👋 Вернулся в обычный режим.",
+            'reply_markup' => json_encode(mainKeyboard(true), JSON_UNESCAPED_UNICODE),
+        ]);
+        exit;
+    }
+
+    // /status_X
     if (strpos($text, '/status_') === 0) {
         $order_id = (int)str_replace('/status_', '', $text);
         $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
@@ -224,11 +347,11 @@ if (isset($update['message'])) {
     sendTelegram($token, 'sendMessage', [
         'chat_id'      => $chat_id,
         'text'         => "Не понял команду. Нажми /menu, чтобы открыть кнопки.",
-        'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+        'reply_markup' => json_encode(mainKeyboard($is_admin), JSON_UNESCAPED_UNICODE),
     ]);
 }
 
-// ── FUNCTIONS ────────────────────────────────────────────────────
+// ── KEYBOARDS ────────────────────────────────────────────────────
 
 function mainKeyboard($isAdmin) {
     $buttons = [
@@ -236,22 +359,45 @@ function mainKeyboard($isAdmin) {
         [['text' => '🤖 Сделать заказ']],
     ];
     if ($isAdmin) {
-        $buttons[] = [['text' => '💻 Admin Panel']];
+        $buttons[] = [['text' => '⚙️ Admin Panel']];
     }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }
 
-function adminKeyboard() {
+function adminReplyKeyboard() {
+    return [
+        'keyboard' => [
+            [['text' => '📋 Очередь заказов'], ['text' => '🔴 Срочные заказы']],
+            [['text' => '📊 Статистика'],       ['text' => '🌐 Открыть сайт']],
+            [['text' => '🔙 Вернуться в обычный режим']],
+        ],
+        'resize_keyboard' => true,
+    ];
+}
+
+function adminInlineKeyboard() {
     return [
         'inline_keyboard' => [
             [['text' => '🗂️ Показать очередь заказов', 'callback_data' => 'adm_show_queue']],
+            [['text' => '🔴 Срочные заказы',            'callback_data' => 'adm_show_urgent']],
             [['text' => '📊 Быстрая статистика',        'callback_data' => 'adm_stats']],
+            [['text' => '🔙 Вернуться в главное меню',  'callback_data' => 'adm_back_main']],
         ],
     ];
 }
 
+function sendAdminPanel($token, $admin_id) {
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'      => $admin_id,
+        'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие:",
+        'parse_mode'   => 'Markdown',
+        'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+    ]);
+}
+
 function orderKeyboard($order_id, $status, $telegram) {
     $keyboard = ['inline_keyboard' => []];
+
     if ($status === 'pending') {
         $keyboard['inline_keyboard'][] = [
             ['text' => '🚀 Взять в работу', 'callback_data' => "adm_work_{$order_id}"],
@@ -263,6 +409,11 @@ function orderKeyboard($order_id, $status, $telegram) {
             ['text' => '✅ Выполнен (Готов)', 'callback_data' => "adm_ready_{$order_id}"],
         ];
     }
+    if (in_array($status, ['pending', 'in_progress'])) {
+        $keyboard['inline_keyboard'][] = [
+            ['text' => '🔴 Сделать СРОЧНЫМ', 'callback_data' => "adm_urgent_{$order_id}"],
+        ];
+    }
     $clean_tg = cleanTelegramUsername($telegram);
     if ($clean_tg !== '') {
         $keyboard['inline_keyboard'][] = [
@@ -272,12 +423,14 @@ function orderKeyboard($order_id, $status, $telegram) {
     return $keyboard;
 }
 
+// ── QUEUE / ORDERS ───────────────────────────────────────────────
+
 function showAdminQueue($pdo, $token, $admin_id, $site_url) {
     $q_stmt = $pdo->query("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at
+        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, is_urgent, urgent_at
         FROM orders
         WHERE status IN ('pending', 'in_progress')
-        ORDER BY created_at ASC, id ASC
+        ORDER BY is_urgent DESC, created_at ASC, id ASC
     ");
     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -290,11 +443,47 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
     $keyboard = ['inline_keyboard' => []];
 
     foreach ($queue as $item) {
-        $deadline     = getDeadlineInfo($item['created_at']);
-        $status_icon  = ($item['status'] === 'in_progress') ? '🎨' : '⏳';
-        $message     .= "{$status_icon} *Заказ #{$item['id']}* — {$deadline['text']}\n";
+        $deadline    = getDeadlineInfo($item['created_at'], (bool)$item['is_urgent'], $item['urgent_at'] ?? null);
+        $status_icon = ($item['status'] === 'in_progress') ? '🎨' : '⏳';
+        $urgent_mark = $item['is_urgent'] ? ' 🔴' : '';
+        $message    .= "{$status_icon}{$urgent_mark} *Заказ #{$item['id']}* — {$deadline['text']}\n";
         $keyboard['inline_keyboard'][] = [[
-            'text'          => "📦 Заказ #{$item['id']} • {$deadline['button']}",
+            'text'          => ($item['is_urgent'] ? '🔴 ' : '') . "Заказ #{$item['id']} • {$deadline['button']}",
+            'callback_data' => "adm_view_{$item['id']}",
+        ]];
+    }
+
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'      => $admin_id,
+        'text'         => $message,
+        'parse_mode'   => 'Markdown',
+        'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+    ]);
+}
+
+function showUrgentOrders($pdo, $token, $admin_id, $site_url) {
+    $q_stmt = $pdo->query("
+        SELECT id, username, telegram, service_key, status, created_at, urgent_at
+        FROM orders
+        WHERE is_urgent = 1 AND status IN ('pending', 'in_progress')
+        ORDER BY urgent_at ASC, created_at ASC
+    ");
+    $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($queue)) {
+        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => '✅ Срочных заказов нет.']);
+        return;
+    }
+
+    $message  = "🔴 *СРОЧНЫЕ ЗАКАЗЫ:*\n\n";
+    $keyboard = ['inline_keyboard' => []];
+
+    foreach ($queue as $item) {
+        $deadline = getDeadlineInfo($item['created_at'], true, $item['urgent_at'] ?? null);
+        $status_icon = ($item['status'] === 'in_progress') ? '🎨' : '⏳';
+        $message .= "🔴{$status_icon} *Заказ #{$item['id']}* — {$deadline['text']}\n";
+        $keyboard['inline_keyboard'][] = [[
+            'text'          => "🔴 Заказ #{$item['id']} • {$deadline['button']}",
             'callback_data' => "adm_view_{$item['id']}",
         ]];
     }
@@ -309,7 +498,7 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at
+        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, is_urgent, urgent_at
         FROM orders WHERE id = ? AND status IN ('pending', 'in_progress') LIMIT 1
     ");
     $o_stmt->execute([$order_id]);
@@ -336,23 +525,23 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
 }
 
 function buildOrderCard($item, $price_info, $site_url) {
-    $created   = new DateTime($item['created_at']);
-    $now       = new DateTime();
-    $days_left = 5 - $created->diff($now)->days;
-    $days_str  = ($days_left < 0) ? '🚨 ДЕДЛАЙН ПРОСРОЧЕН' : "{$days_left} дн.";
+    $is_urgent = !empty($item['is_urgent']);
+    $deadline  = getDeadlineInfo($item['created_at'], $is_urgent, $item['urgent_at'] ?? null);
+    $days_str  = $deadline['text'];
 
     $status_text   = ['pending' => '⏳ Ожидает подтверждения', 'in_progress' => '🎨 В процессе'][$item['status']] ?? $item['status'];
+    $urgent_text   = $is_urgent ? "\n🔴 *СРОЧНЫЙ ЗАКАЗ* — срок 24 часа" : '';
     $service_title = $price_info['title'] ?? $item['service_key'];
     $p_rub         = $price_info['price_rub'] ?? 0;
     $p_uan         = $price_info['price_uan'] ?? 0;
 
-    $msg  = "📦 *ЗАКАЗ #{$item['id']}*\n";
+    $msg  = ($is_urgent ? "🔴 " : "") . "*ЗАКАЗ #{$item['id']}*{$urgent_text}\n";
     $msg .= "-------------------------\n";
-    $msg .= "👤 *Имя:* "     . mdEscape($item['username'] ?? '') . "\n";
-    $msg .= "📞 *Связь:* "   . mdEscape($item['telegram'] ?? '') . "\n";
-    $msg .= "🎨 *Услуга:* "  . mdEscape($service_title) . "\n";
-    $msg .= "💰 *Цена:* "    . mdEscape((string)$p_rub) . " ₽ / " . mdEscape((string)$p_uan) . " ₴\n";
-    $msg .= "📝 *ТЗ:* "      . mdEscape($item['details'] ?? '') . "\n";
+    $msg .= "👤 *Имя:* "    . mdEscape($item['username'] ?? '') . "\n";
+    $msg .= "📞 *Связь:* "  . mdEscape($item['telegram'] ?? '') . "\n";
+    $msg .= "🎨 *Услуга:* " . mdEscape($service_title) . "\n";
+    $msg .= "💰 *Цена:* "   . mdEscape((string)$p_rub) . " ₽ / " . mdEscape((string)$p_uan) . " ₴\n";
+    $msg .= "📝 *ТЗ:* "     . mdEscape($item['details'] ?? '') . "\n";
     $msg .= "-------------------------\n";
     $msg .= "🔹 *Статус:* {$status_text}\n";
     $msg .= "⏱ *Осталось:* {$days_str}\n";
@@ -362,7 +551,6 @@ function buildOrderCard($item, $price_info, $site_url) {
     } else {
         $msg .= "📸 *Чек:* _не прикреплен_\n";
     }
-
     if (!empty($item['example_photo'])) {
         $msg .= "🖼 *Референс:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['example_photo']) . ")\n";
     } else {
@@ -372,13 +560,95 @@ function buildOrderCard($item, $price_info, $site_url) {
     return $msg;
 }
 
-function getDeadlineInfo($created_at) {
-    $created   = new DateTime($created_at);
-    $now       = new DateTime();
-    $days_left = 5 - $created->diff($now)->days;
-    if ($days_left < 0) return ['text' => '🚨 срок просрочен', 'button' => 'просрочен'];
-    return ['text' => "осталось {$days_left} дн.", 'button' => "{$days_left} дн."];
+// ── DEADLINE ─────────────────────────────────────────────────────
+
+function getDeadlineInfo($created_at, $is_urgent = false, $urgent_at = null) {
+    $now = new DateTime();
+
+    if ($is_urgent) {
+        // Срочный: 24ч с момента urgent_at (или created_at, если urgent_at не задан)
+        $start    = new DateTime($urgent_at ?: $created_at);
+        $deadline = clone $start;
+        $deadline->modify('+24 hours');
+        $diff_sec = $deadline->getTimestamp() - $now->getTimestamp();
+
+        if ($diff_sec <= 0) {
+            return ['text' => '🚨 СРОЧНЫЙ ПРОСРОЧЕН', 'button' => '🔴 просрочен'];
+        }
+        $hours   = floor($diff_sec / 3600);
+        $minutes = floor(($diff_sec % 3600) / 60);
+        return [
+            'text'   => "🔴 срочный, осталось {$hours}ч {$minutes}м",
+            'button' => "🔴 {$hours}ч {$minutes}м",
+        ];
+    } else {
+        // Обычный: 5 дней с created_at
+        $created   = new DateTime($created_at);
+        $days_left = 5 - $created->diff($now)->days;
+        if ($days_left < 0) {
+            return ['text' => '🚨 ДЕДЛАЙН ПРОСРОЧЕН', 'button' => 'просрочен'];
+        }
+        return [
+            'text'   => "осталось {$days_left} дн.",
+            'button' => "{$days_left} дн.",
+        ];
+    }
 }
+
+// ── REMINDERS ────────────────────────────────────────────────────
+// Вызывается через cron 3 раза в день: 12:00, 15:00, 20:00
+// Настрой cron на сервере:
+//   0 12 * * * curl "https://kostlimdzn.kesug.com/bot.php?cron=remind&secret=kostlim_cron_2024" > /dev/null 2>&1
+//   0 15 * * * curl "https://kostlimdzn.kesug.com/bot.php?cron=remind&secret=kostlim_cron_2024" > /dev/null 2>&1
+//   0 20 * * * curl "https://kostlimdzn.kesug.com/bot.php?cron=remind&secret=kostlim_cron_2024" > /dev/null 2>&1
+
+function sendReminders($pdo, $token, $admin_id) {
+    $q_stmt = $pdo->query("
+        SELECT id, username, status, created_at, is_urgent, urgent_at
+        FROM orders
+        WHERE status IN ('pending', 'in_progress')
+        ORDER BY is_urgent DESC, created_at ASC
+    ");
+    $orders = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($orders)) {
+        return; // нет активных заказов — молчим
+    }
+
+    $total   = count($orders);
+    $urgent  = array_filter($orders, fn($o) => !empty($o['is_urgent']));
+    $overdue = [];
+
+    $lines = "🔔 *Напоминание о заказах*\n";
+    $lines .= "Активных заказов: *{$total}*";
+    if (count($urgent) > 0) {
+        $lines .= " | 🔴 Срочных: *" . count($urgent) . "*";
+    }
+    $lines .= "\n\n";
+
+    foreach ($orders as $o) {
+        $deadline = getDeadlineInfo($o['created_at'], !empty($o['is_urgent']), $o['urgent_at'] ?? null);
+        $is_over  = str_contains($deadline['text'], 'ПРОСРОЧЕН');
+        if ($is_over) {
+            $overdue[] = $o;
+        }
+        $icon = !empty($o['is_urgent']) ? '🔴' : ($is_over ? '🚨' : '📦');
+        $name = $o['username'] ?: "ID#{$o['id']}";
+        $lines .= "{$icon} #{$o['id']} {$name} — {$deadline['text']}\n";
+    }
+
+    if (!empty($overdue)) {
+        $lines .= "\n⚠️ *Просроченных заказов: " . count($overdue) . "* — срочно обрати внимание!";
+    }
+
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'    => $admin_id,
+        'text'       => $lines,
+        'parse_mode' => 'Markdown',
+    ]);
+}
+
+// ── HELPERS ──────────────────────────────────────────────────────
 
 function getOrderTelegram($pdo, $order_id) {
     $stmt = $pdo->prepare("SELECT telegram FROM orders WHERE id = ? LIMIT 1");
@@ -423,7 +693,11 @@ function normalizeBotText($text) {
 }
 
 function mdEscape($text) {
-    return str_replace(['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'], ['\_', '\*', '\[', '\]', '\(', '\)', '\~', '\`', '\>', '\#', '\+', '\-', '\=', '\|', '\{', '\}', '\.', '\!'], (string)$text);
+    return str_replace(
+        ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'],
+        ['\_', '\*', '\[', '\]', '\(', '\)', '\~', '\`', '\>', '\#', '\+', '\-', '\=', '\|', '\{', '\}', '\.', '\!'],
+        (string)$text
+    );
 }
 
 function botLog($message) {
