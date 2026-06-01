@@ -36,7 +36,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
             transition: border-color .2s, transform .2s;
         }
         .service-card:hover {
-            border-color: rgba(169, 88, 81, .7);
+            border-color: rgba(249,115,22,.6);
             transform: translateY(-3px);
         }
 
@@ -119,7 +119,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
         .service-features li::before {
             content: '✦';
-            color: #a95851;
+            color: #f97316;
             flex-shrink: 0;
             font-size: 10px;
         }
@@ -137,20 +137,20 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .service-price {
             font-size: 20px;
             font-weight: 900;
-            color: #00ffa3;
+            color: #f97316;
             line-height: 1.35;
             white-space: nowrap;
         }
         .service-price small {
             display: block;
             font-size: 13px;
-            color: #6ddfb0;
+            color: #fb923c;
             font-weight: 700;
         }
         .service-order {
             text-decoration: none;
             color: #fff;
-            background: linear-gradient(180deg, #d87973, #a84445);
+            background: linear-gradient(135deg, #f97316, #ea580c);
             border-radius: 10px;
             padding: 11px 18px;
             font-weight: 900;
@@ -159,7 +159,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
             letter-spacing: .5px;
             white-space: nowrap;
             transition: opacity .2s, transform .2s;
-            box-shadow: 0 6px 18px rgba(169,88,81,.3);
+            box-shadow: 0 6px 18px rgba(249,115,22,.3);
         }
         .service-order:hover {
             opacity: .88;
@@ -175,7 +175,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <header>
     <div class="header-left"><a href="index.php" class="nav-link">← На главную</a></div>
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
-    <div class="header-right"><a href="order.php" class="nav-link" style="background:#a95851;">🤖 К заказу</a></div>
+    <div class="header-right"><a href="order.php" class="nav-link" style="background: linear-gradient(135deg,#f97316,#ea580c); border-color:transparent; color:#fff; box-shadow:0 4px 16px rgba(249,115,22,.3);">🤖 К заказу</a></div>
 </header>
 
 <main class="container price-page">

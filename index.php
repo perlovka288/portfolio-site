@@ -33,7 +33,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
         .portfolio-meta { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 0 10px; }
         .portfolio-title { color: #fff; font-size: 22px; font-weight: 500; overflow-wrap: anywhere; }
         .portfolio-price { color: #fff; font-size: 21px; font-weight: 800; white-space: nowrap; }
-        .order-pill { justify-self: center; min-width: 180px; text-decoration: none; text-align: center; border-radius: 999px; padding: 12px 26px; color: #fff; font-size: 18px; font-weight: 800; letter-spacing: 1px; background: linear-gradient(180deg, #d87973, #a84445); box-shadow: inset 0 1px rgba(255,255,255,.28), 0 10px 24px rgba(0,0,0,.25); }
+        .order-pill { justify-self: center; min-width: 180px; text-decoration: none; text-align: center; border-radius: 999px; padding: 12px 26px; color: #fff; font-size: 18px; font-weight: 800; letter-spacing: 1px; background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: inset 0 1px rgba(255,255,255,.22), 0 8px 24px rgba(249,115,22,.3); }
         .design-card { grid-column: 1 / -1; margin-top: 28px; }
         .design-card .portfolio-media { aspect-ratio: 1590 / 400; min-height: 220px; border-radius: 28px; background: #08080b; border: 1px solid rgba(255,255,255,.08); }
         .design-card .portfolio-media > .design-banner { width: 100%; height: 100%; object-fit: cover; object-position: center; background: #08080b; }
@@ -41,6 +41,28 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
         .portfolio-media .design-avatar-frame .design-avatar { width: 100%; height: 100%; border: 0; border-radius: 0; object-fit: cover; object-position: center; display: block; }
         .design-card .portfolio-meta { grid-template-columns: 1fr auto auto; padding: 0 8px; }
         .avatar-container > .admin-link:not(.nav-link) { display: none; }
+
+        /* Icon buttons like Blackwatch */
+        .hicon-btn {
+            width: 36px; height: 36px; border-radius: 8px;
+            border: 1px solid var(--border); background: transparent;
+            color: var(--text2); cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: all var(--t); text-decoration: none; flex-shrink: 0;
+        }
+        .hicon-btn:hover {
+            border-color: var(--accent); color: var(--accent);
+            background: var(--accent-dim);
+        }
+        .hicon-btn.hicon-admin {
+            color: var(--accent);
+            border-color: var(--border-accent);
+            background: var(--accent-dim);
+        }
+        .hicon-btn.hicon-admin:hover {
+            background: rgba(249,115,22,.16);
+            box-shadow: 0 0 16px var(--accent-glow);
+        }
         .tabs-container { display: flex; justify-content: center; gap: 12px; margin: 32px 0; flex-wrap: wrap; }
         @media (max-width: 1100px) {
             .portfolio-grid { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
@@ -63,14 +85,15 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 
 <header>
     <div class="header-left">
-        <div class="avatar-container" style="display: flex; align-items: center; gap: 12px;">
+        <div class="avatar-container" style="display: flex; align-items: center; gap: 10px;">
             <img src="uploads/<?= htmlspecialchars($avatar) ?>" class="avatar-mini" alt="Kostlim">
-            <a href="https://t.me/designkostlim" target="_blank" class="nav-link" style="border-radius: 50%; padding: 12px;" title="Telegram">✈</a>
+            <a href="https://t.me/designkostlim" target="_blank" class="hicon-btn" title="Telegram">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>
+            </a>
             <?php if (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true): ?>
-                <a href="admin/index.php" class="admin-link" style="color: #fff; text-decoration: none; font-size: 18px;">⚙️</a>
-            <?php endif; ?>
-            <?php if (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true): ?>
-                <a href="admin/index.php" class="admin-link nav-link" style="border-radius: 50%; padding: 12px; color: #fff; text-decoration: none; font-size: 18px;" title="Админ-панель">⚙️</a>
+            <a href="admin/index.php" class="hicon-btn hicon-admin" title="Админ-панель">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            </a>
             <?php endif; ?>
         </div>
     </div>
@@ -78,8 +101,12 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
 
     <div class="header-right">
-        <a href="price.php" class="nav-link">📋 Прайс</a>
-        <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link">🤖 Бот для заказов</a>
+        <a href="price.php" class="hicon-btn" title="Прайс">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M5 4h-.6A2 2 0 0 0 2.4 6L2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2L21.6 6a2 2 0 0 0-2-2H19"/><path d="M9 14h6"/><path d="M9 10h6"/></svg>
+        </a>
+        <a href="https://t.me/kostlimdznbot" target="_blank" class="hicon-btn" title="Бот для заказов">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+        </a>
     </div>
 </header>
 

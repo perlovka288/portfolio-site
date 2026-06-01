@@ -178,8 +178,17 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
 function uploadImage(string $field, string $prefix, string $uploadDir): string
 {
-    if (empty($_FILES[$field]['name']) || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
-        error_log("UPLOAD[$field]: no file. err=" . ($_FILES[$field]['error'] ?? 'n/a'));
+    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) {
+        return '';
+    }
+    if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
+        global $message;
+        $message = '❌ Файл слишком большой. Максимальный размер: ' . ini_get('upload_max_filesize') . '.';
+        return '';
+    }
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
+        error_log("UPLOAD[$field]: err=$err");
         return '';
     }
 
@@ -544,11 +553,11 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
     <link rel="stylesheet" href="../style.css">
     <style>
         /* ===== SCROLLBAR ===== */
-        * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
+        * { scrollbar-width: thin; scrollbar-color: #a95851 #111116; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #111116; border-radius: 99px; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #fb923c, #f97316); border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: #fb923c; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #d87973, #a84445); border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: #d87973; }
 
         /* ===== BASE ===== */
         body { background: #08080b; color: #fff; font-family: Montserrat, Arial, sans-serif; }
@@ -559,21 +568,21 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         .admin-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
         .admin-meta span { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #242432; background: #111116; color: #d8d8e8; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
         .admin-link-top { color: #fff; text-decoration: none; border: 1px solid #242432; border-radius: 10px; padding: 11px 18px; background: #111116; font-size: 13px; font-weight: 700; transition: .2s; }
-        .admin-link-top:hover { border-color: #f97316; background: rgba(249,115,22,.1); }
-        .notice { border: 1px solid rgba(249,115,22,.45); background: rgba(249,115,22,.12); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
+        .admin-link-top:hover { border-color: #a95851; background: rgba(169,88,81,.1); }
+        .notice { border: 1px solid rgba(169, 88, 81, .45); background: rgba(169, 88, 81, .12); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
 
         /* ===== LAYOUT ===== */
         .admin-board { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; align-items: start; }
         .admin-tabs { position: sticky; top: 18px; display: grid; gap: 9px; background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 12px; }
         .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #d8d8e8; font-weight: 900; text-align: left; cursor: pointer; font-family: Montserrat, sans-serif; font-size: 13px; transition: .2s; }
         .admin-tab:hover { background: #171720; border-color: #2a2a38; }
-        .admin-tab.active { color: #fff; background: linear-gradient(180deg, #fb923c, #f97316); box-shadow: 0 12px 28px rgba(249,115,22,.22); border-color: transparent; }
+        .admin-tab.active { color: #fff; background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 12px 28px rgba(249,115,22,.28); border-color: transparent; }
         .admin-content { min-width: 0; }
         .stats-grid { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
         .stat-card { background: #111116; border: 1px solid #20202c; border-radius: 12px; padding: 16px; min-height: 92px; }
         .stat-card span { color: #8a8a96; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         .stat-card strong { display: block; font-size: 25px; margin-top: 10px; }
-        .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg, rgba(249,115,22,.2), #111116); }
+        .stat-card.accent { border-color: rgba(169, 88, 81, .6); background: linear-gradient(145deg, rgba(169, 88, 81, .2), #111116); }
         .admin-layout { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 18px; align-items: start; }
         .admin-layout.single-column { grid-template-columns: 1fr; }
         .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
@@ -581,7 +590,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
         /* ===== AVATAR PANEL ===== */
         .avatar-preview-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
-        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #f97316; background: #0b0b10; flex-shrink: 0; }
+        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #a95851; background: #0b0b10; flex-shrink: 0; }
         .avatar-preview-info { color: #8a8a96; font-size: 12px; line-height: 1.6; }
         .avatar-preview-info strong { display: block; color: #d8d8e8; margin-bottom: 2px; font-size: 13px; }
 
@@ -594,13 +603,13 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         }
         input:not([type="file"]):not([type="checkbox"]):focus,
         select:focus, textarea:focus {
-            border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,.14);
+            border-color: #a95851; box-shadow: 0 0 0 3px rgba(169, 88, 81, .14);
         }
         textarea { min-height: 64px; resize: vertical; }
         select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
 
         /* ===== FILE INPUT ===== */
-        input[type="file"] { display: none; }
+        input[type="file"].styled-hidden { display: none; }
 
         .file-upload-wrap {
             display: flex; align-items: center; gap: 10px; width: 100%;
@@ -612,7 +621,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             white-space: nowrap; transition: .2s; font-family: Montserrat, sans-serif;
             flex-shrink: 0; user-select: none;
         }
-        .file-upload-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
+        .file-upload-btn:hover { background: rgba(169,88,81,.15); border-color: #a95851; color: #fff; }
         .file-upload-btn svg { flex-shrink: 0; }
         .file-upload-name {
             flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -629,19 +638,19 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             white-space: nowrap; transition: .2s; font-family: Montserrat, sans-serif;
             user-select: none;
         }
-        .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
+        .mini-file-btn:hover { background: rgba(169,88,81,.15); border-color: #a95851; color: #fff; }
         .mini-file-name { font-size: 10px; color: #8a8a96; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
         .mini-file-name.has-file { color: #86efac; font-style: normal; }
 
         /* ===== BUTTONS ===== */
         .btn-panel {
             width: 100%; margin-top: 14px; border: none; border-radius: 10px;
-            padding: 13px 16px; background: linear-gradient(180deg, #fb923c, #f97316);
+            padding: 13px 16px; background: linear-gradient(180deg, #d87973, #a84445);
             color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase;
             font-family: Montserrat, sans-serif; letter-spacing: 1px; font-size: 13px;
-            box-shadow: 0 8px 24px rgba(249,115,22,.25); transition: .2s;
+            box-shadow: 0 8px 24px rgba(169,88,81,.25); transition: .2s;
         }
-        .btn-panel:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(249,115,22,.38); }
+        .btn-panel:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(169,88,81,.38); }
 
         /* ===== TABLE ===== */
         .admin-table-wrap { overflow-x: auto; border: 1px solid #20202c; border-radius: 12px; }
@@ -653,7 +662,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         tr:hover td { background: rgba(255,255,255,.015); }
         .thumb-pair { display: flex; align-items: center; gap: 8px; }
         .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0b0b10; }
-        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; }
+        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #a95851; margin-left: -22px; background: #111116; }
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
         .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
@@ -663,7 +672,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
         .mini-media-form button {
             border: 0; border-radius: 8px; padding: 8px 12px;
-            background: linear-gradient(180deg, #fb923c, #f97316);
+            background: linear-gradient(180deg, #d87973, #a84445);
             color: #fff; font-weight: 800; cursor: pointer;
             font-family: Montserrat, sans-serif; font-size: 11px;
             letter-spacing: .5px; text-transform: uppercase; transition: .2s;
@@ -672,7 +681,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
         /* ===== MISC ===== */
         .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
+        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #a95851; }
         .tab-hidden { display: none !important; }
 
         /* ===== RESPONSIVE ===== */
@@ -739,6 +748,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             document.querySelectorAll('input[type="file"]').forEach(input => {
                 if (input.dataset.styled) return;
                 input.dataset.styled = '1';
+                input.classList.add('styled-hidden');
 
                 const isMini = input.closest('.mini-media-form') !== null;
                 const wrap   = document.createElement('div');
@@ -803,12 +813,12 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
     <div class="admin-board">
         <nav class="admin-tabs" aria-label="Разделы админ-панели">
-            <button type="button" class="admin-tab active" data-tab="overview"    onclick="activateAdminTab('overview')">📊 Обзор</button>
-            <button type="button" class="admin-tab"        data-tab="portfolio"   onclick="activateAdminTab('portfolio')">🎬 Портфолио</button>
-            <button type="button" class="admin-tab"        data-tab="price"       onclick="activateAdminTab('price')">💲 Прайс</button>
-            <button type="button" class="admin-tab"        data-tab="orders"      onclick="activateAdminTab('orders')">🧾 Заказы</button>
-            <button type="button" class="admin-tab"        data-tab="categories"  onclick="activateAdminTab('categories')">🧩 Категории</button>
-            <button type="button" class="admin-tab"        data-tab="avatar"      onclick="activateAdminTab('avatar')">🖼️ Аватарка</button>
+            <button type="button" class="admin-tab active" data-tab="overview"    onclick="activateAdminTab('overview')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Обзор</button>
+            <button type="button" class="admin-tab"        data-tab="portfolio"   onclick="activateAdminTab('portfolio')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 2l-4 5-4-5"/></svg> Портфолио</button>
+            <button type="button" class="admin-tab"        data-tab="price"       onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
+            <button type="button" class="admin-tab"        data-tab="orders"      onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> Заказы</button>
+            <button type="button" class="admin-tab"        data-tab="categories"  onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
+            <button type="button" class="admin-tab"        data-tab="avatar"      onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
         </nav>
 
         <div class="admin-content">
@@ -854,7 +864,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
                     </div>
 
                     <label>Главное изображение / шапка</label>
-                    <input type="file" name="image" accept="image/*" required>
+                    <input type="file" name="image" accept="image/*">
 
                     <div id="avatar_upload_block" style="display:none;">
                         <label>Аватарка к оформлению</label>
