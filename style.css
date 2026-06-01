@@ -806,3 +806,115 @@ body.theme-snow {
     .tabs-container, .portfolio-tabs { gap: 7px; }
     .tab-btn { padding: 9px 16px; font-size: 11px; }
 }
+
+/* =====================================================
+   ADMIN PANEL — Orange Glow
+   Автоматически применяется ко всем страницам в /admin/
+   ===================================================== */
+
+/* ── Инпуты, селекты, текстареа ── */
+.admin-panel input[type="text"],
+.admin-panel input[type="email"],
+.admin-panel input[type="password"],
+.admin-panel input[type="number"],
+.admin-panel input[type="url"],
+.admin-panel input[type="search"],
+.admin-panel select,
+.admin-panel textarea,
+/* Если нет класса admin-panel — используй body.admin-body */
+body.admin-body input[type="text"],
+body.admin-body input[type="email"],
+body.admin-body input[type="password"],
+body.admin-body input[type="number"],
+body.admin-body input[type="url"],
+body.admin-body input[type="search"],
+body.admin-body select,
+body.admin-body textarea {
+    transition: border-color var(--t), box-shadow var(--t) !important;
+    outline: none !important;
+}
+.admin-panel input:focus,
+.admin-panel select:focus,
+.admin-panel textarea:focus,
+body.admin-body input:focus,
+body.admin-body select:focus,
+body.admin-body textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-dim), 0 0 14px var(--accent-glow) !important;
+    background: var(--card3) !important;
+}
+
+/* ── Кнопки отправки/сохранения ── */
+.admin-panel button[type="submit"],
+.admin-panel input[type="submit"],
+.admin-panel .btn-save,
+.admin-panel .btn-primary,
+body.admin-body button[type="submit"],
+body.admin-body input[type="submit"],
+body.admin-body .btn-save,
+body.admin-body .btn-primary {
+    background: linear-gradient(135deg, var(--accent2), var(--accent)) !important;
+    border-color: var(--accent) !important;
+    box-shadow: var(--shadow-accent) !important;
+    transition: all var(--t) !important;
+}
+.admin-panel button[type="submit"]:hover,
+.admin-panel input[type="submit"]:hover,
+.admin-panel .btn-save:hover,
+body.admin-body button[type="submit"]:hover,
+body.admin-body input[type="submit"]:hover,
+body.admin-body .btn-save:hover {
+    box-shadow: 0 0 28px var(--accent-glow2), 0 4px 20px rgba(0,0,0,.5) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ── Активный пункт в навигации/сайдбаре ── */
+body.admin-body .nav-item.active > a,
+body.admin-body .sidebar-link.active,
+body.admin-body .admin-nav a.active,
+body.admin-body li.active > a {
+    color: var(--accent) !important;
+    text-shadow: 0 0 8px var(--accent-glow) !important;
+    border-left-color: var(--accent) !important;
+}
+
+/* ── Шапка админки ── */
+body.admin-body header,
+body.admin-body .admin-header,
+body.admin-body .topbar {
+    border-bottom-color: rgba(249,115,22,0.20) !important;
+    box-shadow: 0 2px 20px rgba(249,115,22,0.08) !important;
+}
+
+/* ── Drag/drop зоны загрузки ── */
+body.admin-body .upload-zone,
+body.admin-body .drop-area,
+body.admin-body .file-zone {
+    transition: border-color var(--t), box-shadow var(--t);
+}
+body.admin-body .upload-zone:hover,
+body.admin-body .drop-area:hover,
+body.admin-body .file-zone:hover {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 14px var(--accent-glow) !important;
+}
+
+/* ── Бейджи статусов заказов ── */
+.badge-pending  { background: var(--accent-dim);           color: var(--accent);   border: 1px solid rgba(249,115,22,.35); border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 700; }
+.badge-work     { background: rgba(234,179, 8,.10);        color: #facc15;         border: 1px solid rgba(234,179,8,.30);  border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 700; }
+.badge-done     { background: rgba(22,163,74,.10);         color: var(--green-light); border: 1px solid rgba(22,163,74,.28); border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 700; }
+.badge-declined { background: rgba(220,38,38,.10);         color: var(--red-light); border: 1px solid rgba(220,38,38,.28); border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 700; }
+
+/* ── Чекбоксы ── */
+body.admin-body input[type="checkbox"],
+body.admin-body input[type="radio"] {
+    accent-color: var(--accent);
+}
+
+/* ── Таблицы в админке ── */
+body.admin-body table tr:hover {
+    background: var(--accent-dim) !important;
+}
+body.admin-body table th {
+    border-bottom: 2px solid rgba(249,115,22,0.20) !important;
+}

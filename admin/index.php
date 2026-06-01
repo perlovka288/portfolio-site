@@ -147,7 +147,13 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
 
 function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bool
 {
-    $mainPath = $uploadDir . basename((string)($case['image'] ?? ''));
+    $imgVal   = (string)($case['image'] ?? '');
+    // Підтримуємо і старий формат (ім'я файлу) і новий (повний URL)
+    if (str_starts_with($imgVal, 'http://') || str_starts_with($imgVal, 'https://')) {
+        $mainPath = $uploadDir . basename(parse_url($imgVal, PHP_URL_PATH));
+    } else {
+        $mainPath = $uploadDir . basename($imgVal);
+    }
     if (!is_file($mainPath)) {
         return false;
     }
@@ -199,7 +205,17 @@ function uploadToImgBB(string $tmpPath, string $name = 'image'): string
     return $data['data']['url'] ?? '';
 }
 
-// ── Try local save, fallback to ImgBB ────────────────────────
+// ── Base URL helper ──────────────────────────────────────────
+function siteBaseUrl(): string
+{
+    $proto = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+    $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    // admin/ → поднимаемся на уровень выше
+    $base  = rtrim(str_replace('/admin', '', dirname($_SERVER['SCRIPT_NAME'])), '/');
+    return $proto . '://' . $host . $base;
+}
+
+// ── Try local save (returns FULL URL), fallback to ImgBB ─────
 function uploadImage(string $field, string $prefix, string $uploadDir): string
 {
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
@@ -219,14 +235,20 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
 
     $tmp = $_FILES[$field]['tmp_name'];
 
-    // 1. Try local save (works if disk is writable)
+    // 1. Try local save — теперь возвращаем ПОЛНЫЙ URL, а не просто имя файла.
+    //    Так картинка не потеряется при git push / деплое — в БД хранится
+    //    абсолютный URL, который работает независимо от окружения.
     if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0777, true); }
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
         $dest     = $uploadDir . $filename;
         if (move_uploaded_file($tmp, $dest)) {
-            error_log("UPLOAD[$field]: local OK => $dest");
-            return $filename;
+            // Строим URL относительно корня сайта
+            // $uploadDir вида '../uploads/' → нормализуем в 'uploads/'
+            $relDir = ltrim(str_replace('../', '', $uploadDir), '/');
+            $url    = siteBaseUrl() . '/' . $relDir . $filename;
+            error_log("UPLOAD[$field]: local OK => $url");
+            return $url;
         }
     }
 
@@ -254,12 +276,15 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
 
     $tmp = $_FILES[$field]['tmp_name'][$id];
 
-    // 1. Try local
+    // 1. Try local — возвращаем ПОЛНЫЙ URL
     if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0777, true); }
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
         $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) return $filename;
+        if (move_uploaded_file($tmp, $dest)) {
+            $relDir = ltrim(str_replace('../', '', $uploadDir), '/');
+            return siteBaseUrl() . '/' . $relDir . $filename;
+        }
     }
 
     // 2. ImgBB fallback
@@ -335,9 +360,14 @@ if (isset($_GET['delete_portfolio_id'])) {
     $work_files = $img_stmt->fetch(PDO::FETCH_ASSOC);
 
     foreach (['image', 'avatar_image'] as $field) {
-        if (!empty($work_files[$field]) && file_exists($uploadDir . $work_files[$field])) {
-            unlink($uploadDir . $work_files[$field]);
+        $val = $work_files[$field] ?? '';
+        if ($val === '') continue;
+        // Якщо в БД повний URL — витягуємо лише ім'я файлу
+        if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) {
+            $val = basename(parse_url($val, PHP_URL_PATH));
         }
+        $path = $uploadDir . $val;
+        if ($val !== '' && file_exists($path)) unlink($path);
     }
 
     $stmt = $pdo->prepare("DELETE FROM portfolio WHERE id = ?");
@@ -356,16 +386,22 @@ if (isset($_POST['update_portfolio_media'])) {
         $newAvatar = uploadImage('portfolio_avatar', 'ava', $uploadDir);
 
         if ($newMain !== '') {
-            if (!empty($currentFiles['image']) && file_exists($uploadDir . $currentFiles['image'])) {
-                unlink($uploadDir . $currentFiles['image']);
+            $oldVal = $currentFiles['image'] ?? '';
+            if ($oldVal !== '') {
+                $oldFile = (str_starts_with($oldVal,'http://') || str_starts_with($oldVal,'https://'))
+                    ? basename(parse_url($oldVal, PHP_URL_PATH)) : $oldVal;
+                if ($oldFile !== '' && file_exists($uploadDir . $oldFile)) unlink($uploadDir . $oldFile);
             }
             $stmt = $pdo->prepare("UPDATE portfolio SET image = ? WHERE id = ?");
             $stmt->execute([$newMain, $caseId]);
         }
 
         if ($newAvatar !== '') {
-            if (!empty($currentFiles['avatar_image']) && file_exists($uploadDir . $currentFiles['avatar_image'])) {
-                unlink($uploadDir . $currentFiles['avatar_image']);
+            $oldVal = $currentFiles['avatar_image'] ?? '';
+            if ($oldVal !== '') {
+                $oldFile = (str_starts_with($oldVal,'http://') || str_starts_with($oldVal,'https://'))
+                    ? basename(parse_url($oldVal, PHP_URL_PATH)) : $oldVal;
+                if ($oldFile !== '' && file_exists($uploadDir . $oldFile)) unlink($uploadDir . $oldFile);
             }
             $stmt = $pdo->prepare("UPDATE portfolio SET avatar_image = ? WHERE id = ?");
             $stmt->execute([$newAvatar, $caseId]);
@@ -384,9 +420,11 @@ if (isset($_POST['save_all_prices'])) {
         if ($newImage !== '') {
             $old_stmt = $pdo->prepare("SELECT image FROM prices WHERE id = ?");
             $old_stmt->execute([$id]);
-            $oldImage = $old_stmt->fetchColumn();
-            if (!empty($oldImage) && file_exists($uploadDir . $oldImage)) {
-                unlink($uploadDir . $oldImage);
+            $oldImage = (string)($old_stmt->fetchColumn() ?? '');
+            if ($oldImage !== '') {
+                $oldFile = (str_starts_with($oldImage,'http://') || str_starts_with($oldImage,'https://'))
+                    ? basename(parse_url($oldImage, PHP_URL_PATH)) : $oldImage;
+                if ($oldFile !== '' && file_exists($uploadDir . $oldFile)) unlink($uploadDir . $oldFile);
             }
 
             $stmt = $pdo->prepare("
@@ -457,8 +495,11 @@ if (isset($_GET['delete_price_id'])) {
     $img_stmt->execute([$del_id]);
     $priceImage = $img_stmt->fetchColumn();
 
-    if (!empty($priceImage) && file_exists($uploadDir . $priceImage)) {
-        unlink($uploadDir . $priceImage);
+    if (!empty($priceImage)) {
+        $val = (str_starts_with($priceImage, 'http://') || str_starts_with($priceImage, 'https://'))
+            ? basename(parse_url($priceImage, PHP_URL_PATH))
+            : $priceImage;
+        if ($val !== '' && file_exists($uploadDir . $val)) unlink($uploadDir . $val);
     }
 
     $stmt = $pdo->prepare("DELETE FROM prices WHERE id = ?");
@@ -576,11 +617,11 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
     <link rel="stylesheet" href="../style.css">
     <style>
         /* ===== SCROLLBAR ===== */
-        * { scrollbar-width: thin; scrollbar-color: #a95851 #111116; }
+        * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #111116; border-radius: 99px; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #d87973, #a84445); border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: #d87973; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #fb923c, #f97316); border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: #fb923c; }
 
         /* ===== BASE ===== */
         body { background: #08080b; color: #fff; font-family: Montserrat, Arial, sans-serif; }
@@ -591,8 +632,8 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         .admin-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
         .admin-meta span { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #242432; background: #111116; color: #d8d8e8; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
         .admin-link-top { color: #fff; text-decoration: none; border: 1px solid #242432; border-radius: 10px; padding: 11px 18px; background: #111116; font-size: 13px; font-weight: 700; transition: .2s; }
-        .admin-link-top:hover { border-color: #a95851; background: rgba(169,88,81,.1); }
-        .notice { border: 1px solid rgba(169, 88, 81, .45); background: rgba(169, 88, 81, .12); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
+        .admin-link-top:hover { border-color: #f97316; background: rgba(249,115,22,.1); }
+        .notice { border: 1px solid rgba(249,115,22,.45); background: rgba(249,115,22,.10); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
 
         /* ===== LAYOUT ===== */
         .admin-board { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; align-items: start; }
@@ -605,7 +646,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         .stat-card { background: #111116; border: 1px solid #20202c; border-radius: 12px; padding: 16px; min-height: 92px; }
         .stat-card span { color: #8a8a96; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         .stat-card strong { display: block; font-size: 25px; margin-top: 10px; }
-        .stat-card.accent { border-color: rgba(169, 88, 81, .6); background: linear-gradient(145deg, rgba(169, 88, 81, .2), #111116); }
+        .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg, rgba(249,115,22,.18), #111116); }
         .admin-layout { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 18px; align-items: start; }
         .admin-layout.single-column { grid-template-columns: 1fr; }
         .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
@@ -613,7 +654,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
         /* ===== AVATAR PANEL ===== */
         .avatar-preview-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
-        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #a95851; background: #0b0b10; flex-shrink: 0; }
+        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #f97316; background: #0b0b10; flex-shrink: 0; }
         .avatar-preview-info { color: #8a8a96; font-size: 12px; line-height: 1.6; }
         .avatar-preview-info strong { display: block; color: #d8d8e8; margin-bottom: 2px; font-size: 13px; }
 
@@ -626,7 +667,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         }
         input:not([type="file"]):not([type="checkbox"]):focus,
         select:focus, textarea:focus {
-            border-color: #a95851; box-shadow: 0 0 0 3px rgba(169, 88, 81, .14);
+            border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,.18), 0 0 14px rgba(249,115,22,.22);
         }
         textarea { min-height: 64px; resize: vertical; }
         select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
@@ -644,7 +685,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             white-space: nowrap; transition: .2s; font-family: Montserrat, sans-serif;
             flex-shrink: 0; user-select: none;
         }
-        .file-upload-btn:hover { background: rgba(169,88,81,.15); border-color: #a95851; color: #fff; }
+        .file-upload-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
         .file-upload-btn svg { flex-shrink: 0; }
         .file-upload-name {
             flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -661,19 +702,19 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             white-space: nowrap; transition: .2s; font-family: Montserrat, sans-serif;
             user-select: none;
         }
-        .mini-file-btn:hover { background: rgba(169,88,81,.15); border-color: #a95851; color: #fff; }
+        .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
         .mini-file-name { font-size: 10px; color: #8a8a96; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
         .mini-file-name.has-file { color: #86efac; font-style: normal; }
 
         /* ===== BUTTONS ===== */
         .btn-panel {
             width: 100%; margin-top: 14px; border: none; border-radius: 10px;
-            padding: 13px 16px; background: linear-gradient(180deg, #d87973, #a84445);
+            padding: 13px 16px; background: linear-gradient(135deg, #fb923c, #f97316);
             color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase;
             font-family: Montserrat, sans-serif; letter-spacing: 1px; font-size: 13px;
-            box-shadow: 0 8px 24px rgba(169,88,81,.25); transition: .2s;
+            box-shadow: 0 8px 24px rgba(249,115,22,.30); transition: .2s;
         }
-        .btn-panel:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(169,88,81,.38); }
+        .btn-panel:hover { transform: translateY(-1px); box-shadow: 0 0 28px rgba(249,115,22,.55), 0 12px 30px rgba(249,115,22,.25); }
 
         /* ===== TABLE ===== */
         .admin-table-wrap { overflow-x: auto; border: 1px solid #20202c; border-radius: 12px; }
@@ -685,7 +726,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         tr:hover td { background: rgba(255,255,255,.015); }
         .thumb-pair { display: flex; align-items: center; gap: 8px; }
         .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0b0b10; }
-        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #a95851; margin-left: -22px; background: #111116; }
+        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; }
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
         .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
@@ -695,7 +736,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
         .mini-media-form button {
             border: 0; border-radius: 8px; padding: 8px 12px;
-            background: linear-gradient(180deg, #d87973, #a84445);
+            background: linear-gradient(135deg, #fb923c, #f97316);
             color: #fff; font-weight: 800; cursor: pointer;
             font-family: Montserrat, sans-serif; font-size: 11px;
             letter-spacing: .5px; text-transform: uppercase; transition: .2s;
@@ -704,7 +745,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
         /* ===== MISC ===== */
         .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #a95851; }
+        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
         .tab-hidden { display: none !important; }
 
         /* ===== RESPONSIVE ===== */
