@@ -1,21 +1,17 @@
 FROM php:8.2-apache
 
 RUN apt-get update && apt-get install -y libpq-dev && rm -rf /var/lib/apt/lists/*
+
 RUN docker-php-ext-install pdo pdo_pgsql
 
-# Включаем mod_rewrite и mod_headers
 RUN a2enmod rewrite headers
 
-# Увеличиваем лимиты PHP для загрузки файлов
 RUN echo "upload_max_filesize = 32M\n\
 post_max_size = 34M\n\
 memory_limit = 128M\n\
 max_execution_time = 60\n\
 max_input_time = 60" > /usr/local/etc/php/conf.d/uploads.ini
 
-RUN echo "Listen 0.0.0.0:80" > /etc/apache2/ports.conf \
-    && echo "ServerName localhost" >> /etc/apache2/apache2.conf
-    
 COPY . /var/www/html/
 
 RUN chown -R www-data:www-data /var/www/html \
@@ -24,7 +20,9 @@ RUN chown -R www-data:www-data /var/www/html \
     && chown -R www-data:www-data /var/www/html/uploads \
     && chmod -R 777 /var/www/html/uploads
 
-# Разрешаем .htaccess
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+
+# Меняем порт Apache на $PORT от Render
+CMD sed -i "s/80/${PORT:-80}/g" /etc/apache2/ports.conf /etc/apache2/sites-enabled/*.conf && apache2-foreground
 
 EXPOSE 80
