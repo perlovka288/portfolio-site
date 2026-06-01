@@ -679,34 +679,39 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             block.style.display = designCategories.includes(category) ? 'block' : 'none';
         }
         function activateAdminTab(tab) {
-            // panel indices: 0=portfolio-add, 1=categories, 2=orders, 3=price-manager, 4=price-add, 5=portfolio-list, 6=avatar
-            const groups = {
-                overview:   [2],
-                portfolio:  [0, 5],
-                price:      [3, 4],
-                orders:     [2],
-                categories: [1],
-                avatar:     [6],
-            };
+            document.querySelectorAll('.admin-tab').forEach(b => {
+                b.classList.toggle('active', b.dataset.tab === tab);
+            });
+
             const stats  = document.querySelector('.stats-grid');
             const layout = document.querySelector('.admin-layout');
-            const panels = [...document.querySelectorAll('.panel')];
-            const visible = groups[tab] || groups.overview;
 
-            document.querySelectorAll('.admin-tab').forEach(button => {
-                button.classList.toggle('active', button.dataset.tab === tab);
+            // Скрыть всё
+            if (stats)  stats.classList.add('tab-hidden');
+            if (layout) layout.classList.add('single-column');
+            document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
+
+            const show = (...names) => names.forEach(name => {
+                const el = document.querySelector(`.panel[data-panel="${name}"]`);
+                if (el) el.classList.remove('tab-hidden');
             });
 
-            if (stats) {
-                stats.classList.toggle('tab-hidden', tab !== 'overview' && tab !== 'orders');
-            }
-
-            panels.forEach((panel, index) => {
-                panel.classList.toggle('tab-hidden', !visible.includes(index));
-            });
-
-            if (layout) {
-                layout.classList.toggle('single-column', tab === 'overview' || tab === 'orders' || tab === 'categories' || tab === 'avatar');
+            if (tab === 'overview') {
+                if (stats) stats.classList.remove('tab-hidden');
+                show('orders');
+            } else if (tab === 'portfolio') {
+                show('portfolio-add', 'portfolio-list');
+                if (layout) layout.classList.remove('single-column');
+            } else if (tab === 'price') {
+                show('price-add', 'price-manager');
+                if (layout) layout.classList.remove('single-column');
+            } else if (tab === 'orders') {
+                if (stats) stats.classList.remove('tab-hidden');
+                show('orders');
+            } else if (tab === 'categories') {
+                show('categories');
+            } else if (tab === 'avatar') {
+                show('avatar');
             }
         }
 
@@ -800,7 +805,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
     <div class="admin-layout">
         <aside>
             <!-- PANEL 0: Добавить в портфолио -->
-            <section class="panel">
+            <section class="panel" data-panel="portfolio-add">
                 <h2>📁 Добавить в портфолио</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
                     <label>Название проекта</label>
@@ -843,7 +848,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             </section>
 
             <!-- PANEL 1: Создать категорию -->
-            <section class="panel">
+            <section class="panel" data-panel="categories">
                 <h2>🧩 Создать категорию</h2>
                 <form action="" method="POST">
                     <label>Название категории</label>
@@ -888,7 +893,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             </section>
 
             <!-- PANEL 2: Последние заказы -->
-            <section class="panel">
+            <section class="panel" data-panel="orders">
                 <h2>🧾 Последние заказы</h2>
                 <div class="admin-table-wrap">
                     <table style="min-width: 520px;">
@@ -910,7 +915,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             </section>
 
             <!-- PANEL 4: Добавить услугу в прайс -->
-            <section class="panel">
+            <section class="panel" data-panel="price-add">
                 <h2>➕ Добавить услугу в прайс</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
                     <label>Название услуги</label>
@@ -946,7 +951,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             </section>
 
             <!-- PANEL 6: Аватарка сайта -->
-            <section class="panel">
+            <section class="panel" data-panel="avatar">
                 <h2>🖼️ Аватарка сайта</h2>
                 <div class="avatar-preview-wrap">
                     <img
@@ -972,7 +977,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 
         <section>
             <!-- PANEL 3: Менеджер цен -->
-            <div class="panel">
+            <div class="panel" data-panel="price-manager">
                 <h2>💲 Менеджер цен и прайс-листа</h2>
                 <form action="" method="POST" enctype="multipart/form-data">
                     <div class="admin-table-wrap">
@@ -1018,7 +1023,7 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
             </div>
 
             <!-- PANEL 5: Управление кейсами -->
-            <div class="panel">
+            <div class="panel" data-panel="portfolio-list">
                 <h2>🎬 Управление кейсами</h2>
                 <div class="admin-table-wrap">
                     <table>
