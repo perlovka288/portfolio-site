@@ -1166,3 +1166,4 @@ $currentAvatarFile = $currentAvatarRow['avatar'] ?? 'default_avatar.png';
 </main>
 </body>
 </html>
+
