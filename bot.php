@@ -185,9 +185,20 @@ if (isset($update['message'])) {
         }
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $admin_id,
-            'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие:",
+            'text'         => "⚙️ *Режим администратора*\n\nВыбери действие:",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => adminKeyboard(),
+            'reply_markup' => adminReplyKeyboard(),
+        ]);
+        exit;
+    }
+
+    // 🔙 Главное меню — возврат из админ-режима
+    if ($text_key === 'главное меню') {
+        if ((string)$chat_id !== $admin_id) { exit; }
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $admin_id,
+            'text'         => "🏠 Главное меню",
+            'reply_markup' => mainKeyboard(true),
         ]);
         exit;
     }
@@ -333,16 +344,20 @@ function mainKeyboard($isAdmin) {
     ];
     if ($isAdmin) {
         $buttons[] = [['text' => '💻 Admin Panel']];
-        $buttons[] = [
-            ['text' => '🔴 Срочные заказы'],
-            ['text' => '🗂️ Очередь заказов'],
-        ];
-        $buttons[] = [
-            ['text' => '📊 Статистика'],
-            ['text' => '🌐 Открыть сайт'],
-        ];
     }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
+}
+
+// Меню администратора — появляется после нажатия "Admin Panel"
+function adminReplyKeyboard() {
+    return [
+        'keyboard' => [
+            [['text' => '🔴 Срочные заказы'], ['text' => '🗂️ Очередь заказов']],
+            [['text' => '📊 Статистика'],      ['text' => '🌐 Открыть сайт']],
+            [['text' => '🔙 Главное меню']],
+        ],
+        'resize_keyboard' => true,
+    ];
 }
 
 function adminKeyboard() {
