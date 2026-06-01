@@ -2,26 +2,29 @@
 session_start();
 require_once 'config/db.php';
 
-// ── Auto-login via TG ID ──
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
-// ── AJAX inline-edit ──
-if ($isAdmin && isset($_POST['inline_edit_price'])) {
+// AJAX сохранение всего прайса одним запросом
+if ($isAdmin && isset($_POST['save_all_inline'])) {
     header('Content-Type: application/json');
-    $id      = (int)($_POST['id'] ?? 0);
-    $field   = $_POST['field'] ?? '';
-    $value   = trim($_POST['value'] ?? '');
-    $allowed = ['title', 'price_rub', 'price_uan', 'description', 'features'];
-    if ($id > 0 && in_array($field, $allowed, true)) {
-        $pdo->prepare("UPDATE prices SET {$field} = ? WHERE id = ?")->execute([$value, $id]);
-        echo json_encode(['ok' => true]);
-    } else {
-        echo json_encode(['ok' => false]);
+    $items = json_decode($_POST['items'] ?? '[]', true);
+    foreach ($items as $item) {
+        $id = (int)($item['id'] ?? 0);
+        if (!$id) continue;
+        $pdo->prepare("UPDATE prices SET title=?, description=?, price_rub=?, price_uan=? WHERE id=?")
+            ->execute([
+                $item['title']     ?? '',
+                $item['desc']      ?? '',
+                (int)($item['rub'] ?? 0),
+                (int)($item['uan'] ?? 0),
+                $id
+            ]);
     }
+    echo json_encode(['ok' => true]);
     exit;
 }
 
@@ -42,60 +45,82 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <title>Kostlim Design | Прайс-лист</title>
 <link rel="stylesheet" href="style.css">
 <style>
-/* ── Инлайн-редактирование ── */
-.editable-field {
-    position: relative;
-    display: inline-block;
-    cursor: default;
-}
-.editable-field .pencil-btn {
-    display: none;
-    position: absolute;
-    top: -6px; right: -24px;
-    width: 19px; height: 19px;
-    background: var(--accent);
-    border: none; border-radius: 5px;
-    cursor: pointer; align-items: center; justify-content: center;
-    box-shadow: 0 0 10px rgba(249,115,22,0.5);
-    z-index: 10; padding: 0;
-}
-.editable-field:hover .pencil-btn { display: inline-flex; }
-.pencil-btn svg { width: 10px; height: 10px; color: #fff; }
-
-.edit-input-inline {
-    background: var(--card3);
-    border: 1px solid var(--accent);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: inherit;
-    font-family: inherit;
-    font-weight: inherit;
-    width: 100%;
-    box-shadow: 0 0 10px rgba(249,115,22,0.2);
-    outline: none;
-}
-
-/* ── Фоновое свечение ── */
 body::before {
     content: '';
-    position: fixed;
-    top: -100px; left: 50%;
-    transform: translateX(-50%);
+    position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
     width: 600px; height: 350px;
     background: radial-gradient(ellipse, rgba(249,115,22,0.10) 0%, transparent 70%);
     pointer-events: none; z-index: 0;
 }
-
 .price-page { position: relative; z-index: 1; }
 
-/* ── Admin bar ── */
-.admin-notice {
+/* Кнопка режима редактирования */
+.edit-mode-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text2); padding: 10px 18px; border-radius: 9px;
+    font-size: 12px; font-weight: 800; cursor: pointer;
+    font-family: inherit; text-transform: uppercase; letter-spacing: .5px;
+    transition: all .22s;
+}
+.edit-mode-btn:hover {
+    border-color: rgba(249,115,22,.4);
+    color: var(--accent); background: rgba(249,115,22,.08);
+}
+.edit-mode-btn.active {
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    border-color: transparent; color: #fff;
+    box-shadow: 0 0 20px rgba(249,115,22,.4);
+}
+.edit-mode-btn svg { width: 14px; height: 14px; }
+
+/* Полоска уведомления */
+.edit-banner {
+    display: none;
     background: rgba(249,115,22,0.10);
     border: 1px solid rgba(249,115,22,0.3);
-    border-radius: 10px; padding: 10px 18px;
+    border-radius: 10px; padding: 11px 18px;
     color: var(--accent2); font-size: 12px; font-weight: 700;
-    text-align: center; margin-bottom: 20px;
+    text-align: center; margin-bottom: 22px;
+    align-items: center; justify-content: center; gap: 14px;
+    flex-wrap: wrap;
+}
+.edit-banner.show { display: flex; }
+
+/* Сохранить кнопка в баннере */
+.save-all-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    border: none; border-radius: 8px; padding: 9px 20px;
+    color: #fff; font-size: 12px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .7px;
+    cursor: pointer; font-family: inherit;
+    box-shadow: 0 4px 14px rgba(249,115,22,.3);
+    transition: all .2s;
+}
+.save-all-btn:hover { opacity: .88; transform: translateY(-1px); }
+.save-all-btn svg { width: 13px; height: 13px; }
+
+/* Редактируемые поля */
+.ef {
+    display: inline; cursor: default;
+}
+.edit-mode .ef {
+    cursor: text;
+    border-bottom: 1.5px dashed rgba(249,115,22,.45);
+    border-radius: 3px;
+    padding: 1px 3px;
+    transition: background .15s, border-color .15s;
+    outline: none;
+}
+.edit-mode .ef:focus {
+    background: rgba(249,115,22,.1);
+    border-color: var(--accent);
+    border-bottom-style: solid;
+    box-shadow: 0 2px 8px rgba(249,115,22,.2);
+}
+.edit-mode .service-card {
+    border-color: rgba(249,115,22,.2);
 }
 </style>
 </head>
@@ -114,29 +139,37 @@ body::before {
     <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
 
     <div class="header-right">
+        <?php if ($isAdmin): ?>
+        <button class="edit-mode-btn" id="editToggle" onclick="toggleEditMode()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Редактировать
+        </button>
+        <?php endif; ?>
         <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link nav-bot">
             <span class="icon"></span>
             Бот для заказов
         </a>
-        <a href="order.php" class="nav-link" style="background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border-color:transparent;box-shadow:0 0 18px rgba(249,115,22,0.3);">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/>
-                <path d="M16 10a4 4 0 0 1-8 0"/>
-            </svg>
+        <a href="order.php" class="nav-link" style="background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border-color:transparent;box-shadow:0 0 16px rgba(249,115,22,.3);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
             К заказу
         </a>
     </div>
 </header>
 
-<main class="container price-page">
+<main class="container price-page" id="priceMain">
     <div class="price-head">
         <h1>Прайс-лист</h1>
         <p>Все услуги подтягиваются из админ-панели и сразу доступны в Telegram-боте.</p>
     </div>
 
     <?php if ($isAdmin): ?>
-    <div class="admin-notice">
-        ✏️ Режим администратора — кликай на карандаш рядом с любым текстом или ценой чтобы изменить прямо здесь
+    <div class="edit-banner" id="editBanner">
+        <span>✏️ Режим редактирования — кликай на любой текст или цену и меняй прямо здесь</span>
+        <button class="save-all-btn" onclick="saveAll()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Сохранить всё
+        </button>
+        <button class="save-all-btn" style="background:#1e1e2a;box-shadow:none;border:1px solid #2a2a38;" onclick="toggleEditMode()">Отмена</button>
     </div>
     <?php endif; ?>
 
@@ -146,48 +179,19 @@ body::before {
         <div class="service-cover">
             <?php $coverSrc = imgSrc($service['image'] ?? ''); ?>
             <?php if ($coverSrc !== ''): ?>
-            <img src="<?= htmlspecialchars($coverSrc) ?>"
-                 alt="<?= htmlspecialchars($service['title']) ?>"
+            <img src="<?= htmlspecialchars($coverSrc) ?>" alt="<?= htmlspecialchars($service['title']) ?>"
                  onerror="this.parentElement.innerHTML='<div class=\'service-cover-placeholder\'><svg width=\'32\' height=\'32\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.5\'><rect x=\'3\' y=\'3\' width=\'18\' height=\'18\' rx=\'3\'/><circle cx=\'8.5\' cy=\'8.5\' r=\'1.5\'/><polyline points=\'21 15 16 10 5 21\'/></svg><span>Нет фото</span></div>'">
             <?php else: ?>
             <div class="service-cover-placeholder">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/>
-                    <polyline points="21 15 16 10 5 21"/>
-                </svg>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                 <span>Нет фото</span>
             </div>
             <?php endif; ?>
         </div>
 
         <div class="service-body">
-            <h2>
-                <?php if ($isAdmin): ?>
-                <span class="editable-field" data-id="<?= (int)$service['id'] ?>" data-field="title">
-                    <span class="field-text"><?= htmlspecialchars($service['title']) ?></span>
-                    <button class="pencil-btn" onclick="startEdit(this)" title="Редактировать">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                </span>
-                <?php else: ?>
-                <?= htmlspecialchars($service['title']) ?>
-                <?php endif; ?>
-            </h2>
-
-            <?php if (!empty($service['description'])): ?>
-            <p>
-                <?php if ($isAdmin): ?>
-                <span class="editable-field" data-id="<?= (int)$service['id'] ?>" data-field="description">
-                    <span class="field-text"><?= htmlspecialchars($service['description']) ?></span>
-                    <button class="pencil-btn" onclick="startEdit(this)" title="Редактировать">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                </span>
-                <?php else: ?>
-                <?= htmlspecialchars($service['description']) ?>
-                <?php endif; ?>
-            </p>
-            <?php endif; ?>
+            <h2><span class="ef" data-field="title" contenteditable="false"><?= htmlspecialchars($service['title']) ?></span></h2>
+            <p><span class="ef" data-field="desc" contenteditable="false"><?= htmlspecialchars($service['description'] ?? '') ?></span></p>
 
             <?php
             $features = array_filter(array_map('trim', explode('|', (string)($service['features'] ?? ''))));
@@ -202,30 +206,11 @@ body::before {
 
             <div class="service-footer">
                 <div class="service-price">
-                    <?php if ($isAdmin): ?>
-                    <span class="editable-field" data-id="<?= (int)$service['id'] ?>" data-field="price_rub">
-                        <span class="field-text"><?= (int)$service['price_rub'] ?></span>
-                        <button class="pencil-btn" onclick="startEdit(this)" title="Редактировать">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                        </button>
-                    </span> ₽
-                    <small>
-                        <span class="editable-field" data-id="<?= (int)$service['id'] ?>" data-field="price_uan">
-                            <span class="field-text"><?= (int)$service['price_uan'] ?></span>
-                            <button class="pencil-btn" onclick="startEdit(this)" title="Редактировать">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                        </span> ₴
-                    </small>
-                    <?php else: ?>
-                    <?= (int)$service['price_rub'] ?> ₽
-                    <small><?= (int)$service['price_uan'] ?> ₴</small>
-                    <?php endif; ?>
+                    <span class="ef" data-field="rub" contenteditable="false"><?= (int)$service['price_rub'] ?></span> ₽
+                    <small><span class="ef" data-field="uan" contenteditable="false"><?= (int)$service['price_uan'] ?></span> ₴</small>
                 </div>
                 <a href="order.php?service=<?= htmlspecialchars($service['category_key']) ?>" class="service-order">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                        <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-                    </svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     Заказать
                 </a>
             </div>
@@ -235,73 +220,62 @@ body::before {
     </section>
 </main>
 
-<footer>
-    <div class="container">© <?= date('Y') ?> Kostlim Design</div>
-</footer>
+<footer><div class="container">© <?= date('Y') ?> Kostlim Design</div></footer>
 
 <?php if ($isAdmin): ?>
 <script>
-// Тост-уведомление
-function showToast(msg, ok = true) {
-    const t = document.createElement('div');
-    Object.assign(t.style, {
-        position:'fixed', bottom:'30px', left:'50%', transform:'translateX(-50%)',
-        background: ok ? '#f97316' : '#ef4444', color:'#fff',
-        padding:'10px 22px', borderRadius:'9px', fontWeight:'800',
-        fontSize:'13px', boxShadow:'0 0 20px rgba(249,115,22,.6)',
-        zIndex:'9999', transition:'opacity .4s', fontFamily:'inherit'
-    });
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 2000);
+let editActive = false;
+
+function toggleEditMode() {
+    editActive = !editActive;
+    const main   = document.getElementById('priceMain');
+    const banner = document.getElementById('editBanner');
+    const btn    = document.getElementById('editToggle');
+
+    if (editActive) {
+        main.classList.add('edit-mode');
+        banner.classList.add('show');
+        btn.classList.add('active');
+        btn.querySelector('span') && (btn.lastChild.textContent = ' Режим вкл');
+        // Включаем contenteditable у всех полей
+        document.querySelectorAll('.ef').forEach(el => el.setAttribute('contenteditable', 'true'));
+    } else {
+        main.classList.remove('edit-mode');
+        banner.classList.remove('show');
+        btn.classList.remove('active');
+        document.querySelectorAll('.ef').forEach(el => el.setAttribute('contenteditable', 'false'));
+    }
 }
 
-function startEdit(btn) {
-    const wrap = btn.closest('.editable-field');
-    const textEl = wrap.querySelector('.field-text');
-    const field = wrap.dataset.field;
-    const id    = wrap.dataset.id;
-    const current = textEl.textContent.trim();
-
-    const inp = document.createElement('input');
-    inp.type  = 'text';
-    inp.value = current;
-    inp.className = 'edit-input-inline';
-
-    textEl.style.display = 'none';
-    btn.style.display = 'none';
-    wrap.appendChild(inp);
-    inp.focus();
-    inp.select();
-
-    const save = async () => {
-        const newVal = inp.value.trim();
-        if (newVal === current) { cancel(); return; }
-        const fd = new FormData();
-        fd.append('inline_edit_price', '1');
-        fd.append('id',    id);
-        fd.append('field', field);
-        fd.append('value', newVal);
-        const res = await fetch(location.href, { method:'POST', body: fd });
-        const data = await res.json();
-        if (data.ok) {
-            textEl.textContent = newVal;
-            showToast('✅ Сохранено!');
-        } else {
-            showToast('❌ Ошибка сохранения', false);
-        }
-        cancel();
-    };
-    const cancel = () => {
-        inp.remove();
-        textEl.style.display = '';
-        btn.style.display = '';
-    };
-    inp.addEventListener('blur', save);
-    inp.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-        if (e.key === 'Escape') { inp.removeEventListener('blur', save); cancel(); }
+async function saveAll() {
+    const cards = document.querySelectorAll('.service-card[data-id]');
+    const items = [];
+    cards.forEach(card => {
+        const id = card.dataset.id;
+        const get = (field) => (card.querySelector(`.ef[data-field="${field}"]`)?.innerText || '').trim();
+        items.push({ id, title: get('title'), desc: get('desc'), rub: get('rub'), uan: get('uan') });
     });
+
+    const fd = new FormData();
+    fd.append('save_all_inline', '1');
+    fd.append('items', JSON.stringify(items));
+
+    const res  = await fetch(location.href, { method: 'POST', body: fd });
+    const data = await res.json();
+
+    const toast = document.createElement('div');
+    toast.textContent = data.ok ? '✅ Прайс сохранён!' : '❌ Ошибка сохранения';
+    Object.assign(toast.style, {
+        position:'fixed', bottom:'30px', left:'50%', transform:'translateX(-50%)',
+        background: data.ok ? 'linear-gradient(135deg,#fb923c,#f97316)' : '#ef4444',
+        color:'#fff', padding:'11px 24px', borderRadius:'10px',
+        fontWeight:'800', fontSize:'13px', fontFamily:'inherit',
+        boxShadow:'0 0 22px rgba(249,115,22,.6)', zIndex:'9999', transition:'opacity .4s'
+    });
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 2500);
+
+    if (data.ok) toggleEditMode();
 }
 </script>
 <?php endif; ?>
