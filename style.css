@@ -61,6 +61,17 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+
+    /* ── Оранжевое ambient свечение (как в order.php) ── */
+    background-image:
+        radial-gradient(ellipse 85% 50% at 50% -5%,
+            rgba(249,115,22,0.20) 0%, transparent 65%),
+        radial-gradient(ellipse 45% 35% at -5% 38%,
+            rgba(249,115,22,0.09) 0%, transparent 60%),
+        radial-gradient(ellipse 45% 35% at 105% 55%,
+            rgba(249,115,22,0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 65% 40% at 50% 108%,
+            rgba(249,115,22,0.10) 0%, transparent 65%);
 }
 a { text-decoration: none; color: inherit; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
@@ -107,6 +118,18 @@ header {
     top: 0;
     z-index: 100;
     gap: 16px;
+    /* тёплое свечение снизу шапки */
+    box-shadow: 0 1px 0 rgba(249,115,22,0.12),
+                0 8px 40px rgba(0,0,0,0.5);
+}
+/* оранжевый ореол поверх шапки */
+header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 55% 120% at 50% -10%,
+        rgba(249,115,22,0.10) 0%, transparent 70%);
+    pointer-events: none;
 }
 
 .header-left, .header-right {
@@ -149,6 +172,8 @@ header {
     -webkit-text-fill-color: transparent;
     background-clip: text;
     line-height: 1;
+    /* мягкое оранжевое свечение под логотипом */
+    filter: drop-shadow(0 0 18px rgba(249,115,22,0.35));
 }
 .brand-title span {
     font-size: 9px;
