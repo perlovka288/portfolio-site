@@ -13,6 +13,13 @@ $my_chat_id  = "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
 $support_tg  = 'https://t.me/Perlo_ovka';
 
+// ── Cloudflare Turnstile (замени на свои ключи из панели Cloudflare) ──
+$turnstile_site_key   = getenv('TURNSTILE_SITE_KEY')   ?: 'ТВОЙ_ПУБЛИЧНЫЙ_КЛЮЧ';
+$turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'ТВОЙ_СЕКРЕТНЫЙ_КЛЮЧ';
+
+// ── Кулдаун настройки ──
+define('COOLDOWN_SECONDS', 300); // 5 минут между заказами с одного IP
+
 $selected_service = $_GET['service'] ?? '';
 
 $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
@@ -33,8 +40,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$rules_accepted) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    // ═══════════════════════════════════════════════════════════════
+    // ЗАЩИТА #1 — Кулдаун по IP (5 минут между заказами)
+    // ═══════════════════════════════════════════════════════════════
+    $user_ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    // Учитываем прокси (Render, Cloudflare)
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        $user_ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT created_at FROM orders WHERE client_ip = ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$user_ip]);
+        $last_order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($last_order) {
+            $seconds_passed = time() - strtotime($last_order['created_at']);
+            if ($seconds_passed < COOLDOWN_SECONDS) {
+                $minutes_left = ceil((COOLDOWN_SECONDS - $seconds_passed) / 60);
+                $error_msg = "⏳ Слишком много заявок. Подождите ещё {$minutes_left} мин. перед новым заказом.";
+                goto render_page;
+            }
+        }
+    } catch (PDOException $e) {
+        // Если столбца client_ip ещё нет (миграция не запущена) — пропускаем кулдаун
+        // После запуска migrate_new_features.sql это заработает автоматически
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ЗАЩИТА #2 — Cloudflare Turnstile (капча без картинок)
+    // ═══════════════════════════════════════════════════════════════
+    $captcha_token = $_POST['cf-turnstile-response'] ?? '';
+    if (empty($captcha_token)) {
+        $error_msg = '⚠️ Пройдите проверку (Turnstile). Обновите страницу и попробуйте снова.';
+        goto render_page;
+    }
+
+    $ch = curl_init('https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, [
+        'secret'   => $turnstile_secret_key,
+        'response' => $captcha_token,
+        'remoteip' => $user_ip,
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    $cf_result = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+
+    if (empty($cf_result['success'])) {
+        $error_msg = '⚠️ Капча не прошла. Обновите страницу и попробуйте ещё раз.';
+        goto render_page;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ЗАЩИТА #3 — Чёрный список (blacklist)
+    // ═══════════════════════════════════════════════════════════════
+    $telegram_raw = trim($_POST['telegram'] ?? '');
+    $tg_clean = ltrim(str_replace(['https://t.me/', 'http://t.me/', '@'], '', $telegram_raw), '@');
+
+    try {
+        $bl_stmt = $pdo->prepare("SELECT reason FROM blacklist WHERE telegram = ? OR ip = ? LIMIT 1");
+        $bl_stmt->execute([$tg_clean, $user_ip]);
+        $bl = $bl_stmt->fetch(PDO::FETCH_ASSOC);
+        if ($bl) {
+            $error_msg = '🚫 Оформление заказов с вашего аккаунта или адреса недоступно.';
+            goto render_page;
+        }
+    } catch (PDOException $e) {
+        // Таблица blacklist не создана — пропускаем (запусти migrate_new_features.sql)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Основная логика заказа
+    // ═══════════════════════════════════════════════════════════════
     $username    = $_POST['username']    ?? '';
-    $telegram    = $_POST['telegram']    ?? '';
     $service_key = $_POST['service']     ?? '';
     $details     = $_POST['details']     ?? '';
 
@@ -65,9 +148,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         $stmt = $pdo->prepare("INSERT INTO orders
-            (username, telegram, service_key, details, screenshot, example_photo, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW())");
-        $stmt->execute([$username, $telegram, $service_key, $details, $pay_screenshot, $example_img_json]);
+            (username, telegram, service_key, details, screenshot, example_photo, status, client_ip, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NOW())");
+        $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $user_ip]);
         $order_id = $pdo->lastInsertId();
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";
@@ -82,18 +165,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $msg_text  = "⚡️ **НОВЫЙ ЗАКАЗ #{$order_id}** ⚡️\n\n";
             $msg_text .= "👤 **Клиент:** " . htmlspecialchars($username) . "\n";
-            $msg_text .= "📞 **Связь:** " . htmlspecialchars($telegram) . "\n";
+            $msg_text .= "📞 **Связь:** " . htmlspecialchars($telegram_raw) . "\n";
             $msg_text .= "🎨 **Услуга:** " . htmlspecialchars($service_title) . "\n";
             $msg_text .= "💰 **Стоимость:** {$p_rub}₽ / {$p_uan}₴\n";
             $msg_text .= "📝 **ТЗ:** " . htmlspecialchars($details) . "\n";
+            $msg_text .= "🌐 **IP:** {$user_ip}";
 
-            $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram);
+            $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
                 [
                     ['text' => '⏳ Взять в работу', 'callback_data' => "adm_work_{$order_id}"],
                     ['text' => '❌ Отклонить',       'callback_data' => "adm_dec_{$order_id}"]
                 ],
-                [['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"]]
+                [
+                    ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],
+                    ['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"]
+                ]
             ]];
 
             $media    = [];
@@ -135,6 +222,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error_msg = "❌ Ошибка БД: " . $e->getMessage();
     }
 }
+
+render_page:
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -143,6 +232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="stylesheet" href="style.css">
+<!-- Cloudflare Turnstile -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
 :root {
     --or: #f97316;
@@ -262,6 +353,12 @@ body::before {
 
 .file-hint {
     color: #555568; font-size: 10px; margin-top: 6px; line-height: 1.5;
+}
+
+/* ── Turnstile wrapper ── */
+.turnstile-wrap {
+    display: flex; justify-content: center;
+    margin-bottom: 18px;
 }
 
 /* ── Кнопка отправить ── */
@@ -477,6 +574,15 @@ body::before {
             </div>
             <div class="file-name-display" id="name_refs">Файлы не выбраны</div>
             <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
+        </div>
+
+        <!-- ── Cloudflare Turnstile ── -->
+        <div class="turnstile-wrap">
+            <div class="cf-turnstile"
+                 data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>"
+                 data-theme="dark"
+                 data-size="normal">
+            </div>
         </div>
 
         <button type="submit" class="order-submit">Отправить заказ Kostlim'у</button>

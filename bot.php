@@ -95,6 +95,37 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Бан клиента в чёрный список ───────────────────────────────
+    if (strpos($callback_data, 'adm_ban_') === 0) {
+        $order_id = (int)str_replace('adm_ban_', '', $callback_data);
+        $order = $pdo->prepare("SELECT telegram, client_ip FROM orders WHERE id = ? LIMIT 1");
+        $order->execute([$order_id]);
+        $o = $order->fetch(PDO::FETCH_ASSOC);
+
+        if ($o) {
+            $tg_clean = ltrim(str_replace(['https://t.me/', 'http://t.me/', '@'], '', $o['telegram'] ?? ''), '@');
+            try {
+                $pdo->prepare("
+                    INSERT IGNORE INTO blacklist (telegram, ip, order_id, reason, created_at)
+                    VALUES (?, ?, ?, 'Бан из Telegram-панели', NOW())
+                ")->execute([$tg_clean ?: null, $o['client_ip'] ?: null, $order_id]);
+
+                sendTelegram($token, 'editMessageText', [
+                    'chat_id'    => $cal_chat_id,
+                    'message_id' => $msg_id,
+                    'text'       => "🚫 *Клиент заблокирован\!*\nЗаказ \#{$order_id} — @{$tg_clean}\nIP: " . ($o['client_ip'] ?? 'неизвестен'),
+                    'parse_mode' => 'MarkdownV2',
+                ]);
+                sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🚫 Клиент добавлен в чёрный список']);
+            } catch (PDOException $e) {
+                sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Ошибка: ' . $e->getMessage(), 'show_alert' => true]);
+            }
+        } else {
+            sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ не найден', 'show_alert' => true]);
+        }
+        exit;
+    }
+
     sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
     exit;
 }
