@@ -385,13 +385,13 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
         imagedestroy($avatar);
     }
 
-    drawTextFit($canvas, 'Kostlim', 214 * $scale, 626 * $scale, 340 * $scale, 54 * $scale, $white, $fontBold, 38 * $scale);
-    drawTextFit($canvas, 'Design', 216 * $scale, 676 * $scale, 320 * $scale, 42 * $scale, $muted, $fontBold, 30 * $scale);
+    drawTextFit($canvas, 'KOSTLIM', 220 * $scale, 622 * $scale, 310 * $scale, 34 * $scale, $white, $fontBold, 24 * $scale);
+    drawTextFit($canvas, 'DESIGN', 222 * $scale, 666 * $scale, 290 * $scale, 30 * $scale, $muted, $fontBold, 22 * $scale);
 
     $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
     drawFilledRoundedRect($canvas, $rightX, $blockY, $rightW, $blockH, 24 * $scale, $infoBg);
-    $price = $priceRub . ' | ' . $priceUan;
-    drawTextCenteredFit($canvas, $price, $rightX + (int)round($rightW / 2), 656 * $scale, 470 * $scale, 72 * $scale, $accent, $fontBold, 46 * $scale);
+    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
+    drawTextCenteredFit($canvas, $price, $rightX + (int)round($rightW / 2), 656 * $scale, 470 * $scale, 40 * $scale, $accent, $fontBold, 28 * $scale);
 
     $final = imagecreatetruecolor(1280, 720);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);

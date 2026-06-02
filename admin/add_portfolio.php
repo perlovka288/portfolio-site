@@ -380,13 +380,13 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         imagedestroy($tmp);
     };
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 48 * $scale, 0, 596 * $scale, 628 * $scale, $white, $font, 'Kostlim');
-        imagettftext($canvas, 36 * $scale, 0, 598 * $scale, 678 * $scale, $muted, $font, 'Design');
-        imagettftext($canvas, 56 * $scale, 0, 840 * $scale, 660 * $scale, $accent, $font, $price_rub . ' | ' . $price_uah);
+        imagettftext($canvas, 30 * $scale, 0, 596 * $scale, 626 * $scale, $white, $font, 'KOSTLIM');
+        imagettftext($canvas, 26 * $scale, 0, 598 * $scale, 666 * $scale, $muted, $font, 'DESIGN');
+        imagettftext($canvas, 40 * $scale, 0, 820 * $scale, 660 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
     } else {
-        $drawFallback('Kostlim', 596 * $scale, 628 * $scale, 52 * $scale, 320 * $scale, $white);
-        $drawFallback('Design', 598 * $scale, 678 * $scale, 40 * $scale, 280 * $scale, $muted);
-        $drawFallback($price_rub . ' | ' . $price_uah, 840 * $scale, 660 * $scale, 62 * $scale, 430 * $scale, $accent);
+        $drawFallback('KOSTLIM', 596 * $scale, 626 * $scale, 34 * $scale, 300 * $scale, $white);
+        $drawFallback('DESIGN', 598 * $scale, 666 * $scale, 30 * $scale, 280 * $scale, $muted);
+        $drawFallback($price_rub . ' RUB | ' . $price_uah . ' UAH', 820 * $scale, 660 * $scale, 42 * $scale, 430 * $scale, $accent);
     }
 
     $final = imagecreatetruecolor(1280, 720);
