@@ -106,12 +106,18 @@ function gdFontPath(bool $regular = false): string
 {
     $paths = $regular
         ? [
+            __DIR__ . '/../assets/fonts/GoogleSans-Regular.ttf',
+            __DIR__ . '/../assets/fonts/GoogleSansText-Regular.ttf',
+            __DIR__ . '/../assets/fonts/ProductSans-Regular.ttf',
             __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
             'C:/Windows/Fonts/arial.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         ]
         : [
+            __DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf',
+            __DIR__ . '/../assets/fonts/GoogleSansText-Bold.ttf',
+            __DIR__ . '/../assets/fonts/ProductSans-Bold.ttf',
             __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
             'C:/Windows/Fonts/arialbd.ttf',
             'C:/Windows/Fonts/arial.ttf',
@@ -282,7 +288,7 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
         imagefilledellipse($canvas, 380, 1260, 760, 420, $glow);
     }
 
-    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 70);
+    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 72);
     drawFilledRoundedRect($canvas, 292 * $scale, 92 * $scale, 896 * $scale, 506 * $scale, 42 * $scale, $shadow);
 
     $panelW = 884 * $scale;
@@ -309,23 +315,23 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $white = imagecolorallocate($canvas, 255, 255, 255);
     $muted = imagecolorallocate($canvas, 214, 214, 222);
     $accent = imagecolorallocate($canvas, 249, 115, 22);
-    $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 45);
-    drawFilledRoundedRect($canvas, 72 * $scale, 604 * $scale, 436 * $scale, 88 * $scale, 22 * $scale, $chipBg);
+    $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 28);
+    drawFilledRoundedRect($canvas, 72 * $scale, 580 * $scale, 500 * $scale, 116 * $scale, 24 * $scale, $chipBg);
 
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 92 * $scale, 618 * $scale, 58 * $scale);
+        drawCircularImage($canvas, $avatar, 96 * $scale, 604 * $scale, 82 * $scale);
         imagedestroy($avatar);
     }
 
-    drawTextFit($canvas, 'Kostlim Design', 170 * $scale, 646 * $scale, 315 * $scale, 27 * $scale, $white, $fontBold, 18 * $scale);
-    drawTextFit($canvas, 'portfolio drop', 172 * $scale, 676 * $scale, 300 * $scale, 14 * $scale, $muted, $fontRegular, 11 * $scale);
+    drawTextFit($canvas, 'Kostlim Design', 204 * $scale, 628 * $scale, 340 * $scale, 44 * $scale, $white, $fontBold, 32 * $scale);
+    drawTextFit($canvas, 'Premium design work', 206 * $scale, 678 * $scale, 330 * $scale, 26 * $scale, $muted, $fontRegular, 20 * $scale);
 
-    $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 35);
-    drawFilledRoundedRect($canvas, 540 * $scale, 604 * $scale, 638 * $scale, 88 * $scale, 22 * $scale, $infoBg);
-    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 568 * $scale, 644 * $scale, 420 * $scale, 26 * $scale, $white, $fontBold, 17 * $scale);
-    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
-    drawTextFit($canvas, $price, 568 * $scale, 674 * $scale, 300 * $scale, 18 * $scale, $accent, $fontBold, 13 * $scale);
-    drawTextFit($canvas, 'Order: portfolio-site-boo5.onrender.com', 900 * $scale, 674 * $scale, 240 * $scale, 13 * $scale, $muted, $fontRegular, 10 * $scale);
+    $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
+    drawFilledRoundedRect($canvas, 610 * $scale, 580 * $scale, 568 * $scale, 116 * $scale, 24 * $scale, $infoBg);
+    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 638 * $scale, 628 * $scale, 500 * $scale, 42 * $scale, $white, $fontBold, 28 * $scale);
+    $price = $priceRub . ' RUB  |  ' . $priceUan . ' UAH';
+    drawTextFit($canvas, $price, 638 * $scale, 678 * $scale, 330 * $scale, 30 * $scale, $accent, $fontBold, 22 * $scale);
+    drawTextFit($canvas, 'Order: Kostlim Design', 965 * $scale, 678 * $scale, 175 * $scale, 22 * $scale, $muted, $fontRegular, 16 * $scale);
 
     $final = imagecreatetruecolor(1280, 720);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
@@ -387,10 +393,9 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
     $rub     = (int)($case['price_rub'] ?? 0);
     $uan     = (int)($case['price_uan'] ?? 0);
     $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan);
-    $caption = "<b>Kostlim Design</b>\n";
-    $caption .= "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
+    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
     $caption .= "💬 Оценить данную работу можно в комментариях.\n\n";
-    $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
+    $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
 
     $result = sendTelegramRequest('sendPhoto', [
         'chat_id'    => PORTFOLIO_CHANNEL_CHAT,

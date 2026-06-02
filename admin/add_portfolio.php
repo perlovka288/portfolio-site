@@ -342,6 +342,9 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     }
 
     $fontPaths = [
+        __DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf',
+        __DIR__ . '/../assets/fonts/GoogleSansText-Bold.ttf',
+        __DIR__ . '/../assets/fonts/ProductSans-Bold.ttf',
         __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
         'C:/Windows/Fonts/arialbd.ttf',
         'C:/Windows/Fonts/arial.ttf',
@@ -356,10 +359,10 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     $accent = imagecolorallocate($canvas, 249, 115, 22);
     $muted = imagecolorallocate($canvas, 214, 214, 222);
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 30 * $scale, 0, 596 * $scale, 622 * $scale, $white, $font, 'Kostlim Design');
+        imagettftext($canvas, 38 * $scale, 0, 596 * $scale, 626 * $scale, $white, $font, 'Kostlim Design');
         $safeTitle = function_exists('mb_substr') ? mb_substr($title ?: 'New design work', 0, 34) : substr($title ?: 'New design work', 0, 68);
-        imagettftext($canvas, 24 * $scale, 0, 596 * $scale, 654 * $scale, $muted, $font, $safeTitle);
-        imagettftext($canvas, 20 * $scale, 0, 596 * $scale, 682 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
+        imagettftext($canvas, 28 * $scale, 0, 596 * $scale, 664 * $scale, $muted, $font, $safeTitle);
+        imagettftext($canvas, 24 * $scale, 0, 596 * $scale, 696 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
     } else {
         imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'Kostlim Design', $white);
         imagestring($canvas, 5, 596 * $scale, 636 * $scale, $title ?: 'New design work', $muted);
@@ -382,10 +385,9 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
 // ═══════════════════════════════════════════════════════════════
 function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url) {
     try {
-        $caption = "<b>Kostlim Design</b>\n"
-            . "💰 Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
+        $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
             . "💬 Оценить данную работу можно в комментариях.\n\n"
-            . '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars($site_url, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
+            . '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars($site_url, ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
 
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
         curl_setopt($ch, CURLOPT_POST, true);
