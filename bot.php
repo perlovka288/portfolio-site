@@ -432,22 +432,31 @@ function isLinked(PDO $pdo, $chat_id): bool {
     }
 }
 
-/** Показать личный кабинет клиента */
+// ══ БАГ 2 ИСПРАВЛЕН ══════════════════════════════════════════════
+// showCabinet теперь ищет заказы через tg_links по tg_chat_id,
+// а НЕ только по client_chat_id (который NULL у большинства клиентов)
 function showCabinet(PDO $pdo, $token, $chat_id): void {
     $status_icons = ['pending' => '⏳', 'in_progress' => '⌛', 'ready' => '✅', 'declined' => '❌'];
     $status_text  = ['pending' => 'Ожидает', 'in_progress' => 'В работе', 'ready' => 'Готов', 'declined' => 'Отклонён'];
 
     try {
-        // Ищем заказы по client_chat_id
+        // Ищем заказы через tg_links по tg_chat_id (основной путь для привязанных аккаунтов)
+        // + fallback: client_chat_id (для тех кто пользовался /status_X)
         $stmt = $pdo->prepare("
-            SELECT o.id, o.status, o.created_at, o.service_key, p.title AS service_title, p.price_rub, p.price_uan
-            FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key
-            WHERE o.client_chat_id = ?
-            ORDER BY o.id DESC LIMIT 10
+            SELECT DISTINCT o.id, o.status, o.created_at, o.service_key,
+                   p.title AS service_title, p.price_rub, p.price_uan
+            FROM orders o
+            LEFT JOIN prices p ON p.category_key = o.service_key
+            LEFT JOIN tg_links tl ON tl.session_id = o.session_id
+            WHERE tl.tg_chat_id = ?
+               OR o.client_chat_id = ?
+            ORDER BY o.id DESC
+            LIMIT 10
         ");
-        $stmt->execute([$chat_id]);
+        $stmt->execute([$chat_id, $chat_id]);
         $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable $e) {
+        botLog("showCabinet error: " . $e->getMessage());
         $orders = [];
     }
 
@@ -460,7 +469,7 @@ function showCabinet(PDO $pdo, $token, $chat_id): void {
         return;
     }
 
-    $msg = "👤 *Ваши заказы:*\n\n";
+    $msg = "👤 *История ваших заказов:*\n\n";
     foreach ($orders as $o) {
         $icon = $status_icons[$o['status']] ?? '❓';
         $stxt = $status_text[$o['status']]  ?? $o['status'];
@@ -719,12 +728,34 @@ function getOrderTelegram(PDO $pdo, int $order_id): string {
     return (string)$stmt->fetchColumn();
 }
 
+// ══ БАГ 1 ИСПРАВЛЕН ══════════════════════════════════════════════
+// notifyClient теперь fallback через tg_links если client_chat_id = NULL
 function notifyClient(PDO $pdo, string $token, int $order_id, string $text): void {
-    $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT client_chat_id, session_id FROM orders WHERE id = ? LIMIT 1");
     $stmt->execute([$order_id]);
-    $chat_id = $stmt->fetchColumn();
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$order) return;
+
+    $chat_id = $order['client_chat_id'];
+
+    // Fallback: client_chat_id пустой — ищем через tg_links по session_id
+    if (empty($chat_id) && !empty($order['session_id'])) {
+        try {
+            $tg_stmt = $pdo->prepare("SELECT tg_chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE LIMIT 1");
+            $tg_stmt->execute([$order['session_id']]);
+            $chat_id = $tg_stmt->fetchColumn();
+        } catch (Throwable $e) {
+            botLog("notifyClient fallback error: " . $e->getMessage());
+        }
+    }
+
     if (!empty($chat_id)) {
-        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $text, 'parse_mode' => 'MarkdownV2']);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $chat_id,
+            'text'       => $text,
+            'parse_mode' => 'MarkdownV2',
+        ]);
     }
 }
 
