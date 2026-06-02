@@ -321,9 +321,19 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         imagedestroy($avatar);
     };
 
+    $catW = (int)($category_frame['width_px'] ?? 0);
+    $catH = (int)($category_frame['height_px'] ?? 0);
+    if ($catW <= 0 || $catH <= 0) {
+        $catW = max(1, imagesx($main));
+        $catH = max(1, imagesy($main));
+    }
+
+    $outW = $catW;
+    $outH = $catH;
+
     $scale = 2;
-    $canvasW = 1280 * $scale;
-    $canvasH = 720 * $scale;
+    $canvasW = $outW * $scale;
+    $canvasH = $outH * $scale;
     $canvas = imagecreatetruecolor($canvasW, $canvasH);
     imagealphablending($canvas, true);
     imagesavealpha($canvas, true);
@@ -354,17 +364,14 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         }
     }
 
-    $catW = (int)($category_frame['width_px'] ?? 0);
-    $catH = (int)($category_frame['height_px'] ?? 0);
-    if ($catW <= 0 || $catH <= 0) {
-        $catW = max(1, imagesx($main));
-        $catH = max(1, imagesy($main));
-    }
-
-    $frameW = 896 * $scale;
-    $frameH = 498 * $scale;
-    $frameX = (int)(($canvasW - $frameW) / 2);
-    $frameY = 66 * $scale;
+    $padding = (int)round(min($canvasW, $canvasH) * 0.055);
+    $brandH = (int)round(min($canvasW, $canvasH) * 0.18);
+    $gap = (int)round(min($canvasW, $canvasH) * 0.026);
+    $frameW = $canvasW - ($padding * 2);
+    $frameH = $canvasH - ($padding * 2) - $brandH - $gap;
+    if ($frameH < (int)round($canvasH * .48)) $frameH = (int)round($canvasH * .48);
+    $frameX = $padding;
+    $frameY = $padding;
     $frameScale = min($frameW / $catW, $frameH / $catH);
     $panelW = (int)round($catW * $frameScale);
     $panelH = (int)round($catH * $frameScale);
@@ -380,11 +387,6 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     $roundCorners($panel, 58 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
-
-    if ($avatar) {
-        $drawCircle($canvas, $avatar, 482 * $scale, 592 * $scale, 90 * $scale);
-        imagedestroy($avatar);
-    }
 
     $fontPaths = [
         __DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf',
@@ -404,6 +406,21 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     $white = imagecolorallocate($canvas, 255, 255, 255);
     $accent = imagecolorallocate($canvas, 249, 115, 22);
     $muted = imagecolorallocate($canvas, 214, 214, 222);
+    $brandY = min($canvasH - $padding - $brandH, $panelY + $panelH + $gap);
+    $avatarSize = $avatar ? (int)round(min($canvasW, $canvasH) * 0.125) : 0;
+    $avatarX = $padding;
+    $avatarY = $brandY + (int)round(($brandH - $avatarSize) / 2);
+    $textX = $avatar ? ($avatarX + $avatarSize + (int)round($gap * 1.25)) : $padding;
+    $brandTopBaseline = $brandY + (int)round($brandH * 0.38);
+    $brandBottomBaseline = $brandY + (int)round($brandH * 0.66);
+    $priceX = max($textX, (int)round($canvasW * 0.56));
+    $priceBaseline = $brandY + (int)round($brandH * 0.58);
+
+    if ($avatar) {
+        $drawCircle($canvas, $avatar, $avatarX, $avatarY, $avatarSize);
+        imagedestroy($avatar);
+    }
+
     $drawFallback = function ($text, int $x, int $y, int $targetH, int $maxW, int $color) use ($canvas): void {
         $text = trim((string)$text);
         if ($text === '') return;
@@ -425,17 +442,17 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         imagedestroy($tmp);
     };
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 30 * $scale, 0, 596 * $scale, 626 * $scale, $white, $font, 'KOSTLIM');
-        imagettftext($canvas, 26 * $scale, 0, 598 * $scale, 666 * $scale, $muted, $font, 'DESIGN');
-        imagettftext($canvas, 40 * $scale, 0, 820 * $scale, 660 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
+        imagettftext($canvas, max(16, (int)round($brandH * 0.17)), 0, $textX, $brandTopBaseline, $white, $font, 'KOSTLIM');
+        imagettftext($canvas, max(14, (int)round($brandH * 0.145)), 0, $textX, $brandBottomBaseline, $muted, $font, 'DESIGN');
+        imagettftext($canvas, max(18, (int)round($brandH * 0.20)), 0, $priceX, $priceBaseline, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
     } else {
-        $drawFallback('KOSTLIM', 596 * $scale, 626 * $scale, 34 * $scale, 300 * $scale, $white);
-        $drawFallback('DESIGN', 598 * $scale, 666 * $scale, 30 * $scale, 280 * $scale, $muted);
-        $drawFallback($price_rub . ' RUB | ' . $price_uah . ' UAH', 820 * $scale, 660 * $scale, 42 * $scale, 430 * $scale, $accent);
+        $drawFallback('KOSTLIM', $textX, $brandTopBaseline, max(16, (int)round($brandH * 0.17)), (int)round($canvasW * 0.34), $white);
+        $drawFallback('DESIGN', $textX, $brandBottomBaseline, max(14, (int)round($brandH * 0.145)), (int)round($canvasW * 0.34), $muted);
+        $drawFallback($price_rub . ' RUB | ' . $price_uah . ' UAH', $priceX, $priceBaseline, max(18, (int)round($brandH * 0.20)), (int)round($canvasW * 0.40), $accent);
     }
 
-    $final = imagecreatetruecolor(1280, 720);
-    imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
+    $final = imagecreatetruecolor($outW, $outH);
+    imagecopyresampled($final, $canvas, 0, 0, 0, 0, $outW, $outH, $canvasW, $canvasH);
 
     ob_start();
     imagejpeg($final, null, 100);

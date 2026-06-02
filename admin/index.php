@@ -381,8 +381,8 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
         $catH = $mainH;
     }
 
-    $outW = 1280;
-    $outH = 720;
+    $outW = $catW;
+    $outH = $catH;
 
     $scale = 2;
     $canvasW = $outW * $scale;
