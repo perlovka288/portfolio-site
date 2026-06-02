@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ── Накладываем водяной знак ───────────────────────────────────
-    $watermarked = applyWatermark($img_data, $avatar_url, 'KOSTLIM DESIGN', 'T.ME/DESIGNKOSTLIM');
+    $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uah);
     $final_data  = $watermarked ?: $img_data; // если GD не сработал — оригинал
 
     // ── Загружаем на ImgBB ─────────────────────────────────────────
@@ -206,7 +206,7 @@ render:
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИЯ: Водяной знак
 // ═══════════════════════════════════════════════════════════════
-function applyWatermark(string $img_data, string $avatar_url, string $line1, string $line2): ?string
+function applyWatermark(string $img_data, string $avatar_url, string $title = '', int $price_rub = 0, int $price_uah = 0): ?string
 {
     if (!extension_loaded('gd')) return null;
 
@@ -295,12 +295,30 @@ function applyWatermark(string $img_data, string $avatar_url, string $line1, str
     imagealphablending($canvas, true);
     imagesavealpha($canvas, true);
 
-    for ($y = 0; $y < $canvasH; $y++) {
-        $mix = $y / $canvasH;
-        $r = (int)(16 + 30 * $mix);
-        $g = (int)(16 + 12 * $mix);
-        $b = (int)(18 + 2 * $mix);
-        imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
+    $template = '';
+    foreach ([
+        __DIR__ . '/../uploads/channel_template.png',
+        __DIR__ . '/../uploads/channel-template.png',
+        __DIR__ . '/../uploads/cover_template.png',
+        __DIR__ . '/../uploads/cover-template.png',
+        __DIR__ . '/channel_template.png',
+        __DIR__ . '/channel-template.png',
+    ] as $templatePath) {
+        if (is_file($templatePath)) { $template = $templatePath; break; }
+    }
+
+    $templateImg = $template !== '' ? @imagecreatefromstring((string)file_get_contents($template)) : null;
+    if ($templateImg) {
+        $copyCover($canvas, $templateImg, 0, 0, $canvasW, $canvasH);
+        imagedestroy($templateImg);
+    } else {
+        for ($y = 0; $y < $canvasH; $y++) {
+            $mix = $y / $canvasH;
+            $r = (int)(10 + 34 * $mix);
+            $g = (int)(10 + 12 * $mix);
+            $b = (int)(14 + 4 * $mix);
+            imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
+        }
     }
 
     $panelW = 896 * $scale;
@@ -335,12 +353,16 @@ function applyWatermark(string $img_data, string $avatar_url, string $line1, str
         if (is_file($fontPath)) { $font = $fontPath; break; }
     }
     $white = imagecolorallocate($canvas, 255, 255, 255);
+    $accent = imagecolorallocate($canvas, 249, 115, 22);
+    $muted = imagecolorallocate($canvas, 214, 214, 222);
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 44 * $scale, 0, 596 * $scale, 638 * $scale, $white, $font, 'KOSTLIM');
-        imagettftext($canvas, 36 * $scale, 0, 598 * $scale, 678 * $scale, $white, $font, 'DESIGN');
+        imagettftext($canvas, 30 * $scale, 0, 596 * $scale, 622 * $scale, $white, $font, 'Kostlim Design');
+        $safeTitle = function_exists('mb_substr') ? mb_substr($title ?: 'New design work', 0, 34) : substr($title ?: 'New design work', 0, 68);
+        imagettftext($canvas, 24 * $scale, 0, 596 * $scale, 654 * $scale, $muted, $font, $safeTitle);
+        imagettftext($canvas, 20 * $scale, 0, 596 * $scale, 682 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
     } else {
-        imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'KOSTLIM', $white);
-        imagestring($canvas, 5, 598 * $scale, 636 * $scale, 'DESIGN', $white);
+        imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'Kostlim Design', $white);
+        imagestring($canvas, 5, 596 * $scale, 636 * $scale, $title ?: 'New design work', $muted);
     }
 
     $final = imagecreatetruecolor(1280, 720);
@@ -360,7 +382,8 @@ function applyWatermark(string $img_data, string $avatar_url, string $line1, str
 // ═══════════════════════════════════════════════════════════════
 function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url) {
     try {
-        $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
+        $caption = "<b>Kostlim Design</b>\n"
+            . "💰 Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
             . "💬 Оценить данную работу можно в комментариях.\n\n"
             . '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars($site_url, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
 

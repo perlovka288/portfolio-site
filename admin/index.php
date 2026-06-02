@@ -102,19 +102,70 @@ function imageFromFile(string $path)
     };
 }
 
-function gdFontPath(): string
+function gdFontPath(bool $regular = false): string
+{
+    $paths = $regular
+        ? [
+            __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
+            'C:/Windows/Fonts/arial.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        ]
+        : [
+            __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+            'C:/Windows/Fonts/arialbd.ttf',
+            'C:/Windows/Fonts/arial.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        ];
+    foreach ($paths as $path) {
+        if (is_file($path)) return $path;
+    }
+    return '';
+}
+
+function channelTemplatePath(): string
 {
     $paths = [
-        __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
-        'C:/Windows/Fonts/arialbd.ttf',
-        'C:/Windows/Fonts/arial.ttf',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        __DIR__ . '/../uploads/channel_template.png',
+        __DIR__ . '/../uploads/channel-template.png',
+        __DIR__ . '/../uploads/cover_template.png',
+        __DIR__ . '/../uploads/cover-template.png',
+        __DIR__ . '/channel_template.png',
+        __DIR__ . '/channel-template.png',
+        __DIR__ . '/../assets/channel_template.png',
+        __DIR__ . '/../assets/channel-template.png',
     ];
     foreach ($paths as $path) {
         if (is_file($path)) return $path;
     }
     return '';
+}
+
+function drawFilledRoundedRect($img, int $x, int $y, int $w, int $h, int $radius, int $color): void
+{
+    imagefilledrectangle($img, $x + $radius, $y, $x + $w - $radius, $y + $h, $color);
+    imagefilledrectangle($img, $x, $y + $radius, $x + $w, $y + $h - $radius, $color);
+    imagefilledellipse($img, $x + $radius, $y + $radius, $radius * 2, $radius * 2, $color);
+    imagefilledellipse($img, $x + $w - $radius, $y + $radius, $radius * 2, $radius * 2, $color);
+    imagefilledellipse($img, $x + $radius, $y + $h - $radius, $radius * 2, $radius * 2, $color);
+    imagefilledellipse($img, $x + $w - $radius, $y + $h - $radius, $radius * 2, $radius * 2, $color);
+}
+
+function drawTextFit($img, string $text, int $x, int $y, int $maxW, int $size, int $color, string $font, int $minSize = 20): void
+{
+    $text = trim($text);
+    if ($text === '') return;
+    if ($font !== '' && function_exists('imagettftext')) {
+        while ($size > $minSize) {
+            $box = imagettfbbox($size, 0, $font, $text);
+            if (($box[2] - $box[0]) <= $maxW) break;
+            $size -= 2;
+        }
+        imagettftext($img, $size, 0, $x, $y, $color, $font, $text);
+        return;
+    }
+    imagestring($img, 5, $x, $y - 16, $text, $color);
 }
 
 function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
@@ -199,7 +250,7 @@ function drawCircularImage($dst, $src, int $x, int $y, int $size): void
     imagedestroy($avatar);
 }
 
-function createWatermarkedImage(string $mainPath, string $avatarPath): string
+function createWatermarkedImage(string $mainPath, string $avatarPath, string $title = '', int $priceRub = 0, int $priceUan = 0): string
 {
     if (!extension_loaded('gd') || !is_file($mainPath)) return $mainPath;
     $main = imageFromFile($mainPath);
@@ -213,18 +264,31 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
     imagealphablending($canvas, true);
     imagesavealpha($canvas, true);
 
-    for ($y = 0; $y < $canvasH; $y++) {
-        $mix = $y / $canvasH;
-        $r = (int)(16 + 30 * $mix);
-        $g = (int)(16 + 12 * $mix);
-        $b = (int)(18 + 2 * $mix);
-        imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
+    $template = channelTemplatePath();
+    $templateImg = $template !== '' ? imageFromFile($template) : null;
+    if ($templateImg) {
+        copyImageCover($canvas, $templateImg, 0, 0, $canvasW, $canvasH);
+        imagedestroy($templateImg);
+    } else {
+        for ($y = 0; $y < $canvasH; $y++) {
+            $mix = $y / $canvasH;
+            $r = (int)(10 + 34 * $mix);
+            $g = (int)(10 + 12 * $mix);
+            $b = (int)(14 + 4 * $mix);
+            imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
+        }
+        $glow = imagecolorallocatealpha($canvas, 249, 115, 22, 105);
+        imagefilledellipse($canvas, 2220, 250, 900, 520, $glow);
+        imagefilledellipse($canvas, 380, 1260, 760, 420, $glow);
     }
 
-    $panelW = 896 * $scale;
-    $panelH = 498 * $scale;
+    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 70);
+    drawFilledRoundedRect($canvas, 292 * $scale, 92 * $scale, 896 * $scale, 506 * $scale, 42 * $scale, $shadow);
+
+    $panelW = 884 * $scale;
+    $panelH = 492 * $scale;
     $panelX = (int)(($canvasW - $panelW) / 2);
-    $panelY = 66 * $scale;
+    $panelY = 76 * $scale;
     $panel = imagecreatetruecolor($panelW, $panelH);
     imagealphablending($panel, true);
     imagesavealpha($panel, true);
@@ -232,24 +296,36 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
     imagefill($panel, 0, 0, $transparent);
 
     copyImageCover($panel, $main, 0, 0, $panelW, $panelH);
-    applyRoundedCorners($panel, 58 * $scale);
+    applyRoundedCorners($panel, 34 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
 
+    $line = imagecolorallocatealpha($canvas, 255, 255, 255, 32);
+    imagesetthickness($canvas, 2 * $scale);
+    imagerectangle($canvas, $panelX, $panelY, $panelX + $panelW, $panelY + $panelH, $line);
+
+    $fontBold = gdFontPath(false);
+    $fontRegular = gdFontPath(true);
+    $white = imagecolorallocate($canvas, 255, 255, 255);
+    $muted = imagecolorallocate($canvas, 214, 214, 222);
+    $accent = imagecolorallocate($canvas, 249, 115, 22);
+    $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 45);
+    drawFilledRoundedRect($canvas, 72 * $scale, 604 * $scale, 436 * $scale, 88 * $scale, 22 * $scale, $chipBg);
+
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 482 * $scale, 592 * $scale, 90 * $scale);
+        drawCircularImage($canvas, $avatar, 92 * $scale, 618 * $scale, 58 * $scale);
         imagedestroy($avatar);
     }
 
-    $font = gdFontPath();
-    $white = imagecolorallocate($canvas, 255, 255, 255);
-    if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 44 * $scale, 0, 596 * $scale, 638 * $scale, $white, $font, 'KOSTLIM');
-        imagettftext($canvas, 36 * $scale, 0, 598 * $scale, 678 * $scale, $white, $font, 'DESIGN');
-    } else {
-        imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'KOSTLIM', $white);
-        imagestring($canvas, 5, 598 * $scale, 636 * $scale, 'DESIGN', $white);
-    }
+    drawTextFit($canvas, 'Kostlim Design', 170 * $scale, 646 * $scale, 315 * $scale, 27 * $scale, $white, $fontBold, 18 * $scale);
+    drawTextFit($canvas, 'portfolio drop', 172 * $scale, 676 * $scale, 300 * $scale, 14 * $scale, $muted, $fontRegular, 11 * $scale);
+
+    $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 35);
+    drawFilledRoundedRect($canvas, 540 * $scale, 604 * $scale, 638 * $scale, 88 * $scale, 22 * $scale, $infoBg);
+    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 568 * $scale, 644 * $scale, 420 * $scale, 26 * $scale, $white, $fontBold, 17 * $scale);
+    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
+    drawTextFit($canvas, $price, 568 * $scale, 674 * $scale, 300 * $scale, 18 * $scale, $accent, $fontBold, 13 * $scale);
+    drawTextFit($canvas, 'Order: portfolio-site-boo5.onrender.com', 900 * $scale, 674 * $scale, 240 * $scale, 13 * $scale, $muted, $fontRegular, 10 * $scale);
 
     $final = imagecreatetruecolor(1280, 720);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
@@ -308,13 +384,11 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
         $avatarDownloaded = false;
     }
 
-    $photoPath = ($avatarPath !== '' && is_file($avatarPath))
-        ? createWatermarkedImage($mainPath, $avatarPath)
-        : $mainPath;
-
     $rub     = (int)($case['price_rub'] ?? 0);
     $uan     = (int)($case['price_uan'] ?? 0);
-    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
+    $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan);
+    $caption = "<b>Kostlim Design</b>\n";
+    $caption .= "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
     $caption .= "💬 Оценить данную работу можно в комментариях.\n\n";
     $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
 
