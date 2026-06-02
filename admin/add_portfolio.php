@@ -13,7 +13,7 @@ $bot_token  = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT2
 $channel_id = getenv('CHANNEL_ID')   ?: "@designkostlim";
 $admin_id   = getenv('ADMIN_ID')     ?: "1710365896";
 $imgbb_key  = getenv('IMGBB_KEY')    ?: "";
-$site_url   = getenv('SITE_URL')     ?: "https://portfolio-site-boo5.onrender.com/";
+$site_url   = "https://portfolio-site-boo5.onrender.com/";
 $avatar_url = getenv('AVATAR_URL')   ?: "https://i.ibb.co/twWTVGHn/avatar-1780311261.jpg";
 
 // Защита
@@ -210,123 +210,184 @@ function applyWatermark(string $img_data, string $avatar_url, string $line1, str
 {
     if (!extension_loaded('gd')) return null;
 
-    // Загружаем основное изображение
-    $src = @imagecreatefromstring($img_data);
-    if (!$src) return null;
+    $main = @imagecreatefromstring($img_data);
+    if (!$main) return null;
 
-    $src_w = imagesx($src);
-    $src_h = imagesy($src);
-
-    // ── Параметры плашки ──────────────────────────────────────
-    $bar_h    = (int)($src_h * 0.10); // 10% высоты изображения
-    $bar_h    = max($bar_h, 48);       // минимум 48px
-    $pad      = (int)($bar_h * 0.18);
-    $font_size_big  = max(14, (int)($bar_h * 0.35));
-    $font_size_small = max(10, (int)($bar_h * 0.25));
-
-    // Создаём финальный холст (оригинал + плашка снизу)
-    $out = imagecreatetruecolor($src_w, $src_h + $bar_h);
-
-    // Копируем оригинал
-    imagecopy($out, $src, 0, 0, 0, 0, $src_w, $src_h);
-    imagedestroy($src);
-
-    // ── Фон плашки — тёмный с небольшой прозрачностью ────────
-    $bar_bg = imagecolorallocate($out, 13, 13, 18); // #0d0d12
-    imagefilledrectangle($out, 0, $src_h, $src_w, $src_h + $bar_h, $bar_bg);
-
-    // ── Цвета текста ──────────────────────────────────────────
-    $white  = imagecolorallocate($out, 255, 255, 255);
-    $orange = imagecolorallocate($out, 249, 115, 22);   // #f97316
-    $grey   = imagecolorallocate($out, 160, 160, 170);
-
-    // ── Аватарка ──────────────────────────────────────────────
+    $avatar = null;
     $avatar_data = @file_get_contents($avatar_url);
-    $avatar_size = $bar_h - $pad * 2;
-    $avatar_x    = $pad;
-    $avatar_y    = $src_h + $pad;
-
     if ($avatar_data) {
-        $av_src = @imagecreatefromstring($avatar_data);
-        if ($av_src) {
-            // Масштабируем аватарку
-            $av_scaled = imagecreatetruecolor($avatar_size, $avatar_size);
-            imagecopyresampled($av_scaled, $av_src, 0, 0, 0, 0,
-                $avatar_size, $avatar_size, imagesx($av_src), imagesy($av_src));
-            imagedestroy($av_src);
+        $avatar = @imagecreatefromstring($avatar_data) ?: null;
+    }
 
-            // Круглая маска для аватарки
-            $mask = imagecreatetruecolor($avatar_size, $avatar_size);
-            $black = imagecolorallocate($mask, 0, 0, 0);
-            $mask_white = imagecolorallocate($mask, 255, 255, 255);
-            imagefill($mask, 0, 0, $black);
-            imagefilledellipse($mask, $avatar_size/2, $avatar_size/2, $avatar_size, $avatar_size, $mask_white);
+    $copyCover = function ($dst, $src, int $dx, int $dy, int $dw, int $dh): void {
+        $sw = imagesx($src);
+        $sh = imagesy($src);
+        if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
+        $srcRatio = $sw / $sh;
+        $dstRatio = $dw / $dh;
+        if ($srcRatio > $dstRatio) {
+            $cropH = $sh;
+            $cropW = (int)round($sh * $dstRatio);
+            $sx = (int)round(($sw - $cropW) / 2);
+            $sy = 0;
+        } else {
+            $cropW = $sw;
+            $cropH = (int)round($sw / $dstRatio);
+            $sx = 0;
+            $sy = (int)round(($sh - $cropH) / 2);
+        }
+        imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
+    };
 
-            // Накладываем аватарку с маской
-            for ($y = 0; $y < $avatar_size; $y++) {
-                for ($x = 0; $x < $avatar_size; $x++) {
-                    $m = imagecolorat($mask, $x, $y);
-                    if ($m > 0) {
-                        $c = imagecolorat($av_scaled, $x, $y);
-                        imagesetpixel($out, $avatar_x + $x, $avatar_y + $y, $c);
+    $roundCorners = function ($img, int $radius): void {
+        $w = imagesx($img);
+        $h = imagesy($img);
+        $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
+        for ($y = 0; $y < $h; $y++) {
+            for ($x = 0; $x < $w; $x++) {
+                $inCorner = false;
+                $cx = $x;
+                $cy = $y;
+                if ($x < $radius && $y < $radius) {
+                    $cx = $radius; $cy = $radius; $inCorner = true;
+                } elseif ($x >= $w - $radius && $y < $radius) {
+                    $cx = $w - $radius - 1; $cy = $radius; $inCorner = true;
+                } elseif ($x < $radius && $y >= $h - $radius) {
+                    $cx = $radius; $cy = $h - $radius - 1; $inCorner = true;
+                } elseif ($x >= $w - $radius && $y >= $h - $radius) {
+                    $cx = $w - $radius - 1; $cy = $h - $radius - 1; $inCorner = true;
+                }
+                if ($inCorner) {
+                    $dx = $x - $cx;
+                    $dy = $y - $cy;
+                    if (($dx * $dx + $dy * $dy) > ($radius * $radius)) {
+                        imagesetpixel($img, $x, $y, $transparent);
                     }
                 }
             }
-            imagedestroy($av_scaled);
-            imagedestroy($mask);
         }
+    };
+
+    $drawCircle = function ($dst, $src, int $x, int $y, int $size): void {
+        $avatar = imagecreatetruecolor($size, $size);
+        imagealphablending($avatar, false);
+        imagesavealpha($avatar, true);
+        $transparent = imagecolorallocatealpha($avatar, 0, 0, 0, 127);
+        imagefill($avatar, 0, 0, $transparent);
+        imagecopyresampled($avatar, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
+        $radius = $size / 2;
+        for ($py = 0; $py < $size; $py++) {
+            for ($px = 0; $px < $size; $px++) {
+                $dx = $px - $radius;
+                $dy = $py - $radius;
+                if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) {
+                    imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
+                }
+            }
+        }
+        imagedestroy($avatar);
+    };
+
+    $canvasW = 1280;
+    $canvasH = 720;
+    $canvas = imagecreatetruecolor($canvasW, $canvasH);
+    imagealphablending($canvas, true);
+    imagesavealpha($canvas, true);
+
+    for ($y = 0; $y < $canvasH; $y++) {
+        $mix = $y / $canvasH;
+        $r = (int)(16 + 30 * $mix);
+        $g = (int)(16 + 12 * $mix);
+        $b = (int)(18 + 2 * $mix);
+        imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
     }
 
-    // ── Текст ─────────────────────────────────────────────────
-    $text_x  = $avatar_x + $avatar_size + $pad;
-    $text_y1 = $src_h + $pad + (int)($font_size_big * 1.1);
-    $text_y2 = $text_y1 + (int)($font_size_small * 1.4);
+    $panelW = 900;
+    $panelH = 500;
+    $panelX = (int)(($canvasW - $panelW) / 2);
+    $panelY = 64;
+    $panel = imagecreatetruecolor($panelW, $panelH);
+    imagealphablending($panel, true);
+    imagesavealpha($panel, true);
+    $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
+    imagefill($panel, 0, 0, $transparent);
 
-    // Пробуем системный шрифт если есть, иначе встроенный GD
-    $font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-    if (function_exists('imagettftext') && file_exists($font_path)) {
-        imagettftext($out, $font_size_big,   0, $text_x, $text_y1, $white,  $font_path, $line1);
-        imagettftext($out, $font_size_small, 0, $text_x, $text_y2, $orange, $font_path, $line2);
+    $topH = 176;
+    $midH = 146;
+    $bottomH = $panelH - $topH - $midH;
+    $copyCover($panel, $main, 0, 0, $panelW, $topH);
+    $copyCover($panel, $main, 0, $topH, $panelW, $midH);
+    $copyCover($panel, $main, 0, $topH + $midH, $panelW, $bottomH);
+
+    $dark = imagecolorallocatealpha($panel, 0, 0, 0, 72);
+    imagefilledrectangle($panel, 0, 0, $panelW, $topH, $dark);
+    imagefilledrectangle($panel, 0, $topH + $midH, $panelW, $panelH, $dark);
+    $roundCorners($panel, 58);
+    imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
+    imagedestroy($panel);
+
+    $border = imagecolorallocatealpha($canvas, 170, 170, 176, 35);
+    for ($i = 0; $i < 3; $i++) {
+        imagearc($canvas, $panelX + 58, $panelY + 58, 116 - $i, 116 - $i, 180, 270, $border);
+        imagearc($canvas, $panelX + $panelW - 58, $panelY + 58, 116 - $i, 116 - $i, 270, 360, $border);
+        imagearc($canvas, $panelX + 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 90, 180, $border);
+        imagearc($canvas, $panelX + $panelW - 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 0, 90, $border);
+        imageline($canvas, $panelX + 58, $panelY + $i, $panelX + $panelW - 58, $panelY + $i, $border);
+        imageline($canvas, $panelX + 58, $panelY + $panelH - $i, $panelX + $panelW - 58, $panelY + $panelH - $i, $border);
+        imageline($canvas, $panelX + $i, $panelY + 58, $panelX + $i, $panelY + $panelH - 58, $border);
+        imageline($canvas, $panelX + $panelW - $i, $panelY + 58, $panelX + $panelW - $i, $panelY + $panelH - 58, $border);
+    }
+
+    if ($avatar) {
+        $drawCircle($canvas, $avatar, 482, 592, 82);
+        imagedestroy($avatar);
+    }
+
+    $fontPaths = [
+        __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+        'C:/Windows/Fonts/arialbd.ttf',
+        'C:/Windows/Fonts/arial.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    ];
+    $font = '';
+    foreach ($fontPaths as $fontPath) {
+        if (is_file($fontPath)) { $font = $fontPath; break; }
+    }
+    $white = imagecolorallocate($canvas, 255, 255, 255);
+    if ($font !== '' && function_exists('imagettftext')) {
+        imagettftext($canvas, 42, 0, 594, 636, $white, $font, 'KOSTLIM');
+        imagettftext($canvas, 34, 0, 596, 674, $white, $font, 'DESIGN');
     } else {
-        // Встроенный шрифт GD (без TTF)
-        $gd_font = 4;
-        $char_w  = imagefontwidth($gd_font);
-        $char_h  = imagefontheight($gd_font);
-        imagestring($out, $gd_font, $text_x, $src_h + $pad,                   $line1, $white);
-        imagestring($out, $gd_font, $text_x, $src_h + $pad + $char_h + 4,     $line2, $orange);
+        imagestring($canvas, 5, 594, 612, 'KOSTLIM', $white);
+        imagestring($canvas, 5, 596, 636, 'DESIGN', $white);
     }
 
-    // ── Разделитель (тонкая линия между фото и плашкой) ──────
-    $sep_color = imagecolorallocate($out, 169, 88, 81); // #a95851
-    imageline($out, 0, $src_h, $src_w, $src_h, $sep_color);
-
-    // ── Экспортируем в PNG ────────────────────────────────────
     ob_start();
-    imagepng($out);
+    imagejpeg($canvas, null, 94);
     $result = ob_get_clean();
-    imagedestroy($out);
+    imagedestroy($main);
+    imagedestroy($canvas);
 
     return $result ?: null;
 }
-
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИЯ: Публикация в Telegram-канал
 // ═══════════════════════════════════════════════════════════════
 function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url) {
     try {
-        $caption = "🔥 Новая работа в портфолио!\n\n"
-            . "📌 Название: {$title}\n"
-            . "💵 Цена работы: {$price_rub} ₽ / {$price_uah} грн\n\n"
-            . "💬 Оценить данную работу можно в комментариях.\n"
-            . "🚀 Заказать дизайн можно тут — {$site_url}";
+        $caption = "Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
+            . "Оценить данную работу можно в комментариях.\n\n"
+            . 'Заказать дизайн можно тут - <a href="' . htmlspecialchars($site_url, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
 
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-            'chat_id'  => $channel_id,
-            'photo'    => $image_url,
-            'caption'  => $caption,
+            'chat_id'    => $channel_id,
+            'photo'      => $image_url,
+            'caption'    => $caption,
+            'parse_mode' => 'HTML',
         ], JSON_UNESCAPED_UNICODE));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 20);

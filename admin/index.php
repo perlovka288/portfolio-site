@@ -7,7 +7,7 @@ $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
 define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@gfasasdasasd');
-define('PUBLIC_SITE_URL', getenv('PUBLIC_SITE_URL') ?: 'https://portfolio-site.onrender.com/');
+define('PUBLIC_SITE_URL', 'https://portfolio-site-boo5.onrender.com/');
 define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
 define('ADMIN_TELEGRAM_ID', '1710365896');
 $telegramLastError = '';
@@ -41,10 +41,11 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
 
     $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-        'title'     => $title,
-        'price_rub' => $price_rub,
-        'price_uan' => $price_uan,
-        'image'     => $filename_main,
+        'title'        => $title,
+        'price_rub'    => $price_rub,
+        'price_uan'    => $price_uan,
+        'image'        => $filename_main,
+        'avatar_image' => $filename_avatar,
     ]);
 
     ob_end_clean();
@@ -101,59 +102,181 @@ function imageFromFile(string $path)
     };
 }
 
-function createWatermarkedImage(string $mainPath, string $avatarPath): string
+function gdFontPath(): string
 {
-    if (!extension_loaded('gd') || !is_file($mainPath) || !is_file($avatarPath)) return $mainPath;
-    $main   = imageFromFile($mainPath);
-    $avatar = imageFromFile($avatarPath);
-    if (!$main || !$avatar) return $mainPath;
+    $paths = [
+        __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+        'C:/Windows/Fonts/arialbd.ttf',
+        'C:/Windows/Fonts/arial.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    ];
+    foreach ($paths as $path) {
+        if (is_file($path)) return $path;
+    }
+    return '';
+}
 
-    imagealphablending($main, true);
-    imagesavealpha($main, true);
+function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
+{
+    $sw = imagesx($src);
+    $sh = imagesy($src);
+    if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
 
-    $mainW    = imagesx($main);
-    $mainH    = imagesy($main);
-    $markSize = max(72, (int)round(min($mainW, $mainH) * 0.18));
-    $pad      = max(18, (int)round($markSize * 0.22));
-    $x        = $pad;
-    $y        = $pad;
+    $srcRatio = $sw / $sh;
+    $dstRatio = $dw / $dh;
+    if ($srcRatio > $dstRatio) {
+        $cropH = $sh;
+        $cropW = (int)round($sh * $dstRatio);
+        $sx = (int)round(($sw - $cropW) / 2);
+        $sy = 0;
+    } else {
+        $cropW = $sw;
+        $cropH = (int)round($sw / $dstRatio);
+        $sx = 0;
+        $sy = (int)round(($sh - $cropH) / 2);
+    }
+    imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
+}
 
-    $resized     = imagecreatetruecolor($markSize, $markSize);
-    imagealphablending($resized, false);
-    imagesavealpha($resized, true);
-    $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
-    imagefill($resized, 0, 0, $transparent);
-    imagecopyresampled($resized, $avatar, 0, 0, 0, 0, $markSize, $markSize, imagesx($avatar), imagesy($avatar));
-
-    $circle = imagecreatetruecolor($markSize, $markSize);
-    imagealphablending($circle, false);
-    imagesavealpha($circle, true);
-    imagefill($circle, 0, 0, $transparent);
-    $center = $markSize / 2;
-    $radius = $markSize / 2;
-    for ($i = 0; $i < $markSize; $i++) {
-        for ($j = 0; $j < $markSize; $j++) {
-            $dx = $i - $center;
-            $dy = $j - $center;
-            if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) {
-                imagesetpixel($circle, $i, $j, imagecolorat($resized, $i, $j));
+function applyRoundedCorners($img, int $radius): void
+{
+    $w = imagesx($img);
+    $h = imagesy($img);
+    $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
+    for ($y = 0; $y < $h; $y++) {
+        for ($x = 0; $x < $w; $x++) {
+            $inCorner = false;
+            $cx = $x;
+            $cy = $y;
+            if ($x < $radius && $y < $radius) {
+                $cx = $radius;
+                $cy = $radius;
+                $inCorner = true;
+            } elseif ($x >= $w - $radius && $y < $radius) {
+                $cx = $w - $radius - 1;
+                $cy = $radius;
+                $inCorner = true;
+            } elseif ($x < $radius && $y >= $h - $radius) {
+                $cx = $radius;
+                $cy = $h - $radius - 1;
+                $inCorner = true;
+            } elseif ($x >= $w - $radius && $y >= $h - $radius) {
+                $cx = $w - $radius - 1;
+                $cy = $h - $radius - 1;
+                $inCorner = true;
+            }
+            if ($inCorner) {
+                $dx = $x - $cx;
+                $dy = $y - $cy;
+                if (($dx * $dx + $dy * $dy) > ($radius * $radius)) {
+                    imagesetpixel($img, $x, $y, $transparent);
+                }
             }
         }
     }
-
-    $shadow = imagecolorallocatealpha($main, 0, 0, 0, 55);
-    imagefilledellipse($main, $x + (int)($markSize / 2), $y + (int)($markSize / 2), $markSize + 14, $markSize + 14, $shadow);
-    imagecopy($main, $circle, $x, $y, 0, 0, $markSize, $markSize);
-
-    $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
-    imagejpeg($main, $output, 92);
-    imagedestroy($main);
-    imagedestroy($avatar);
-    imagedestroy($resized);
-    imagedestroy($circle);
-    return $output;
 }
 
+function drawCircularImage($dst, $src, int $x, int $y, int $size): void
+{
+    $avatar = imagecreatetruecolor($size, $size);
+    imagealphablending($avatar, false);
+    imagesavealpha($avatar, true);
+    $transparent = imagecolorallocatealpha($avatar, 0, 0, 0, 127);
+    imagefill($avatar, 0, 0, $transparent);
+    imagecopyresampled($avatar, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
+
+    $radius = $size / 2;
+    for ($py = 0; $py < $size; $py++) {
+        for ($px = 0; $px < $size; $px++) {
+            $dx = $px - $radius;
+            $dy = $py - $radius;
+            if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) {
+                imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
+            }
+        }
+    }
+    imagedestroy($avatar);
+}
+
+function createWatermarkedImage(string $mainPath, string $avatarPath): string
+{
+    if (!extension_loaded('gd') || !is_file($mainPath)) return $mainPath;
+    $main = imageFromFile($mainPath);
+    if (!$main) return $mainPath;
+
+    $avatar = (is_file($avatarPath)) ? imageFromFile($avatarPath) : null;
+    $canvasW = 1280;
+    $canvasH = 720;
+    $canvas = imagecreatetruecolor($canvasW, $canvasH);
+    imagealphablending($canvas, true);
+    imagesavealpha($canvas, true);
+
+    for ($y = 0; $y < $canvasH; $y++) {
+        $mix = $y / $canvasH;
+        $r = (int)(16 + 30 * $mix);
+        $g = (int)(16 + 12 * $mix);
+        $b = (int)(18 + 2 * $mix);
+        imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
+    }
+
+    $panelW = 900;
+    $panelH = 500;
+    $panelX = (int)(($canvasW - $panelW) / 2);
+    $panelY = 64;
+    $panel = imagecreatetruecolor($panelW, $panelH);
+    imagealphablending($panel, true);
+    imagesavealpha($panel, true);
+    $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
+    imagefill($panel, 0, 0, $transparent);
+
+    $topH = 176;
+    $midH = 146;
+    $bottomH = $panelH - $topH - $midH;
+    copyImageCover($panel, $main, 0, 0, $panelW, $topH);
+    copyImageCover($panel, $main, 0, $topH, $panelW, $midH);
+    copyImageCover($panel, $main, 0, $topH + $midH, $panelW, $bottomH);
+
+    $dark = imagecolorallocatealpha($panel, 0, 0, 0, 72);
+    imagefilledrectangle($panel, 0, 0, $panelW, $topH, $dark);
+    imagefilledrectangle($panel, 0, $topH + $midH, $panelW, $panelH, $dark);
+    applyRoundedCorners($panel, 58);
+    imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
+    imagedestroy($panel);
+
+    $border = imagecolorallocatealpha($canvas, 170, 170, 176, 35);
+    for ($i = 0; $i < 3; $i++) {
+        imagearc($canvas, $panelX + 58, $panelY + 58, 116 - $i, 116 - $i, 180, 270, $border);
+        imagearc($canvas, $panelX + $panelW - 58, $panelY + 58, 116 - $i, 116 - $i, 270, 360, $border);
+        imagearc($canvas, $panelX + 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 90, 180, $border);
+        imagearc($canvas, $panelX + $panelW - 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 0, 90, $border);
+        imageline($canvas, $panelX + 58, $panelY + $i, $panelX + $panelW - 58, $panelY + $i, $border);
+        imageline($canvas, $panelX + 58, $panelY + $panelH - $i, $panelX + $panelW - 58, $panelY + $panelH - $i, $border);
+        imageline($canvas, $panelX + $i, $panelY + 58, $panelX + $i, $panelY + $panelH - 58, $border);
+        imageline($canvas, $panelX + $panelW - $i, $panelY + 58, $panelX + $panelW - $i, $panelY + $panelH - 58, $border);
+    }
+
+    if ($avatar) {
+        drawCircularImage($canvas, $avatar, 482, 592, 82);
+        imagedestroy($avatar);
+    }
+
+    $font = gdFontPath();
+    $white = imagecolorallocate($canvas, 255, 255, 255);
+    if ($font !== '' && function_exists('imagettftext')) {
+        imagettftext($canvas, 42, 0, 594, 636, $white, $font, 'KOSTLIM');
+        imagettftext($canvas, 34, 0, 596, 674, $white, $font, 'DESIGN');
+    } else {
+        imagestring($canvas, 5, 594, 612, 'KOSTLIM', $white);
+        imagestring($canvas, 5, 596, 636, 'DESIGN', $white);
+    }
+
+    $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
+    imagejpeg($canvas, $output, 94);
+    imagedestroy($main);
+    imagedestroy($canvas);
+    return $output;
+}
 function downloadToTemp(string $url): string
 {
     if ($url === '') return '';
@@ -185,10 +308,12 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
     if (!is_file($mainPath)) return false;
 
-    $avatarVal = '';
+    $avatarVal = (string)($case['avatar_image'] ?? '');
     try {
-        $stmt      = $pdo->query('SELECT avatar FROM users LIMIT 1');
-        $avatarVal = (string)($stmt->fetchColumn() ?: '');
+        if ($avatarVal === '') {
+            $stmt      = $pdo->query('SELECT avatar FROM users LIMIT 1');
+            $avatarVal = (string)($stmt->fetchColumn() ?: '');
+        }
     } catch (Throwable $e) {}
 
     if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) {
@@ -340,10 +465,11 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
         $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
         $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-            'title'     => $title,
-            'price_rub' => $price_rub,
-            'price_uan' => $price_uan,
-            'image'     => $filename_main,
+            'title'        => $title,
+            'price_rub'    => $price_rub,
+            'price_uan'    => $price_uan,
+            'image'        => $filename_main,
+            'avatar_image' => $filename_avatar,
         ]);
         $message = '✅ Портфолио опубликовано!' . ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.'));
     }
