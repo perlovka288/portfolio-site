@@ -411,3 +411,5 @@ function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $ima
         return null;
     }
 }
+
+
