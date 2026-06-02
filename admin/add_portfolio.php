@@ -358,14 +358,35 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     $white = imagecolorallocate($canvas, 255, 255, 255);
     $accent = imagecolorallocate($canvas, 249, 115, 22);
     $muted = imagecolorallocate($canvas, 214, 214, 222);
+    $drawFallback = function ($text, int $x, int $y, int $targetH, int $maxW, int $color) use ($canvas): void {
+        $text = trim((string)$text);
+        if ($text === '') return;
+        $fontId = 5;
+        $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
+        $sourceH = max(1, imagefontheight($fontId));
+        $targetW = (int)round($sourceW * ($targetH / $sourceH));
+        if ($targetW > $maxW) {
+            $targetW = $maxW;
+            $targetH = (int)round($sourceH * ($targetW / $sourceW));
+        }
+        $tmp = imagecreatetruecolor($sourceW, $sourceH);
+        imagealphablending($tmp, false);
+        imagesavealpha($tmp, true);
+        $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
+        imagefill($tmp, 0, 0, $transparent);
+        imagestring($tmp, $fontId, 0, 0, $text, $color);
+        imagecopyresampled($canvas, $tmp, $x, $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
+        imagedestroy($tmp);
+    };
     if ($font !== '' && function_exists('imagettftext')) {
         imagettftext($canvas, 38 * $scale, 0, 596 * $scale, 626 * $scale, $white, $font, 'Kostlim Design');
         $safeTitle = function_exists('mb_substr') ? mb_substr($title ?: 'New design work', 0, 34) : substr($title ?: 'New design work', 0, 68);
         imagettftext($canvas, 28 * $scale, 0, 596 * $scale, 664 * $scale, $muted, $font, $safeTitle);
         imagettftext($canvas, 24 * $scale, 0, 596 * $scale, 696 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
     } else {
-        imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'Kostlim Design', $white);
-        imagestring($canvas, 5, 596 * $scale, 636 * $scale, $title ?: 'New design work', $muted);
+        $drawFallback('Kostlim Design', 596 * $scale, 626 * $scale, 46 * $scale, 420 * $scale, $white);
+        $drawFallback($title ?: 'New design work', 596 * $scale, 670 * $scale, 32 * $scale, 520 * $scale, $muted);
+        $drawFallback($price_rub . ' RUB | ' . $price_uah . ' UAH', 596 * $scale, 704 * $scale, 28 * $scale, 420 * $scale, $accent);
     }
 
     $final = imagecreatetruecolor(1280, 720);

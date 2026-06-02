@@ -171,7 +171,25 @@ function drawTextFit($img, string $text, int $x, int $y, int $maxW, int $size, i
         imagettftext($img, $size, 0, $x, $y, $color, $font, $text);
         return;
     }
-    imagestring($img, 5, $x, $y - 16, $text, $color);
+
+    $fontId = 5;
+    $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
+    $sourceH = max(1, imagefontheight($fontId));
+    $targetH = max(18, $size);
+    $targetW = (int)round($sourceW * ($targetH / $sourceH));
+    if ($targetW > $maxW) {
+        $targetW = $maxW;
+        $targetH = (int)round($sourceH * ($targetW / $sourceW));
+    }
+
+    $tmp = imagecreatetruecolor($sourceW, $sourceH);
+    imagealphablending($tmp, false);
+    imagesavealpha($tmp, true);
+    $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
+    imagefill($tmp, 0, 0, $transparent);
+    imagestring($tmp, $fontId, 0, 0, $text, $color);
+    imagecopyresampled($img, $tmp, $x, $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
+    imagedestroy($tmp);
 }
 
 function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
@@ -316,22 +334,21 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $muted = imagecolorallocate($canvas, 214, 214, 222);
     $accent = imagecolorallocate($canvas, 249, 115, 22);
     $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 28);
-    drawFilledRoundedRect($canvas, 72 * $scale, 580 * $scale, 500 * $scale, 116 * $scale, 24 * $scale, $chipBg);
+    drawFilledRoundedRect($canvas, 72 * $scale, 566 * $scale, 520 * $scale, 126 * $scale, 24 * $scale, $chipBg);
 
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 96 * $scale, 604 * $scale, 82 * $scale);
+        drawCircularImage($canvas, $avatar, 94 * $scale, 590 * $scale, 92 * $scale);
         imagedestroy($avatar);
     }
 
-    drawTextFit($canvas, 'Kostlim Design', 204 * $scale, 628 * $scale, 340 * $scale, 44 * $scale, $white, $fontBold, 32 * $scale);
-    drawTextFit($canvas, 'Premium design work', 206 * $scale, 678 * $scale, 330 * $scale, 26 * $scale, $muted, $fontRegular, 20 * $scale);
+    drawTextFit($canvas, 'Kostlim Design', 210 * $scale, 622 * $scale, 355 * $scale, 52 * $scale, $white, $fontBold, 36 * $scale);
+    drawTextFit($canvas, 'Premium design work', 212 * $scale, 680 * $scale, 345 * $scale, 32 * $scale, $muted, $fontRegular, 24 * $scale);
 
     $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
-    drawFilledRoundedRect($canvas, 610 * $scale, 580 * $scale, 568 * $scale, 116 * $scale, 24 * $scale, $infoBg);
-    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 638 * $scale, 628 * $scale, 500 * $scale, 42 * $scale, $white, $fontBold, 28 * $scale);
-    $price = $priceRub . ' RUB  |  ' . $priceUan . ' UAH';
-    drawTextFit($canvas, $price, 638 * $scale, 678 * $scale, 330 * $scale, 30 * $scale, $accent, $fontBold, 22 * $scale);
-    drawTextFit($canvas, 'Order: Kostlim Design', 965 * $scale, 678 * $scale, 175 * $scale, 22 * $scale, $muted, $fontRegular, 16 * $scale);
+    drawFilledRoundedRect($canvas, 624 * $scale, 566 * $scale, 554 * $scale, 126 * $scale, 24 * $scale, $infoBg);
+    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 654 * $scale, 622 * $scale, 500 * $scale, 52 * $scale, $white, $fontBold, 34 * $scale);
+    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
+    drawTextFit($canvas, $price, 654 * $scale, 681 * $scale, 450 * $scale, 36 * $scale, $accent, $fontBold, 26 * $scale);
 
     $final = imagecreatetruecolor(1280, 720);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
