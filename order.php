@@ -1,9 +1,7 @@
-cat > /mnt/user-data/outputs/order.php << 'ENDOFFILE'
 <?php
 session_start();
 require_once 'config/db.php';
 
-// ── Auto-login via TG ID ──
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
@@ -14,15 +12,12 @@ $my_chat_id  = getenv('ADMIN_ID')  ?: "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
 $support_tg  = 'https://t.me/Perlo_ovka';
 
-// ── Cloudflare Turnstile ──
 $turnstile_site_key   = getenv('TURNSTILE_SITE_KEY')   ?: 'ТВОЙ_ПУБЛИЧНЫЙ_КЛЮЧ';
 $turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'ТВОЙ_СЕКРЕТНЫЙ_КЛЮЧ';
 
-// ── Кулдаун настройки ──
 define('COOLDOWN_SECONDS', 300);
 
 $selected_service = $_GET['service'] ?? '';
-
 $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 $success_msg = '';
@@ -42,7 +37,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$rules_accepted) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // ═══ ЗАЩИТА #1 — Кулдаун по IP ═══
     $user_ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
         $user_ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
@@ -64,7 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (PDOException $e) {}
 
-    // ═══ ЗАЩИТА #2 — Cloudflare Turnstile ═══
     $captcha_token = $_POST['cf-turnstile-response'] ?? '';
     if (empty($captcha_token)) {
         $error_msg = '⚠️ Пройдите проверку (Turnstile). Обновите страницу и попробуйте снова.';
@@ -82,7 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         goto render_page;
     }
 
-    // ═══ ЗАЩИТА #3 — Чёрный список ═══
     $telegram_raw = trim($_POST['telegram'] ?? '');
     $tg_clean = ltrim(str_replace(['https://t.me/', 'http://t.me/', '@'], '', $telegram_raw), '@');
     try {
@@ -95,7 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (PDOException $e) {}
 
-    // ═══ Основная логика заказа ═══
     $username    = $_POST['username'] ?? '';
     $service_key = $_POST['service']  ?? '';
     $details     = $_POST['details']  ?? '';
@@ -132,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";
 
-        // ── НОВОЕ: уведомить клиента в TG если аккаунт привязан ──
+        // Уведомить клиента в TG если аккаунт привязан
         $client_chat_id = null;
         try {
             $lnk = $pdo->prepare("SELECT tg_chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE LIMIT 1");
@@ -153,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        // ── Уведомить администратора ──
+        // Уведомить администратора
         if (!empty($my_chat_id)) {
             $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
             $price_stmt->execute([$service_key]);
@@ -162,13 +153,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $p_rub         = $price_info['price_rub'] ?? 0;
             $p_uan         = $price_info['price_uan'] ?? 0;
 
-            $msg_text  = "⚡️ **НОВЫЙ ЗАКАЗ #{$order_id}** ⚡️\n\n";
-            $msg_text .= "👤 **Клиент:** " . htmlspecialchars($username) . "\n";
-            $msg_text .= "📞 **Связь:** "  . htmlspecialchars($telegram_raw) . "\n";
-            $msg_text .= "🎨 **Услуга:** " . htmlspecialchars($service_title) . "\n";
-            $msg_text .= "💰 **Стоимость:** {$p_rub}₽ / {$p_uan}₴\n";
-            $msg_text .= "📝 **ТЗ:** "     . htmlspecialchars($details) . "\n";
-            $msg_text .= "🌐 **IP:** {$user_ip}";
+            $msg_text  = "⚡️ НОВЫЙ ЗАКАЗ #{$order_id} ⚡️\n\n";
+            $msg_text .= "👤 Клиент: " . htmlspecialchars($username) . "\n";
+            $msg_text .= "📞 Связь: "  . htmlspecialchars($telegram_raw) . "\n";
+            $msg_text .= "🎨 Услуга: " . htmlspecialchars($service_title) . "\n";
+            $msg_text .= "💰 Стоимость: {$p_rub}₽ / {$p_uan}₴\n";
+            $msg_text .= "📝 ТЗ: "     . htmlspecialchars($details) . "\n";
+            $msg_text .= "🌐 IP: {$user_ip}";
 
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
@@ -177,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ['text' => '❌ Отклонить',       'callback_data' => "adm_dec_{$order_id}"],
                 ],
                 [
-                    ['text' => '🔴 Срочный (24ч)',   'callback_data' => "adm_urgent_set_{$order_id}"],
+                    ['text' => '🔴 Срочный (24ч)', 'callback_data' => "adm_urgent_set_{$order_id}"],
                 ],
                 [
                     ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],
@@ -209,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                 curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
                     CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id,
-                        'text' => "🎛 **Управление заказом #{$order_id}:**",
+                        'text' => "🎛 Управление заказом #{$order_id}:",
                         'parse_mode' => 'Markdown', 'reply_markup' => json_encode($keyboard)])]);
                 curl_exec($ch); curl_close($ch);
             } else {
@@ -226,7 +217,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Хелперы для уведомления клиента ──
 function tgEsc(string $text): string {
     return str_replace(
         ['_','*','[',']','(',')', '~','`','>','#','+','-','=','|','{','}','.','!'],
@@ -256,7 +246,6 @@ render_page:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="stylesheet" href="style.css">
-<!-- Cloudflare Turnstile -->
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
 :root {
@@ -365,7 +354,6 @@ body::before {
 
 <?php if (!$rules_accepted && $_SERVER['REQUEST_METHOD'] !== 'POST'): ?>
 
-<!-- ──── Правила ──── -->
 <div class="rules-card">
     <div style="text-align:center; margin-bottom:22px;">
         <a href="index.php" class="order-back">
@@ -389,7 +377,6 @@ body::before {
 
 <?php else: ?>
 
-<!-- ──── Форма ──── -->
 <div class="order-card">
     <a href="index.php" class="order-back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
@@ -397,7 +384,6 @@ body::before {
     </a>
     <div class="order-title">📋 Заполнить ТЗ для работы</div>
 
-    <!-- Реквизиты -->
     <div class="req-block">
         <h3>💳 Куда оплачивать</h3>
         <div class="req-row">
