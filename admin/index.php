@@ -22,6 +22,7 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     $category_key = $_POST['category_key'] ?? 'preview';
     $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
     $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
+    $publish_tg   = !empty($_POST['publish_tg']);
 
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
@@ -40,20 +41,26 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
 
-    $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-        'title'        => $title,
-        'price_rub'    => $price_rub,
-        'price_uan'    => $price_uan,
-        'image'        => $filename_main,
-        'avatar_image' => $filename_avatar,
-    ]);
+    $postedToChannel = false;
+    if ($publish_tg) {
+        $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
+            'title'        => $title,
+            'category_key' => $category_key,
+            'price_rub'    => $price_rub,
+            'price_uan'    => $price_uan,
+            'image'        => $filename_main,
+            'avatar_image' => $filename_avatar,
+        ]);
+    }
 
     ob_end_clean();
-    $msg = '✅ Портфолио опубликовано!';
-    if (!$postedToChannel) {
-        $msg .= ' (Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки бота') . ')';
+    $msg = '✅ Портфолио сохранено!';
+    if ($publish_tg) {
+        $msg .= $postedToChannel
+            ? ' Пост отправлен в Telegram-канал.'
+            : ' (Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки бота') . ')';
     } else {
-        $msg .= ' Пост отправлен в Telegram-канал.';
+        $msg .= ' Без публикации в Telegram.';
     }
     echo json_encode(['ok' => true, 'msg' => $msg]);
     exit;
@@ -312,16 +319,36 @@ function drawCircularImage($dst, $src, int $x, int $y, int $size): void
     imagedestroy($avatar);
 }
 
-function createWatermarkedImage(string $mainPath, string $avatarPath, string $title = '', int $priceRub = 0, int $priceUan = 0): string
+function createWatermarkedImage(string $mainPath, string $avatarPath, string $title = '', int $priceRub = 0, int $priceUan = 0, array $category = []): string
 {
     if (!extension_loaded('gd') || !is_file($mainPath)) return $mainPath;
     $main = imageFromFile($mainPath);
     if (!$main) return $mainPath;
 
     $avatar = (is_file($avatarPath)) ? imageFromFile($avatarPath) : null;
+    $mainW = max(1, imagesx($main));
+    $mainH = max(1, imagesy($main));
+    $catW = (int)($category['width_px'] ?? 0);
+    $catH = (int)($category['height_px'] ?? 0);
+    $targetRatio = ($catW > 0 && $catH > 0) ? ($catW / $catH) : ($mainW / $mainH);
+
+    if ($targetRatio >= 1.65) {
+        $outW = 1280;
+        $outH = 720;
+    } elseif ($targetRatio >= 0.92 && $targetRatio <= 1.08) {
+        $outW = 1080;
+        $outH = 1080;
+    } elseif ($targetRatio < 0.92) {
+        $outW = 1000;
+        $outH = 1200;
+    } else {
+        $outW = 1200;
+        $outH = 900;
+    }
+
     $scale = 2;
-    $canvasW = 1280 * $scale;
-    $canvasH = 720 * $scale;
+    $canvasW = $outW * $scale;
+    $canvasH = $outH * $scale;
     $canvas = imagecreatetruecolor($canvasW, $canvasH);
     imagealphablending($canvas, true);
     imagesavealpha($canvas, true);
@@ -340,61 +367,50 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
             imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
         }
         $glow = imagecolorallocatealpha($canvas, 249, 115, 22, 105);
-        imagefilledellipse($canvas, 2220, 250, 900, 520, $glow);
-        imagefilledellipse($canvas, 380, 1260, 760, 420, $glow);
+        imagefilledellipse($canvas, (int)($canvasW * .86), (int)($canvasH * .18), (int)($canvasW * .70), (int)($canvasH * .45), $glow);
+        imagefilledellipse($canvas, (int)($canvasW * .15), (int)($canvasH * .92), (int)($canvasW * .55), (int)($canvasH * .35), $glow);
     }
 
-    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 72);
-    drawFilledRoundedRect($canvas, 292 * $scale, 92 * $scale, 896 * $scale, 506 * $scale, 42 * $scale, $shadow);
+    $padding = (int)round(min($canvasW, $canvasH) * 0.055);
+    $avatarSize = $avatar ? (int)round(min($canvasW, $canvasH) * 0.12) : 0;
+    $brandH = $avatar ? (int)round($avatarSize * 1.45) : 0;
+    $gap = $avatar ? (int)round(min($canvasW, $canvasH) * 0.026) : 0;
+    $panelW = $canvasW - ($padding * 2);
+    $panelH = $canvasH - ($padding * 2) - $brandH - $gap;
+    if ($panelH < (int)round($canvasH * .48)) $panelH = (int)round($canvasH * .48);
+    $panelX = $padding;
+    $panelY = $padding;
 
-    $panelW = 884 * $scale;
-    $panelH = 492 * $scale;
-    $panelX = (int)(($canvasW - $panelW) / 2);
-    $panelY = 76 * $scale;
+    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 78);
+    drawFilledRoundedRect($canvas, $panelX + (8 * $scale), $panelY + (10 * $scale), $panelW, $panelH, 34 * $scale, $shadow);
+
     $panel = imagecreatetruecolor($panelW, $panelH);
     imagealphablending($panel, true);
     imagesavealpha($panel, true);
     $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
     imagefill($panel, 0, 0, $transparent);
-
     copyImageCover($panel, $main, 0, 0, $panelW, $panelH);
-    applyRoundedCorners($panel, 34 * $scale);
+    applyRoundedCorners($panel, 26 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
 
-    $line = imagecolorallocatealpha($canvas, 255, 255, 255, 32);
-    imagesetthickness($canvas, 2 * $scale);
+    $line = imagecolorallocatealpha($canvas, 255, 255, 255, 34);
+    imagesetthickness($canvas, max(1, 2 * $scale));
     imagerectangle($canvas, $panelX, $panelY, $panelX + $panelW, $panelY + $panelH, $line);
 
-    $fontBold = gdFontPath(false);
-    $fontRegular = gdFontPath(true);
-    $white = imagecolorallocate($canvas, 255, 255, 255);
-    $muted = imagecolorallocate($canvas, 214, 214, 222);
-    $accent = imagecolorallocate($canvas, 249, 115, 22);
-    $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 28);
-    $blockY = 570 * $scale;
-    $blockH = 118 * $scale;
-    $leftX = 72 * $scale;
-    $leftW = 520 * $scale;
-    $rightX = 624 * $scale;
-    $rightW = 554 * $scale;
-    drawFilledRoundedRect($canvas, $leftX, $blockY, $leftW, $blockH, 24 * $scale, $chipBg);
-
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 96 * $scale, 588 * $scale, 86 * $scale);
+        $blockW = (int)round($avatarSize * 1.6);
+        $blockH = (int)round($avatarSize * 1.25);
+        $blockX = (int)round(($canvasW - $blockW) / 2);
+        $blockY = $panelY + $panelH + $gap;
+        $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 22);
+        drawFilledRoundedRect($canvas, $blockX, $blockY, $blockW, $blockH, 24 * $scale, $blockBg);
+        drawCircularImage($canvas, $avatar, (int)round(($canvasW - $avatarSize) / 2), $blockY + (int)round(($blockH - $avatarSize) / 2), $avatarSize);
         imagedestroy($avatar);
     }
 
-    drawTextFit($canvas, 'KOSTLIM', 220 * $scale, 622 * $scale, 310 * $scale, 34 * $scale, $white, $fontBold, 24 * $scale);
-    drawTextFit($canvas, 'DESIGN', 222 * $scale, 666 * $scale, 290 * $scale, 30 * $scale, $muted, $fontBold, 22 * $scale);
-
-    $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
-    drawFilledRoundedRect($canvas, $rightX, $blockY, $rightW, $blockH, 24 * $scale, $infoBg);
-    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
-    drawTextCenteredFit($canvas, $price, $rightX + (int)round($rightW / 2), 656 * $scale, 470 * $scale, 40 * $scale, $accent, $fontBold, 28 * $scale);
-
-    $final = imagecreatetruecolor(1280, 720);
-    imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
+    $final = imagecreatetruecolor($outW, $outH);
+    imagecopyresampled($final, $canvas, 0, 0, 0, 0, $outW, $outH, $canvasW, $canvasH);
 
     $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
     imagejpeg($final, $output, 100);
@@ -452,7 +468,17 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
     $rub     = (int)($case['price_rub'] ?? 0);
     $uan     = (int)($case['price_uan'] ?? 0);
-    $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan);
+    $category = [];
+    try {
+        $catKey = (string)($case['category_key'] ?? '');
+        if ($catKey !== '') {
+            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
+            $stmt->execute([$catKey]);
+            $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+    } catch (Throwable $e) {}
+
+    $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
     $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
     $caption .= "💬 Оценить данную работу можно в комментариях.\n\n";
     $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
@@ -578,6 +604,7 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
     $category_key = $_POST['category_key'] ?? 'preview';
     $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
     $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
+    $publish_tg   = !empty($_POST['publish_tg']);
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
     if ($title === '') {
@@ -587,14 +614,23 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
     } else {
         $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
-        $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-            'title'        => $title,
-            'price_rub'    => $price_rub,
-            'price_uan'    => $price_uan,
-            'image'        => $filename_main,
-            'avatar_image' => $filename_avatar,
-        ]);
-        $message = '✅ Портфолио опубликовано!' . ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.'));
+        $postedToChannel = false;
+        if ($publish_tg) {
+            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
+                'title'        => $title,
+                'category_key' => $category_key,
+                'price_rub'    => $price_rub,
+                'price_uan'    => $price_uan,
+                'image'        => $filename_main,
+                'avatar_image' => $filename_avatar,
+            ]);
+        }
+        $message = '✅ Портфолио сохранено!';
+        if ($publish_tg) {
+            $message .= $postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.');
+        } else {
+            $message .= ' Без публикации в Telegram.';
+        }
     }
 }
 
@@ -834,6 +870,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .mini-media-form button { border: 0; border-radius: 8px; padding: 8px 12px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; transition: .2s; }
         .mini-media-form button:hover { opacity: .85; }
         .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
+        .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
         .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
         .tab-hidden { display: none !important; }
         /* Всплывающий тост */
@@ -931,6 +969,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                             <label>Главное изображение / шапка</label>
                             <input type="file" name="image" accept="image/*" required>
+
+                            <label class="tg-checkbox">
+                                <input type="checkbox" name="publish_tg" value="1" checked>
+                                Публиковать в Telegram-канал
+                            </label>
 
                             <div id="avatar_upload_block" style="display:none;">
                                 <label>Аватарка к оформлению</label>
