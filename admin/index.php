@@ -110,6 +110,7 @@ function gdFontPath(bool $regular = false): string
             __DIR__ . '/../assets/fonts/GoogleSansText-Regular.ttf',
             __DIR__ . '/../assets/fonts/ProductSans-Regular.ttf',
             __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
+            __DIR__ . '/../assets/fonts/Vera.ttf',
             'C:/Windows/Fonts/arial.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -119,6 +120,7 @@ function gdFontPath(bool $regular = false): string
             __DIR__ . '/../assets/fonts/GoogleSansText-Bold.ttf',
             __DIR__ . '/../assets/fonts/ProductSans-Bold.ttf',
             __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+            __DIR__ . '/../assets/fonts/VeraBd.ttf',
             'C:/Windows/Fonts/arialbd.ttf',
             'C:/Windows/Fonts/arial.ttf',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -189,6 +191,42 @@ function drawTextFit($img, string $text, int $x, int $y, int $maxW, int $size, i
     imagefill($tmp, 0, 0, $transparent);
     imagestring($tmp, $fontId, 0, 0, $text, $color);
     imagecopyresampled($img, $tmp, $x, $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
+    imagedestroy($tmp);
+}
+
+function drawTextCenteredFit($img, string $text, int $centerX, int $y, int $maxW, int $size, int $color, string $font, int $minSize = 20): void
+{
+    $text = trim($text);
+    if ($text === '') return;
+    if ($font !== '' && function_exists('imagettftext')) {
+        while ($size > $minSize) {
+            $box = imagettfbbox($size, 0, $font, $text);
+            if (($box[2] - $box[0]) <= $maxW) break;
+            $size -= 2;
+        }
+        $box = imagettfbbox($size, 0, $font, $text);
+        $textW = $box[2] - $box[0];
+        imagettftext($img, $size, 0, (int)round($centerX - ($textW / 2)), $y, $color, $font, $text);
+        return;
+    }
+
+    $fontId = 5;
+    $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
+    $sourceH = max(1, imagefontheight($fontId));
+    $targetH = max(18, $size);
+    $targetW = (int)round($sourceW * ($targetH / $sourceH));
+    if ($targetW > $maxW) {
+        $targetW = $maxW;
+        $targetH = (int)round($sourceH * ($targetW / $sourceW));
+    }
+
+    $tmp = imagecreatetruecolor($sourceW, $sourceH);
+    imagealphablending($tmp, false);
+    imagesavealpha($tmp, true);
+    $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
+    imagefill($tmp, 0, 0, $transparent);
+    imagestring($tmp, $fontId, 0, 0, $text, $color);
+    imagecopyresampled($img, $tmp, (int)round($centerX - ($targetW / 2)), $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
     imagedestroy($tmp);
 }
 
@@ -334,21 +372,26 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $muted = imagecolorallocate($canvas, 214, 214, 222);
     $accent = imagecolorallocate($canvas, 249, 115, 22);
     $chipBg = imagecolorallocatealpha($canvas, 0, 0, 0, 28);
-    drawFilledRoundedRect($canvas, 72 * $scale, 566 * $scale, 520 * $scale, 126 * $scale, 24 * $scale, $chipBg);
+    $blockY = 570 * $scale;
+    $blockH = 118 * $scale;
+    $leftX = 72 * $scale;
+    $leftW = 520 * $scale;
+    $rightX = 624 * $scale;
+    $rightW = 554 * $scale;
+    drawFilledRoundedRect($canvas, $leftX, $blockY, $leftW, $blockH, 24 * $scale, $chipBg);
 
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 94 * $scale, 590 * $scale, 92 * $scale);
+        drawCircularImage($canvas, $avatar, 96 * $scale, 588 * $scale, 86 * $scale);
         imagedestroy($avatar);
     }
 
-    drawTextFit($canvas, 'Kostlim Design', 210 * $scale, 622 * $scale, 355 * $scale, 52 * $scale, $white, $fontBold, 36 * $scale);
-    drawTextFit($canvas, 'Premium design work', 212 * $scale, 680 * $scale, 345 * $scale, 32 * $scale, $muted, $fontRegular, 24 * $scale);
+    drawTextFit($canvas, 'Kostlim', 214 * $scale, 626 * $scale, 340 * $scale, 54 * $scale, $white, $fontBold, 38 * $scale);
+    drawTextFit($canvas, 'Design', 216 * $scale, 676 * $scale, 320 * $scale, 42 * $scale, $muted, $fontBold, 30 * $scale);
 
     $infoBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
-    drawFilledRoundedRect($canvas, 624 * $scale, 566 * $scale, 554 * $scale, 126 * $scale, 24 * $scale, $infoBg);
-    drawTextFit($canvas, $title !== '' ? $title : 'New design work', 654 * $scale, 622 * $scale, 500 * $scale, 52 * $scale, $white, $fontBold, 34 * $scale);
-    $price = $priceRub . ' RUB | ' . $priceUan . ' UAH';
-    drawTextFit($canvas, $price, 654 * $scale, 681 * $scale, 450 * $scale, 36 * $scale, $accent, $fontBold, 26 * $scale);
+    drawFilledRoundedRect($canvas, $rightX, $blockY, $rightW, $blockH, 24 * $scale, $infoBg);
+    $price = $priceRub . ' | ' . $priceUan;
+    drawTextCenteredFit($canvas, $price, $rightX + (int)round($rightW / 2), 656 * $scale, 470 * $scale, 72 * $scale, $accent, $fontBold, 46 * $scale);
 
     $final = imagecreatetruecolor(1280, 720);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);

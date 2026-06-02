@@ -346,6 +346,7 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         __DIR__ . '/../assets/fonts/GoogleSansText-Bold.ttf',
         __DIR__ . '/../assets/fonts/ProductSans-Bold.ttf',
         __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+        __DIR__ . '/../assets/fonts/VeraBd.ttf',
         'C:/Windows/Fonts/arialbd.ttf',
         'C:/Windows/Fonts/arial.ttf',
         '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
@@ -379,14 +380,13 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         imagedestroy($tmp);
     };
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 38 * $scale, 0, 596 * $scale, 626 * $scale, $white, $font, 'Kostlim Design');
-        $safeTitle = function_exists('mb_substr') ? mb_substr($title ?: 'New design work', 0, 34) : substr($title ?: 'New design work', 0, 68);
-        imagettftext($canvas, 28 * $scale, 0, 596 * $scale, 664 * $scale, $muted, $font, $safeTitle);
-        imagettftext($canvas, 24 * $scale, 0, 596 * $scale, 696 * $scale, $accent, $font, $price_rub . ' RUB | ' . $price_uah . ' UAH');
+        imagettftext($canvas, 48 * $scale, 0, 596 * $scale, 628 * $scale, $white, $font, 'Kostlim');
+        imagettftext($canvas, 36 * $scale, 0, 598 * $scale, 678 * $scale, $muted, $font, 'Design');
+        imagettftext($canvas, 56 * $scale, 0, 840 * $scale, 660 * $scale, $accent, $font, $price_rub . ' | ' . $price_uah);
     } else {
-        $drawFallback('Kostlim Design', 596 * $scale, 626 * $scale, 46 * $scale, 420 * $scale, $white);
-        $drawFallback($title ?: 'New design work', 596 * $scale, 670 * $scale, 32 * $scale, 520 * $scale, $muted);
-        $drawFallback($price_rub . ' RUB | ' . $price_uah . ' UAH', 596 * $scale, 704 * $scale, 28 * $scale, 420 * $scale, $accent);
+        $drawFallback('Kostlim', 596 * $scale, 628 * $scale, 52 * $scale, 320 * $scale, $white);
+        $drawFallback('Design', 598 * $scale, 678 * $scale, 40 * $scale, 280 * $scale, $muted);
+        $drawFallback($price_rub . ' | ' . $price_uah, 840 * $scale, 660 * $scale, 62 * $scale, 430 * $scale, $accent);
     }
 
     $final = imagecreatetruecolor(1280, 720);
