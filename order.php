@@ -151,10 +151,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $example_img_json = json_encode($example_imgs);
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO orders
-            (username, telegram, service_key, details, screenshot, example_photo, status, client_ip, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NOW())");
-        $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $user_ip]);
+      $stmt = $pdo->prepare("INSERT INTO orders
+     (username, telegram, service_key, details, screenshot, example_photo, status, client_ip, session_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW())");
+     $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $user_ip, session_id()]);
         $order_id = $pdo->lastInsertId();
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";

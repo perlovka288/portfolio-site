@@ -442,18 +442,20 @@ function showCabinet(PDO $pdo, $token, $chat_id): void {
     try {
         // Ищем заказы через tg_links по tg_chat_id (основной путь для привязанных аккаунтов)
         // + fallback: client_chat_id (для тех кто пользовался /status_X)
-        $stmt = $pdo->prepare("
-            SELECT DISTINCT o.id, o.status, o.created_at, o.service_key,
-                   p.title AS service_title, p.price_rub, p.price_uan
-            FROM orders o
-            LEFT JOIN prices p ON p.category_key = o.service_key
-            LEFT JOIN tg_links tl ON tl.session_id = o.session_id
-            WHERE tl.tg_chat_id = ?
-               OR o.client_chat_id = ?
-            ORDER BY o.id DESC
-            LIMIT 10
-        ");
-        $stmt->execute([$chat_id, $chat_id]);
+       $stmt = $pdo->prepare("
+    SELECT DISTINCT o.id, o.status, o.created_at, o.service_key,
+           p.title AS service_title, p.price_rub, p.price_uan
+    FROM orders o
+    LEFT JOIN prices p ON p.category_key = o.service_key
+    WHERE o.client_chat_id = ?
+       OR o.session_id IN (
+           SELECT session_id FROM tg_links
+           WHERE tg_chat_id = ? AND linked = TRUE AND session_id IS NOT NULL
+       )
+    ORDER BY o.id DESC
+    LIMIT 10
+");
+$stmt->execute([$chat_id, $chat_id]);
         $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable $e) {
         botLog("showCabinet error: " . $e->getMessage());
