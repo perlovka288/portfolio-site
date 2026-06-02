@@ -2,21 +2,22 @@
 require_once __DIR__ . '/../config/db.php';
 
 $categories = [
-    ['preview', 'Превью YouTube', 1280, 720, 0, 10],
-    ['avatar', 'Аватарки', 1024, 1024, 0, 20],
-    ['banner', 'Шапки и баннеры', 1590, 400, 0, 30],
-    ['design', 'Оформление: шапка + ава', 1590, 400, 1, 40],
+    ['preview', 'Превью', 1920, 1080, 0, 10],
+    ['youtube_design', 'Оформление для YouTube', 1920, 768, 1, 20],
+    ['vk_design', 'Оформление для VK', 1920, 768, 1, 30],
+    ['banner', 'Баннеры', 1000, 1200, 0, 40],
+    ['avatar', 'Аватарки', 1000, 1000, 0, 50],
 ];
 
 $stmt = $pdo->prepare("
     INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order)
     VALUES (?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-        title = VALUES(title),
-        width_px = VALUES(width_px),
-        height_px = VALUES(height_px),
-        is_design = VALUES(is_design),
-        sort_order = VALUES(sort_order)
+    ON CONFLICT (category_key) DO UPDATE SET
+        title = EXCLUDED.title,
+        width_px = EXCLUDED.width_px,
+        height_px = EXCLUDED.height_px,
+        is_design = EXCLUDED.is_design,
+        sort_order = EXCLUDED.sort_order
 ");
 
 foreach ($categories as $category) {

@@ -12,6 +12,8 @@ define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
 define('ADMIN_TELEGRAM_ID', '1710365896');
 $telegramLastError = '';
 
+ensureDefaultPortfolioCategories($pdo);
+
 // ── AJAX endpoint: добавить портфолио ────────────────────────────
 // Возвращает JSON, не перезагружает страницу
 if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
@@ -94,6 +96,35 @@ function sendTelegramRequest(string $method, array $params, array $files = []): 
         $telegramLastError = (string)($data['description'] ?? 'Telegram API вернул ошибку');
     }
     return $data;
+}
+
+function defaultPortfolioCategories(): array
+{
+    return [
+        ['preview', 'Превью', 1920, 1080, 0, 10],
+        ['youtube_design', 'Оформление для YouTube', 1920, 768, 1, 20],
+        ['vk_design', 'Оформление для VK', 1920, 768, 1, 30],
+        ['banner', 'Баннеры', 1000, 1200, 0, 40],
+        ['avatar', 'Аватарки', 1000, 1000, 0, 50],
+    ];
+}
+
+function ensureDefaultPortfolioCategories(PDO $pdo): void
+{
+    $stmt = $pdo->prepare("
+        INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (category_key) DO UPDATE SET
+            title = EXCLUDED.title,
+            width_px = EXCLUDED.width_px,
+            height_px = EXCLUDED.height_px,
+            is_design = EXCLUDED.is_design,
+            sort_order = EXCLUDED.sort_order
+    ");
+
+    foreach (defaultPortfolioCategories() as $category) {
+        $stmt->execute($category);
+    }
 }
 
 function imageFromFile(string $path)
@@ -259,6 +290,21 @@ function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
     imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
 }
 
+function copyImageContain($dst, $src, int $dx, int $dy, int $dw, int $dh): void
+{
+    $sw = imagesx($src);
+    $sh = imagesy($src);
+    if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
+
+    $scale = min($dw / $sw, $dh / $sh);
+    $drawW = (int)round($sw * $scale);
+    $drawH = (int)round($sh * $scale);
+    $drawX = $dx + (int)round(($dw - $drawW) / 2);
+    $drawY = $dy + (int)round(($dh - $drawH) / 2);
+
+    imagecopyresampled($dst, $src, $drawX, $drawY, 0, 0, $drawW, $drawH, $sw, $sh);
+}
+
 function applyRoundedCorners($img, int $radius): void
 {
     $w = imagesx($img);
@@ -330,21 +376,13 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $mainH = max(1, imagesy($main));
     $catW = (int)($category['width_px'] ?? 0);
     $catH = (int)($category['height_px'] ?? 0);
-    $targetRatio = ($catW > 0 && $catH > 0) ? ($catW / $catH) : ($mainW / $mainH);
-
-    if ($targetRatio >= 1.65) {
-        $outW = 1280;
-        $outH = 720;
-    } elseif ($targetRatio >= 0.92 && $targetRatio <= 1.08) {
-        $outW = 1080;
-        $outH = 1080;
-    } elseif ($targetRatio < 0.92) {
-        $outW = 1000;
-        $outH = 1200;
-    } else {
-        $outW = 1200;
-        $outH = 900;
+    if ($catW <= 0 || $catH <= 0) {
+        $catW = $mainW;
+        $catH = $mainH;
     }
+
+    $outW = 1280;
+    $outH = 720;
 
     $scale = 2;
     $canvasW = $outW * $scale;
@@ -375,11 +413,15 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $avatarSize = $avatar ? (int)round(min($canvasW, $canvasH) * 0.12) : 0;
     $brandH = $avatar ? (int)round($avatarSize * 1.45) : 0;
     $gap = $avatar ? (int)round(min($canvasW, $canvasH) * 0.026) : 0;
-    $panelW = $canvasW - ($padding * 2);
-    $panelH = $canvasH - ($padding * 2) - $brandH - $gap;
-    if ($panelH < (int)round($canvasH * .48)) $panelH = (int)round($canvasH * .48);
-    $panelX = $padding;
-    $panelY = $padding;
+    $availableW = $canvasW - ($padding * 2);
+    $availableH = $canvasH - ($padding * 2) - $brandH - $gap;
+    if ($availableH < (int)round($canvasH * .48)) $availableH = (int)round($canvasH * .48);
+
+    $frameScale = min($availableW / $catW, $availableH / $catH);
+    $panelW = (int)round($catW * $frameScale);
+    $panelH = (int)round($catH * $frameScale);
+    $panelX = (int)round(($canvasW - $panelW) / 2);
+    $panelY = $padding + (int)round(($availableH - $panelH) / 2);
 
     $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 78);
     drawFilledRoundedRect($canvas, $panelX + (8 * $scale), $panelY + (10 * $scale), $panelW, $panelH, 34 * $scale, $shadow);
@@ -389,7 +431,7 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     imagesavealpha($panel, true);
     $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
     imagefill($panel, 0, 0, $transparent);
-    copyImageCover($panel, $main, 0, 0, $panelW, $panelH);
+    copyImageContain($panel, $main, 0, 0, $panelW, $panelH);
     applyRoundedCorners($panel, 26 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
@@ -711,8 +753,8 @@ if (isset($_GET['delete_price_id'])) {
 if (isset($_POST['add_portfolio_category'])) {
     $catTitle    = trim($_POST['cat_title'] ?? '');
     $catKey      = trim($_POST['cat_key'] ?? '');
-    $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
-    $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
+    $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 1920;
+    $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 1080;
     $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
     if ($catKey === '') $catKey = 'cat_' . time();
     $catKey = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $catKey));
@@ -1002,9 +1044,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <input type="text" name="cat_key" placeholder="vk_post">
                             <div class="avatar-hint">Латиница без пробелов. По этому ключу фильтруется раздел на главной.</div>
                             <div class="two-cols">
-                                <div><label>Ширина, px</label><input type="number" name="cat_width" min="0" placeholder="1080"></div>
-                                <div><label>Высота, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
+                                <div><label>Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
+                                <div><label>Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
                             </div>
+                            <div class="avatar-hint">Размер категории задает пропорцию рамки работы внутри Telegram-постера. Фон и итоговый постер остаются отдельными, работа вписывается целиком без обрезки.</div>
                             <label style="display:flex;gap:8px;align-items:center;margin-top:14px;">
                                 <input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;">
                                 Это оформление с аватаркой
@@ -1317,6 +1360,3 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
-
-
-

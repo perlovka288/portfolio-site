@@ -28,11 +28,15 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 $success_msg = '';
 $error_msg   = '';
 
+ensureDefaultPortfolioCategories($pdo);
+$portfolio_categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title     = trim($_POST['title']     ?? '');
     $price_rub = (int)($_POST['price_rub'] ?? 0);
     $price_uah = (int)($_POST['price_uah'] ?? 0);
-    $category  = trim($_POST['category']  ?? '');
+    $category  = trim($_POST['category']  ?? 'preview');
+    $category_frame = getPortfolioCategoryFrame($pdo, $category);
     $image_url = '';
 
     if (empty($title)) {
@@ -61,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ── Накладываем водяной знак ───────────────────────────────────
-    $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uah);
+    $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uah, $category_frame);
     $final_data  = $watermarked ?: $img_data; // если GD не сработал — оригинал
 
     // ── Загружаем на ImgBB ─────────────────────────────────────────
@@ -177,8 +181,23 @@ render:
             </div>
 
             <label>Категория</label>
-            <input type="text" name="category" placeholder="Например: banner, avatar, logo"
-                   value="<?= htmlspecialchars($_POST['category'] ?? '') ?>">
+            <select name="category">
+                <?php foreach ($portfolio_categories as $cat): ?>
+                    <?php
+                        $catKey = (string)($cat['category_key'] ?? '');
+                        $selected = (($_POST['category'] ?? 'preview') === $catKey) ? 'selected' : '';
+                    ?>
+                    <option value="<?= htmlspecialchars($catKey) ?>" <?= $selected ?>>
+                        <?= htmlspecialchars($cat['title'] ?? $catKey) ?>
+                        <?php if ((int)($cat['width_px'] ?? 0) > 0 && (int)($cat['height_px'] ?? 0) > 0): ?>
+                            (<?= (int)$cat['width_px'] ?>x<?= (int)$cat['height_px'] ?>)
+                        <?php endif; ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <div style="color:#666;font-size:12px;margin:-10px 0 18px;">
+                Размер категории задает рамку работы внутри Telegram-постера. Постер и фон остаются отдельно, работа не режется.
+            </div>
 
             <label>Изображение (загрузи файл)</label>
             <input type="file" name="image" accept="image/*">
@@ -206,7 +225,7 @@ render:
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИЯ: Водяной знак
 // ═══════════════════════════════════════════════════════════════
-function applyWatermark(string $img_data, string $avatar_url, string $title = '', int $price_rub = 0, int $price_uah = 0): ?string
+function applyWatermark(string $img_data, string $avatar_url, string $title = '', int $price_rub = 0, int $price_uah = 0, array $category_frame = []): ?string
 {
     if (!extension_loaded('gd')) return null;
 
@@ -237,6 +256,20 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
             $sy = (int)round(($sh - $cropH) / 2);
         }
         imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
+    };
+
+    $copyContain = function ($dst, $src, int $dx, int $dy, int $dw, int $dh): void {
+        $sw = imagesx($src);
+        $sh = imagesy($src);
+        if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
+
+        $scale = min($dw / $sw, $dh / $sh);
+        $drawW = (int)round($sw * $scale);
+        $drawH = (int)round($sh * $scale);
+        $drawX = $dx + (int)round(($dw - $drawW) / 2);
+        $drawY = $dy + (int)round(($dh - $drawH) / 2);
+
+        imagecopyresampled($dst, $src, $drawX, $drawY, 0, 0, $drawW, $drawH, $sw, $sh);
     };
 
     $roundCorners = function ($img, int $radius): void {
@@ -321,17 +354,29 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
         }
     }
 
-    $panelW = 896 * $scale;
-    $panelH = 498 * $scale;
-    $panelX = (int)(($canvasW - $panelW) / 2);
-    $panelY = 66 * $scale;
+    $catW = (int)($category_frame['width_px'] ?? 0);
+    $catH = (int)($category_frame['height_px'] ?? 0);
+    if ($catW <= 0 || $catH <= 0) {
+        $catW = max(1, imagesx($main));
+        $catH = max(1, imagesy($main));
+    }
+
+    $frameW = 896 * $scale;
+    $frameH = 498 * $scale;
+    $frameX = (int)(($canvasW - $frameW) / 2);
+    $frameY = 66 * $scale;
+    $frameScale = min($frameW / $catW, $frameH / $catH);
+    $panelW = (int)round($catW * $frameScale);
+    $panelH = (int)round($catH * $frameScale);
+    $panelX = $frameX + (int)round(($frameW - $panelW) / 2);
+    $panelY = $frameY + (int)round(($frameH - $panelH) / 2);
     $panel = imagecreatetruecolor($panelW, $panelH);
     imagealphablending($panel, true);
     imagesavealpha($panel, true);
     $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
     imagefill($panel, 0, 0, $transparent);
 
-    $copyCover($panel, $main, 0, 0, $panelW, $panelH);
+    $copyContain($panel, $main, 0, 0, $panelW, $panelH);
     $roundCorners($panel, 58 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
@@ -400,6 +445,58 @@ function applyWatermark(string $img_data, string $avatar_url, string $title = ''
     imagedestroy($final);
 
     return $result ?: null;
+}
+
+function defaultPortfolioCategories(): array
+{
+    return [
+        ['preview', 'Превью', 1920, 1080, 0, 10],
+        ['youtube_design', 'Оформление для YouTube', 1920, 768, 1, 20],
+        ['vk_design', 'Оформление для VK', 1920, 768, 1, 30],
+        ['banner', 'Баннеры', 1000, 1200, 0, 40],
+        ['avatar', 'Аватарки', 1000, 1000, 0, 50],
+    ];
+}
+
+function ensureDefaultPortfolioCategories(PDO $pdo): void
+{
+    $stmt = $pdo->prepare("
+        INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (category_key) DO UPDATE SET
+            title = EXCLUDED.title,
+            width_px = EXCLUDED.width_px,
+            height_px = EXCLUDED.height_px,
+            is_design = EXCLUDED.is_design,
+            sort_order = EXCLUDED.sort_order
+    ");
+
+    foreach (defaultPortfolioCategories() as $category) {
+        $stmt->execute($category);
+    }
+}
+
+function getPortfolioCategoryFrame(PDO $pdo, string $category): array
+{
+    $stmt = $pdo->prepare("SELECT width_px, height_px FROM portfolio_categories WHERE category_key = ? LIMIT 1");
+    $stmt->execute([$category]);
+    $frame = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    if (!empty($frame)) {
+        return $frame;
+    }
+
+    if (preg_match('/(\d+)\s*x\s*(\d+)/i', $category, $match)) {
+        return [
+            'width_px' => (int)$match[1],
+            'height_px' => (int)$match[2],
+        ];
+    }
+
+    return [
+        'width_px' => 1920,
+        'height_px' => 1080,
+    ];
 }
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИЯ: Публикация в Telegram-канал

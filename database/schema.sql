@@ -64,15 +64,16 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Seed data: portfolio_categories
 INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order) VALUES
-('preview', 'Превью YouTube', 1280, 720, 0, 10),
-('avatar', 'Аватарки', 1024, 1024, 0, 20),
-('design', 'Оформление: шапка + ава', 1590, 400, 1, 40),
-('banner2', 'Баннеры', 1000, 1200, 0, 100)
+('preview', 'Превью', 1920, 1080, 0, 10),
+('youtube_design', 'Оформление для YouTube', 1920, 768, 1, 20),
+('vk_design', 'Оформление для VK', 1920, 768, 1, 30),
+('banner', 'Баннеры', 1000, 1200, 0, 40),
+('avatar', 'Аватарки', 1000, 1000, 0, 50)
 ON CONFLICT (category_key) DO NOTHING;
 
 -- Seed data: prices
 INSERT INTO prices (category_key, title, description, price_rub, price_uan, features) VALUES
-('preview', 'Превью для видео и стримов', 'Превью для YouTube, видео и стримов.', 400, 250, 'Подбор композиции|Работа с текстом|Подготовка под 1280x720'),
+('preview', 'Превью для видео и стримов', 'Превью для YouTube, видео и стримов.', 400, 250, 'Подбор композиции|Работа с текстом|Подготовка под 1920x1080'),
 ('avatar', 'Именная аватарка', 'Аватарка с именем, персонажем или брендингом.', 300, 175, 'Именной текст|Персонаж/арт|Подготовка под соцсети'),
 ('banner', 'Шапка для YouTube/VK', 'Шапка или баннер для YouTube/VK.', 300, 200, 'Шапка YouTube|Шапка VK|Подгон размеров'),
 ('design', 'Шапка + аватарка для канала', 'Комплект оформления канала: шапка и аватарка.', 500, 400, 'Шапка канала|Аватарка|Единый стиль'),
