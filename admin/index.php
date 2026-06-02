@@ -206,8 +206,9 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
     if (!$main) return $mainPath;
 
     $avatar = (is_file($avatarPath)) ? imageFromFile($avatarPath) : null;
-    $canvasW = 1280;
-    $canvasH = 720;
+    $scale = 2;
+    $canvasW = 1280 * $scale;
+    $canvasH = 720 * $scale;
     $canvas = imagecreatetruecolor($canvasW, $canvasH);
     imagealphablending($canvas, true);
     imagesavealpha($canvas, true);
@@ -220,61 +221,44 @@ function createWatermarkedImage(string $mainPath, string $avatarPath): string
         imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
     }
 
-    $panelW = 900;
-    $panelH = 500;
+    $panelW = 896 * $scale;
+    $panelH = 498 * $scale;
     $panelX = (int)(($canvasW - $panelW) / 2);
-    $panelY = 64;
+    $panelY = 66 * $scale;
     $panel = imagecreatetruecolor($panelW, $panelH);
     imagealphablending($panel, true);
     imagesavealpha($panel, true);
     $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
     imagefill($panel, 0, 0, $transparent);
 
-    $topH = 176;
-    $midH = 146;
-    $bottomH = $panelH - $topH - $midH;
-    copyImageCover($panel, $main, 0, 0, $panelW, $topH);
-    copyImageCover($panel, $main, 0, $topH, $panelW, $midH);
-    copyImageCover($panel, $main, 0, $topH + $midH, $panelW, $bottomH);
-
-    $dark = imagecolorallocatealpha($panel, 0, 0, 0, 72);
-    imagefilledrectangle($panel, 0, 0, $panelW, $topH, $dark);
-    imagefilledrectangle($panel, 0, $topH + $midH, $panelW, $panelH, $dark);
-    applyRoundedCorners($panel, 58);
+    copyImageCover($panel, $main, 0, 0, $panelW, $panelH);
+    applyRoundedCorners($panel, 58 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
 
-    $border = imagecolorallocatealpha($canvas, 170, 170, 176, 35);
-    for ($i = 0; $i < 3; $i++) {
-        imagearc($canvas, $panelX + 58, $panelY + 58, 116 - $i, 116 - $i, 180, 270, $border);
-        imagearc($canvas, $panelX + $panelW - 58, $panelY + 58, 116 - $i, 116 - $i, 270, 360, $border);
-        imagearc($canvas, $panelX + 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 90, 180, $border);
-        imagearc($canvas, $panelX + $panelW - 58, $panelY + $panelH - 58, 116 - $i, 116 - $i, 0, 90, $border);
-        imageline($canvas, $panelX + 58, $panelY + $i, $panelX + $panelW - 58, $panelY + $i, $border);
-        imageline($canvas, $panelX + 58, $panelY + $panelH - $i, $panelX + $panelW - 58, $panelY + $panelH - $i, $border);
-        imageline($canvas, $panelX + $i, $panelY + 58, $panelX + $i, $panelY + $panelH - 58, $border);
-        imageline($canvas, $panelX + $panelW - $i, $panelY + 58, $panelX + $panelW - $i, $panelY + $panelH - 58, $border);
-    }
-
     if ($avatar) {
-        drawCircularImage($canvas, $avatar, 482, 592, 82);
+        drawCircularImage($canvas, $avatar, 482 * $scale, 592 * $scale, 90 * $scale);
         imagedestroy($avatar);
     }
 
     $font = gdFontPath();
     $white = imagecolorallocate($canvas, 255, 255, 255);
     if ($font !== '' && function_exists('imagettftext')) {
-        imagettftext($canvas, 42, 0, 594, 636, $white, $font, 'KOSTLIM');
-        imagettftext($canvas, 34, 0, 596, 674, $white, $font, 'DESIGN');
+        imagettftext($canvas, 44 * $scale, 0, 596 * $scale, 638 * $scale, $white, $font, 'KOSTLIM');
+        imagettftext($canvas, 36 * $scale, 0, 598 * $scale, 678 * $scale, $white, $font, 'DESIGN');
     } else {
-        imagestring($canvas, 5, 594, 612, 'KOSTLIM', $white);
-        imagestring($canvas, 5, 596, 636, 'DESIGN', $white);
+        imagestring($canvas, 5, 596 * $scale, 612 * $scale, 'KOSTLIM', $white);
+        imagestring($canvas, 5, 598 * $scale, 636 * $scale, 'DESIGN', $white);
     }
 
+    $final = imagecreatetruecolor(1280, 720);
+    imagecopyresampled($final, $canvas, 0, 0, 0, 0, 1280, 720, $canvasW, $canvasH);
+
     $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
-    imagejpeg($canvas, $output, 94);
+    imagejpeg($final, $output, 100);
     imagedestroy($main);
     imagedestroy($canvas);
+    imagedestroy($final);
     return $output;
 }
 function downloadToTemp(string $url): string
@@ -330,9 +314,9 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
     $rub     = (int)($case['price_rub'] ?? 0);
     $uan     = (int)($case['price_uan'] ?? 0);
-    $caption = "Цена работы: {$rub}₽ | {$uan}₴\n\n";
-    $caption .= "Оценить данную работу можно в комментариях.\n\n";
-    $caption .= 'Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
+    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
+    $caption .= "💬 Оценить данную работу можно в комментариях.\n\n";
+    $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">сайт</a>';
 
     $result = sendTelegramRequest('sendPhoto', [
         'chat_id'    => PORTFOLIO_CHANNEL_CHAT,
