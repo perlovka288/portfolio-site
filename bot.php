@@ -167,8 +167,9 @@ if (isset($update['message'])) {
 
     try {
 
-    // ── /start — возможна привязка через deep link ─────────────────
-    if (strpos($text, '/start') === 0) {
+    // ── /start — привязка через deep link + поддержка /start@botname ──
+    $text_cmd_only = explode('@', $text)[0];
+    if ($text_cmd_only === '/start' || strpos($text, '/start ') === 0 || $text === '/start') {
         $parts = explode(' ', $text, 2);
         $param = $parts[1] ?? '';
 
@@ -197,7 +198,8 @@ if (isset($update['message'])) {
             } else {
                 sendTelegram($token, 'sendMessage', [
                     'chat_id' => $chat_id,
-                    'text'    => "❌ Код не найден. Зайдите на сайт и скопируйте актуальный код.",
+                    'text'    => "❌ Код не найден. Зайдите на сайт и скопируйте актуальный код.\n\nНажмите кнопку ниже чтобы перейти на сайт и получить код.",
+                    'reply_markup' => ['inline_keyboard' => [[['text' => '🌐 Открыть сайт', 'url' => $site_url]]]],
                 ]);
                 exit;
             }
@@ -213,7 +215,7 @@ if (isset($update['message'])) {
         exit;
     }
 
-    if ($text === '/menu') {
+    if ($text === '/menu' || explode('@', $text)[0] === '/menu') {
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => "👋 Главное меню *Kostlim Design*",

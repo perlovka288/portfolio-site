@@ -20,6 +20,42 @@ define('COOLDOWN_SECONDS', 300);
 $selected_service = $_GET['service'] ?? '';
 $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
+// ── TG: статус привязки для текущей сессии ──────────────────────
+$linkCode = null;
+$isLinked = false;
+try {
+    $sid  = session_id();
+    $stmt_lnk = $pdo->prepare("SELECT site_code, linked FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt_lnk->execute([$sid]);
+    $linkRow = $stmt_lnk->fetch(PDO::FETCH_ASSOC);
+    if ($linkRow && $linkRow['linked']) {
+        $isLinked = true;
+    } elseif ($linkRow) {
+        $linkCode = $linkRow['site_code'];
+    } else {
+        $code = strtoupper(substr(md5(uniqid($sid, true)), 0, 6));
+        $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
+        $linkCode = $code;
+    }
+} catch (Throwable $e) {
+    $linkCode = null;
+}
+
+// ── AJAX: проверить статус привязки (polling с order.php) ────────
+if (isset($_GET['check_linked'])) {
+    header('Content-Type: application/json');
+    $sid_chk = session_id();
+    try {
+        $stmt_chk = $pdo->prepare("SELECT linked FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+        $stmt_chk->execute([$sid_chk]);
+        $row_chk = $stmt_chk->fetch(PDO::FETCH_ASSOC);
+        echo json_encode(['linked' => !empty($row_chk['linked'])]);
+    } catch (Throwable $e) {
+        echo json_encode(['linked' => false]);
+    }
+    exit;
+}
+
 $success_msg = '';
 $error_msg   = '';
 
@@ -246,7 +282,50 @@ render_page:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="stylesheet" href="style.css">
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer>
+// ── TG Banner polling ──
+var bannerPollInterval = null;
+
+function copyBannerCode() {
+    var el = document.getElementById('bannerCode');
+    if (!el) return;
+    var text = el.textContent.trim();
+    navigator.clipboard.writeText(text).then(function() {
+        var btn = document.querySelector('.tg-banner-copy');
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
+    }).catch(function() {
+        var tmp = document.createElement('textarea');
+        tmp.value = text; document.body.appendChild(tmp);
+        tmp.select(); document.execCommand('copy'); document.body.removeChild(tmp);
+        var btn = document.querySelector('.tg-banner-copy');
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
+    });
+}
+
+function startBannerPolling() {
+    var w = document.getElementById('bannerWaiting');
+    if (w) w.classList.add('show');
+    if (bannerPollInterval) clearInterval(bannerPollInterval);
+    bannerPollInterval = setInterval(checkBannerLinked, 3000);
+}
+
+function checkBannerLinked() {
+    fetch('order.php?check_linked=1')
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+            if (data.linked) {
+                clearInterval(bannerPollInterval);
+                var banner = document.getElementById('tgBanner');
+                if (banner) {
+                    banner.innerHTML = '<div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан! Уведомления придут в бот</div></div>';
+                    banner.classList.add('tg-banner-linked');
+                    banner.style.borderColor = 'rgba(34,197,94,0.4)';
+                }
+            }
+        })
+        .catch(function(){});
+}
+</script>
 <style>
 :root {
     --or: #f97316;
@@ -331,6 +410,115 @@ body::before {
 .msg-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-size: 13px; }
 .mb16 { margin-bottom: 16px; }
 .mb22 { margin-bottom: 22px; }
+
+/* ══ TG BANNER ══ */
+.tg-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, rgba(249,115,22,0.1), rgba(249,115,22,0.04));
+    border: 1px solid rgba(249,115,22,0.45);
+    border-radius: 13px;
+    padding: 14px 16px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+    position: relative;
+}
+.tg-banner-linked {
+    background: linear-gradient(135deg, rgba(34,197,94,0.08), rgba(34,197,94,0.03));
+    border-color: rgba(34,197,94,0.35);
+}
+.tg-banner-icon {
+    width: 42px; height: 42px; flex-shrink: 0;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+}
+.tg-banner-body { flex: 1; min-width: 0; }
+.tg-banner-title {
+    color: #fdba74;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+.tg-banner-code-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+.tg-banner-code {
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: 900;
+    color: #fb923c;
+    letter-spacing: 2px;
+    background: rgba(0,0,0,0.3);
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(249,115,22,0.25);
+    user-select: all;
+}
+.tg-banner-copy {
+    background: rgba(249,115,22,0.18);
+    border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: #fdba74;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: .2s;
+    font-family: inherit;
+}
+.tg-banner-copy:hover { background: rgba(249,115,22,0.35); color: #fff; }
+.tg-banner-hint {
+    color: #666678;
+    font-size: 10px;
+    margin-top: 2px;
+}
+.tg-banner-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    color: #fff;
+    text-decoration: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-weight: 900;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    box-shadow: 0 0 14px rgba(249,115,22,0.4);
+    transition: opacity .2s, transform .2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.tg-banner-btn:hover { opacity: .9; transform: translateY(-1px); }
+.tg-banner-waiting {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    color: #fdba74;
+    font-size: 11px;
+    font-weight: 700;
+    width: 100%;
+    margin-top: 6px;
+}
+.tg-banner-waiting.show { display: flex; }
+.tg-spinner-sm {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(249,115,22,0.3);
+    border-top-color: #f97316;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media(max-width:520px) {
+    .tg-banner { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .tg-banner-btn { width: 100%; justify-content: center; }
+    .tg-banner-code { font-size: 12px; letter-spacing: 1px; }
+}
 </style>
 </head>
 <body>
@@ -378,6 +566,43 @@ body::before {
 <?php else: ?>
 
 <div class="order-card">
+    <!-- ══ TG ПЛАШКА — ОБЯЗАТЕЛЬНАЯ ══ -->
+    <?php if (!$isLinked): ?>
+    <div class="tg-banner" id="tgBanner">
+        <div class="tg-banner-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </div>
+        <div class="tg-banner-body">
+            <div class="tg-banner-title">Привяжи Telegram — получай уведомления о заказе</div>
+            <?php if ($linkCode): ?>
+            <div class="tg-banner-code-row">
+                <span class="tg-banner-code" id="bannerCode">/customer_<?= htmlspecialchars($linkCode) ?></span>
+                <button class="tg-banner-copy" onclick="copyBannerCode()">Копировать</button>
+            </div>
+            <div class="tg-banner-hint">1. Скопируй код &nbsp;→&nbsp; 2. Открой бот &nbsp;→&nbsp; 3. Отправь код в чат</div>
+            <?php endif; ?>
+        </div>
+        <a href="https://t.me/kostlimdznbot?start=link_<?= htmlspecialchars($linkCode ?? '') ?>"
+           target="_blank" class="tg-banner-btn" id="bannerOpenBtn" onclick="startBannerPolling()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Открыть бот
+        </a>
+        <div class="tg-banner-waiting" id="bannerWaiting">
+            <span class="tg-spinner-sm"></span> Ожидаю…
+        </div>
+    </div>
+    <?php else: ?>
+    <div class="tg-banner tg-banner-linked">
+        <div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <div class="tg-banner-body">
+            <div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан — уведомления придут в бот</div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+
     <a href="index.php" class="order-back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         На главную к портфолио

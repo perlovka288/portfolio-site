@@ -53,12 +53,23 @@ try {
     } elseif ($linkRow) {
         $linkCode = $linkRow['site_code'];
     } else {
-        $code = strtoupper(substr(md5(uniqid($sid, true)), 0, 6));
-        $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
-        $linkCode = $code;
+        // Генерируем уникальный код, повторяя при коллизии
+        $attempts = 0;
+        do {
+            $code = strtoupper(substr(md5(uniqid($sid . $attempts, true)), 0, 6));
+            $attempts++;
+            try {
+                $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
+                $linkCode = $code;
+                break;
+            } catch (Throwable $ins_e) {
+                // UNIQUE conflict — попробуем ещё раз
+            }
+        } while ($attempts < 5);
     }
 } catch (Throwable $e) {
-    $linkCode = null;
+    // Если таблица не существует — генерируем код на клиентской стороне из session_id
+    $linkCode = strtoupper(substr(md5(session_id()), 0, 6));
 }
 
 function imgSrc(string $val, string $base = 'uploads/'): string {
@@ -373,7 +384,9 @@ body::after {
 ══════════════════════════════════════════ -->
 <div class="tg-modal-overlay" id="tgModalOverlay">
   <div class="tg-modal" id="tgModal">
+    <?php if ($isLinked): ?>
     <button class="tg-modal-close" onclick="closeTgModal()" title="Закрыть">×</button>
+    <?php endif; ?>
 
     <?php if ($isLinked): ?>
     <!-- ── УЖЕ ПРИВЯЗАН ── -->
@@ -403,12 +416,14 @@ body::after {
       </div>
     </div>
 
-    <?php if ($linkCode): ?>
     <div class="tg-code-box">
+      <?php if ($linkCode): ?>
       <span class="tg-code-val" id="modalCode">/customer_<?= htmlspecialchars($linkCode) ?></span>
       <button class="tg-copy-btn" id="copyCodeBtn" onclick="copyModalCode()">Копировать</button>
+      <?php else: ?>
+      <span class="tg-code-val" style="font-size:12px;color:#8a8a96;">Обнови страницу — код генерируется</span>
+      <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <div class="tg-steps">
       <div class="tg-step">
@@ -429,7 +444,6 @@ body::after {
       Ожидаю привязку… (введи код в бот)
     </div>
 
-    <button class="tg-skip-btn" onclick="skipAndOrder()">Пропустить — перейти без уведомлений</button>
     <?php endif; ?>
   </div>
 </div>
@@ -558,17 +572,10 @@ function closeTgModal() {
 
 // ── Закрыть по клику на оверлей ──
 document.getElementById('tgModalOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeTgModal();
+    if (e.target === this && IS_LINKED) closeTgModal();
 });
 
-// ── Пропустить и перейти к заказу ──
-function skipAndOrder() {
-    stopPolling();
-    closeTgModal();
-    if (pendingOrderService) {
-        window.location.href = 'order.php?service=' + encodeURIComponent(pendingOrderService) + '&accepted=1';
-    }
-}
+// skipAndOrder удалён — плашка обязательная
 
 // ── Копировать код ──
 function copyModalCode() {
