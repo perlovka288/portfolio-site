@@ -376,6 +376,7 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $mainH = max(1, imagesy($main));
     $catW = (int)($category['width_px'] ?? 0);
     $catH = (int)($category['height_px'] ?? 0);
+    $isDesign = !empty($category['is_design']);
     if ($catW <= 0 || $catH <= 0) {
         $catW = $mainW;
         $catH = $mainH;
@@ -440,7 +441,19 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     imagesetthickness($canvas, max(1, 2 * $scale));
     imagerectangle($canvas, $panelX, $panelY, $panelX + $panelW, $panelY + $panelH, $line);
 
-    if ($avatar) {
+    if ($avatar && $isDesign) {
+        $avatarSize = (int)round(min($panelW, $panelH) * 0.26);
+        $avatarSize = max(80 * $scale, min($avatarSize, 190 * $scale));
+        $avatarPad = (int)round($avatarSize * 0.18);
+        $blockW = $avatarSize + ($avatarPad * 2);
+        $blockH = $avatarSize + ($avatarPad * 2);
+        $blockX = $panelX + $panelW - $blockW - (int)round($panelW * 0.035);
+        $blockY = $panelY + $panelH - $blockH - (int)round($panelH * 0.055);
+        $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
+        drawFilledRoundedRect($canvas, $blockX, $blockY, $blockW, $blockH, 24 * $scale, $blockBg);
+        drawCircularImage($canvas, $avatar, $blockX + $avatarPad, $blockY + $avatarPad, $avatarSize);
+        imagedestroy($avatar);
+    } elseif ($avatar) {
         $blockW = (int)round($avatarSize * 1.6);
         $blockH = (int)round($avatarSize * 1.25);
         $blockX = (int)round(($canvasW - $blockW) / 2);
@@ -492,9 +505,21 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
     if (!is_file($mainPath)) return false;
 
+    $rub     = (int)($case['price_rub'] ?? 0);
+    $uan     = (int)($case['price_uan'] ?? 0);
+    $category = [];
+    try {
+        $catKey = (string)($case['category_key'] ?? '');
+        if ($catKey !== '') {
+            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
+            $stmt->execute([$catKey]);
+            $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+    } catch (Throwable $e) {}
+
     $avatarVal = (string)($case['avatar_image'] ?? '');
     try {
-        if ($avatarVal === '') {
+        if ($avatarVal === '' && empty($category['is_design'])) {
             $stmt      = $pdo->query('SELECT avatar FROM users LIMIT 1');
             $avatarVal = (string)($stmt->fetchColumn() ?: '');
         }
@@ -507,18 +532,6 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
         $avatarPath       = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : '';
         $avatarDownloaded = false;
     }
-
-    $rub     = (int)($case['price_rub'] ?? 0);
-    $uan     = (int)($case['price_uan'] ?? 0);
-    $category = [];
-    try {
-        $catKey = (string)($case['category_key'] ?? '');
-        if ($catKey !== '') {
-            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
-            $stmt->execute([$catKey]);
-            $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        }
-    } catch (Throwable $e) {}
 
     $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
     $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
