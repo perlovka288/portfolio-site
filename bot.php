@@ -178,6 +178,7 @@ if (isset($update['message'])) {
         // /start link_АБCDEF — пользователь перешёл с сайта по кнопке «Открыть бот»
         if (preg_match('/^link_([A-Z0-9]{4,10})$/i', $param, $m)) {
             $site_code = strtoupper($m[1]);
+            botLog("/start link_ handler: code={$site_code}");
             linkTgAccount($pdo, $token, $chat_id, $update['message'], $site_code);
             exit;
         }
@@ -214,9 +215,18 @@ if (isset($update['message'])) {
     }
 
     // /customer_КОД — ручная отправка кода привязки (альтернатива кнопке)
-    if (preg_match('/^\/customer_([A-Z0-9]{4,10})$/i', $text, $m)) {
-        $site_code = strtoupper($m[1]);
-        linkTgAccount($pdo, $token, $chat_id, $update['message'], $site_code);
+    if (strpos($text, '/customer_') === 0) {
+        $site_code = strtoupper(trim(str_replace('/customer_', '', $text)));
+        botLog("customer_ handler: code={$site_code} raw={$text}");
+        if ($site_code !== '' && preg_match('/^[A-Z0-9]{4,10}$/', $site_code)) {
+            linkTgAccount($pdo, $token, $chat_id, $update['message'], $site_code);
+        } else {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => "❌ Неверный формат кода. Проверь код на сайте и попробуй снова.",
+                'parse_mode' => 'Markdown',
+            ]);
+        }
         exit;
     }
 
