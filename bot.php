@@ -362,10 +362,19 @@ if (isset($update['message'])) {
 function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
     botLog("linkTgAccount chat_id={$chat_id} code={$site_code}");
 
-    // Проверяем — есть ли такой код в таблице
-    $stmt = $pdo->prepare("SELECT id, linked FROM tg_links WHERE site_code = ? LIMIT 1");
-    $stmt->execute([$site_code]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    try {
+        // Проверяем — есть ли такой код в таблице
+        $stmt = $pdo->prepare("SELECT id, linked FROM tg_links WHERE site_code = ? LIMIT 1");
+        $stmt->execute([$site_code]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        botLog("linkTgAccount DB error (select): " . $e->getMessage());
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chat_id,
+            'text'    => "⚠️ Ошибка базы данных. Попробуй позже.",
+        ]);
+        return;
+    }
 
     if (!$row) {
         sendTelegram($token, 'sendMessage', [
@@ -401,7 +410,7 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         ]);
         $photosData = json_decode($photosResp, true);
         if (!empty($photosData['result']['photos'][0])) {
-            $fileId    = $photosData['result']['photos'][0][0]['file_id'] ?? '';
+            $fileId = $photosData['result']['photos'][0][0]['file_id'] ?? '';
             if ($fileId) {
                 $fileResp = sendTelegram($token, 'getFile', ['file_id' => $fileId]);
                 $fileData = json_decode($fileResp, true);
@@ -415,24 +424,44 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         botLog("photo fetch error: " . $e->getMessage());
     }
 
-    // Обновляем tg_links — помечаем как привязано
-    $pdo->prepare("
-        UPDATE tg_links
-        SET linked = 1,
-            tg_id = ?,
-            tg_username = ?,
-            tg_first_name = ?,
-            tg_photo_url = ?
-        WHERE site_code = ?
-    ")->execute([$tg_id, $username, $first_name, $photo_url, $site_code]);
+    // ШАГ 1 — базовый UPDATE (linked=1), работает всегда
+    try {
+        $pdo->prepare("UPDATE tg_links SET linked = 1 WHERE site_code = ?")
+            ->execute([$site_code]);
+        botLog("linkTgAccount: linked=1 set for code={$site_code}");
+    } catch (Throwable $e) {
+        botLog("linkTgAccount DB error (update linked): " . $e->getMessage());
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chat_id,
+            'text'    => "⚠️ Не удалось привязать аккаунт. Попробуй позже.",
+        ]);
+        return;
+    }
 
-    // Сохраняем chat_id (tg_id) в pending заказах у этого пользователя если он уже заказывал
-    if ($username !== '') {
+    // ШАГ 2 — дополнительные поля профиля (если колонки уже добавлены миграцией)
+    try {
         $pdo->prepare("
-            UPDATE orders SET client_chat_id = ?
-            WHERE (telegram = ? OR telegram = ?)
-              AND (client_chat_id IS NULL OR client_chat_id = '')
-        ")->execute([$tg_id, '@' . $username, $username]);
+            UPDATE tg_links
+            SET tg_id = ?, tg_username = ?, tg_first_name = ?, tg_photo_url = ?
+            WHERE site_code = ?
+        ")->execute([$tg_id, $username, $first_name, $photo_url, $site_code]);
+        botLog("linkTgAccount: profile saved tg_id={$tg_id} username={$username}");
+    } catch (Throwable $e) {
+        // Колонки ещё не добавлены — не критично, linked=1 уже стоит
+        botLog("linkTgAccount: profile columns missing (run migration!) " . $e->getMessage());
+    }
+
+    // Привязываем заказы по username
+    if ($username !== '') {
+        try {
+            $pdo->prepare("
+                UPDATE orders SET client_chat_id = ?
+                WHERE (telegram = ? OR telegram = ?)
+                  AND (client_chat_id IS NULL OR client_chat_id = '')
+            ")->execute([$tg_id, '@' . $username, $username]);
+        } catch (Throwable $e) {
+            botLog("linkTgAccount: orders update error: " . $e->getMessage());
+        }
     }
 
     $name_display = $first_name ?: ($username ? '@' . $username : 'пользователь');
