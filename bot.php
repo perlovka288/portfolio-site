@@ -171,9 +171,16 @@ if (isset($update['message'])) {
 
     botLog("message chat={$chat_id} text={$text}");
 
-    // /start — может быть с параметром order_id для привязки chat_id
+    // /start — может быть с параметром order_id для привязки chat_id или link_КОД для привязки сайта
     if (strpos($text, '/start') === 0) {
         $param = trim(str_replace('/start', '', $text));
+
+        // /start link_АБCDEF — пользователь перешёл с сайта по кнопке «Открыть бот»
+        if (preg_match('/^link_([A-Z0-9]{4,10})$/i', $param, $m)) {
+            $site_code = strtoupper($m[1]);
+            linkTgAccount($pdo, $token, $chat_id, $update['message'], $site_code);
+            exit;
+        }
 
         // /start order_22 — клиент пришёл по ссылке из уведомления о заказе
         if (preg_match('/^order_(\d+)$/', $param, $m)) {
@@ -203,6 +210,13 @@ if (isset($update['message'])) {
             'parse_mode'   => 'Markdown',
             'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
         ]);
+        exit;
+    }
+
+    // /customer_КОД — ручная отправка кода привязки (альтернатива кнопке)
+    if (preg_match('/^\/customer_([A-Z0-9]{4,10})$/i', $text, $m)) {
+        $site_code = strtoupper($m[1]);
+        linkTgAccount($pdo, $token, $chat_id, $update['message'], $site_code);
         exit;
     }
 
@@ -330,6 +344,96 @@ if (isset($update['message'])) {
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИИ
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Привязать Telegram-аккаунт к сессии на сайте по site_code.
+ * Сохраняет tg_id, username, first_name, photo_url в tg_links.
+ */
+function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
+    botLog("linkTgAccount chat_id={$chat_id} code={$site_code}");
+
+    // Проверяем — есть ли такой код в таблице
+    $stmt = $pdo->prepare("SELECT id, linked FROM tg_links WHERE site_code = ? LIMIT 1");
+    $stmt->execute([$site_code]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $chat_id,
+            'text'       => "❌ *Код не найден.*\n\nПроверь, что ввёл код правильно, или обнови страницу сайта и попробуй снова.",
+            'parse_mode' => 'Markdown',
+        ]);
+        return;
+    }
+
+    if ($row['linked']) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $chat_id,
+            'text'       => "✅ *Этот код уже был использован.*\n\nТвой Telegram уже привязан к сайту. Можешь вернуться и оформить заказ.",
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode(mainKeyboard(false), JSON_UNESCAPED_UNICODE),
+        ]);
+        return;
+    }
+
+    // Получаем данные пользователя из сообщения
+    $user       = $message['from'] ?? [];
+    $tg_id      = (string)($user['id'] ?? $chat_id);
+    $username   = $user['username'] ?? '';
+    $first_name = $user['first_name'] ?? '';
+
+    // Получаем фото профиля через getProfilePhotos
+    $photo_url = '';
+    try {
+        $photosResp = sendTelegram($token, 'getUserProfilePhotos', [
+            'user_id' => $chat_id,
+            'limit'   => 1,
+        ]);
+        $photosData = json_decode($photosResp, true);
+        if (!empty($photosData['result']['photos'][0])) {
+            $fileId    = $photosData['result']['photos'][0][0]['file_id'] ?? '';
+            if ($fileId) {
+                $fileResp = sendTelegram($token, 'getFile', ['file_id' => $fileId]);
+                $fileData = json_decode($fileResp, true);
+                $filePath = $fileData['result']['file_path'] ?? '';
+                if ($filePath) {
+                    $photo_url = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        botLog("photo fetch error: " . $e->getMessage());
+    }
+
+    // Обновляем tg_links — помечаем как привязано
+    $pdo->prepare("
+        UPDATE tg_links
+        SET linked = 1,
+            tg_id = ?,
+            tg_username = ?,
+            tg_first_name = ?,
+            tg_photo_url = ?
+        WHERE site_code = ?
+    ")->execute([$tg_id, $username, $first_name, $photo_url, $site_code]);
+
+    // Сохраняем chat_id (tg_id) в pending заказах у этого пользователя если он уже заказывал
+    if ($username !== '') {
+        $pdo->prepare("
+            UPDATE orders SET client_chat_id = ?
+            WHERE (telegram = ? OR telegram = ?)
+              AND (client_chat_id IS NULL OR client_chat_id = '')
+        ")->execute([$tg_id, '@' . $username, $username]);
+    }
+
+    $name_display = $first_name ?: ($username ? '@' . $username : 'пользователь');
+
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'    => $chat_id,
+        'text'       => "🎉 *{$name_display}, Telegram успешно привязан к сайту!*\n\nТеперь ты можешь оформлять заказы и получать уведомления прямо в этот бот.\n\nВернись на сайт — страница обновится автоматически.",
+        'parse_mode' => 'Markdown',
+        'reply_markup' => json_encode(mainKeyboard(false), JSON_UNESCAPED_UNICODE),
+    ]);
+}
 
 /**
  * Показывает личный кабинет клиента — список его заказов с кнопками.

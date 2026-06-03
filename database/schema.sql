@@ -94,3 +94,17 @@ ON CONFLICT (setting_key) DO NOTHING;
 INSERT INTO users (username, email, password, avatar) VALUES
 ('Kostlim', 'jeffkostlim@gmail.com', '$2y$10$E9V96p9fEaM3Z49zH2pGye9W0A3Uf3mU3S1iYl5BaeI/a56K1Y6Ue', 'default_avatar.png')
 ON CONFLICT (username) DO NOTHING;
+
+-- ── tg_links: привязка сессии сайта к Telegram ──────────────────
+CREATE TABLE IF NOT EXISTS tg_links (
+    id            SERIAL PRIMARY KEY,
+    site_code     VARCHAR(20)  NOT NULL UNIQUE,
+    session_id    VARCHAR(128) NOT NULL,
+    linked        SMALLINT     NOT NULL DEFAULT 0,
+    tg_id         VARCHAR(64)  DEFAULT NULL,
+    tg_username   VARCHAR(128) DEFAULT NULL,
+    tg_first_name VARCHAR(255) DEFAULT NULL,
+    tg_photo_url  TEXT         DEFAULT NULL,
+    created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_tg_links_session ON tg_links (session_id);

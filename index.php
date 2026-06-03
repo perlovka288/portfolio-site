@@ -13,10 +13,19 @@ if (isset($_GET['check_linked'])) {
     header('Content-Type: application/json');
     $sid  = session_id();
     try {
-        $stmt = $pdo->prepare("SELECT linked FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+        $stmt = $pdo->prepare("SELECT linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
         $stmt->execute([$sid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        echo json_encode(['linked' => !empty($row['linked'])]);
+        if (!empty($row['linked'])) {
+            echo json_encode([
+                'linked'     => true,
+                'username'   => $row['tg_username'] ?? '',
+                'first_name' => $row['tg_first_name'] ?? '',
+                'photo_url'  => $row['tg_photo_url'] ?? '',
+            ]);
+        } else {
+            echo json_encode(['linked' => false]);
+        }
     } catch (Throwable $e) {
         echo json_encode(['linked' => false]);
     }
@@ -42,14 +51,20 @@ if ($isAdmin && isset($_POST['inline_edit_price'])) {
 // ── Генерация/обновление кода привязки для текущей сессии ──────
 $linkCode = null;
 $isLinked = false;
+$tgProfile = [];
 try {
     $sid  = session_id();
-    $stmt = $pdo->prepare("SELECT site_code, linked FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT site_code, linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$sid]);
     $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($linkRow && $linkRow['linked']) {
-        $isLinked = true;
+        $isLinked  = true;
+        $tgProfile = [
+            'username'   => $linkRow['tg_username'] ?? '',
+            'first_name' => $linkRow['tg_first_name'] ?? '',
+            'photo_url'  => $linkRow['tg_photo_url'] ?? '',
+        ];
     } elseif ($linkRow) {
         $linkCode = $linkRow['site_code'];
     } else {
@@ -365,6 +380,64 @@ body::after {
     cursor:pointer; transition:.2s; font-family:inherit;
 }
 .tab-btn.active,.tab-btn:hover { background:rgba(249,115,22,0.12); border-color:rgba(249,115,22,0.4); color:#fb923c; }
+/* ══ TG-профиль в хедере ══ */
+.tg-user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px 5px 5px;
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 30px;
+    text-decoration: none;
+    color: #86efac;
+    font-size: 12px;
+    font-weight: 700;
+    transition: background .2s, border-color .2s;
+    max-width: 160px;
+}
+.tg-user-chip:hover {
+    background: rgba(34,197,94,0.18);
+    border-color: rgba(34,197,94,0.5);
+}
+.tg-user-ava {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1.5px solid rgba(34,197,94,0.4);
+}
+.tg-user-ava-fallback {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: rgba(34,197,94,0.2);
+    border: 1.5px solid rgba(34,197,94,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    color: #86efac;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+.tg-user-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tg-link-trigger-btn {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+@media(max-width:700px){
+    .tg-user-chip { max-width: 120px; font-size: 11px; }
+    .tg-user-name { max-width: 70px; }
+}
+
 @media(max-width:700px){
     .header-right{flex-wrap:wrap;justify-content:center;}
     .portfolio-grid{grid-template-columns:1fr;gap:20px;}
@@ -382,32 +455,20 @@ body::after {
 <!-- ══════════════════════════════════════════
      МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG
 ══════════════════════════════════════════ -->
+<?php if (!$isLinked): ?>
+<!-- ══════════════════════════════════════════
+     МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG (только когда не привязан)
+══════════════════════════════════════════ -->
 <div class="tg-modal-overlay" id="tgModalOverlay">
   <div class="tg-modal" id="tgModal">
-    <?php if ($isLinked): ?>
     <button class="tg-modal-close" onclick="closeTgModal()" title="Закрыть">×</button>
-    <?php endif; ?>
 
-    <?php if ($isLinked): ?>
-    <!-- ── УЖЕ ПРИВЯЗАН ── -->
-    <div class="tg-modal-icon">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#86efac" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-    </div>
-    <h2>Telegram привязан ✅</h2>
-    <p class="tg-modal-sub">Твой аккаунт уже связан с ботом. Уведомления о заказе придут в <a href="https://t.me/kostlimdznbot" target="_blank" style="color:#86efac;">@kostlimdznbot</a>.</p>
-    <a href="#" id="goOrderLinked" class="tg-bot-open-btn" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 0 20px rgba(34,197,94,0.4);">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Перейти к заказу
-    </a>
-    <button class="tg-skip-btn" onclick="closeTgModal()">Закрыть</button>
-
-    <?php else: ?>
     <!-- ── НЕ ПРИВЯЗАН ── -->
     <div class="tg-modal-icon">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
     </div>
     <h2>Привяжи Telegram</h2>
-    <p class="tg-modal-sub">Чтобы получать уведомления о статусе заказа прямо в бот — выполни 2 шага.</p>
+    <p class="tg-modal-sub">Чтобы получать уведомления о заказах прямо в бот — выполни 2 шага.</p>
 
     <div class="tg-steps">
       <div class="tg-step">
@@ -428,7 +489,7 @@ body::after {
     <div class="tg-steps">
       <div class="tg-step">
         <div class="tg-step-num">2</div>
-        <div class="tg-step-text">Открой бота и отправь ему этот код — он автоматически всё привяжет.</div>
+        <div class="tg-step-text">Открой бота и отправь ему этот код — он автоматически всё привяжет.<br><span style="color:#6b6b7a;font-size:11px;">Или просто нажми кнопку ниже — код отправится автоматически через deep link.</span></div>
       </div>
     </div>
 
@@ -441,12 +502,13 @@ body::after {
 
     <div class="tg-waiting" id="tgWaiting">
       <div class="tg-spinner"></div>
-      Ожидаю привязку… (введи код в бот)
+      Ожидаю привязку…
     </div>
 
-    <?php endif; ?>
+    <button class="tg-skip-btn" onclick="closeTgModal()">Закрыть</button>
   </div>
 </div>
+<?php endif; ?>
 
 <header>
     <div class="header-left" style="display:flex;align-items:center;gap:10px;">
@@ -471,7 +533,32 @@ body::after {
 
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
         <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
-        <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link nav-bot"><span class="icon"></span>Бот для заказов</a>
+
+        <?php if ($isLinked && !empty($tgProfile)): ?>
+        <!-- ── TG ПРОФИЛЬ (привязан) ── -->
+        <a href="profile.php" class="tg-user-chip" title="Личный профиль">
+            <?php if (!empty($tgProfile['photo_url'])): ?>
+                <img src="<?= htmlspecialchars($tgProfile['photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <span class="tg-user-ava-fallback" style="display:none;">
+                    <?= mb_substr($tgProfile['first_name'] ?: ($tgProfile['username'] ?: '?'), 0, 1) ?>
+                </span>
+            <?php else: ?>
+                <span class="tg-user-ava-fallback">
+                    <?= mb_substr($tgProfile['first_name'] ?: ($tgProfile['username'] ?: '?'), 0, 1) ?>
+                </span>
+            <?php endif; ?>
+            <span class="tg-user-name">
+                <?= htmlspecialchars($tgProfile['first_name'] ?: ('@' . $tgProfile['username'])) ?>
+            </span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
+        </a>
+        <?php else: ?>
+        <!-- ── КНОПКА ПРИВЯЗКИ ── -->
+        <button class="nav-link nav-bot tg-link-trigger-btn" onclick="openTgModal()" title="Привязать Telegram">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Привязать TG
+        </button>
+        <?php endif; ?>
     </div>
 </header>
 
@@ -544,23 +631,16 @@ var IS_LINKED = <?= $isLinked ? 'true' : 'false' ?>;
 var pendingOrderService = '';
 var pollInterval = null;
 
-// ── Нажатие «ЗАКАЗАТЬ» ──
-function handleOrder(serviceKey) {
-    pendingOrderService = serviceKey;
-
-    if (IS_LINKED) {
-        // Сразу на страницу заказа
-        window.location.href = 'order.php?service=' + encodeURIComponent(serviceKey) + '&accepted=1';
-        return;
-    }
-
-    // Открываем модалку
+// ── Открыть модалку привязки TG (по кнопке в хедере) ──
+function openTgModal() {
     document.getElementById('tgModalOverlay').classList.add('active');
     document.body.style.overflow = 'hidden';
+}
 
-    // Обновляем href «Перейти к заказу» (на случай если уже привязан)
-    var goBtn = document.getElementById('goOrderLinked');
-    if (goBtn) goBtn.href = 'order.php?service=' + encodeURIComponent(serviceKey) + '&accepted=1';
+// ── Нажатие «ЗАКАЗАТЬ» — всегда идём на order.php, TG не блокирует ──
+function handleOrder(serviceKey) {
+    pendingOrderService = serviceKey;
+    window.location.href = 'order.php?service=' + encodeURIComponent(serviceKey) + '&accepted=1';
 }
 
 // ── Закрыть модалку ──
@@ -571,11 +651,12 @@ function closeTgModal() {
 }
 
 // ── Закрыть по клику на оверлей ──
-document.getElementById('tgModalOverlay').addEventListener('click', function(e) {
-    if (e.target === this && IS_LINKED) closeTgModal();
-});
-
-// skipAndOrder удалён — плашка обязательная
+var _overlay = document.getElementById('tgModalOverlay');
+if (_overlay) {
+    _overlay.addEventListener('click', function(e) {
+        if (e.target === this) closeTgModal();
+    });
+}
 
 // ── Копировать код ──
 function copyModalCode() {
@@ -596,7 +677,8 @@ function copyModalCode() {
 
 // ── Polling: ждём привязку ──
 function startPolling() {
-    document.getElementById('tgWaiting').classList.add('show');
+    var w = document.getElementById('tgWaiting');
+    if (w) w.classList.add('show');
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(checkLinked, 3000);
 }
@@ -614,21 +696,20 @@ function checkLinked() {
             if (data.linked) {
                 stopPolling();
                 IS_LINKED = true;
-                // Показываем «Привязан!» и даём кнопку перейти к заказу
                 var modal = document.getElementById('tgModal');
-                var orderUrl = pendingOrderService
-                    ? 'order.php?service=' + encodeURIComponent(pendingOrderService) + '&accepted=1'
-                    : 'order.php?accepted=1';
+                var displayName = data.first_name || (data.username ? '@' + data.username : 'Ты');
+                var photoHtml = data.photo_url
+                    ? '<img src="' + data.photo_url + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(34,197,94,0.5);margin:0 auto 14px;display:block;" onerror="this.style.display=\'none\'">'
+                    : '<div class="tg-modal-icon" style="background:linear-gradient(135deg,rgba(34,197,94,0.2),rgba(34,197,94,0.08));border-color:rgba(34,197,94,0.35);"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#86efac" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>';
                 modal.innerHTML =
-                    '<div class="tg-modal-icon" style="background:linear-gradient(135deg,rgba(34,197,94,0.2),rgba(34,197,94,0.08));border-color:rgba(34,197,94,0.35);">' +
-                    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#86efac" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>' +
+                    photoHtml +
                     '<h2>✅ Привязано!</h2>' +
-                    '<p class="tg-modal-sub">Telegram успешно связан. Теперь переходим к заказу!</p>' +
-                    '<a href="' + orderUrl + '" class="tg-bot-open-btn" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 0 20px rgba(34,197,94,0.4);">' +
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg> Перейти к заказу</a>' +
-                    '<button class="tg-skip-btn" onclick="closeTgModal()">Закрыть</button>';
-                // Автоматически переходим через 1.5 сек
-                setTimeout(function(){ window.location.href = orderUrl; }, 1500);
+                    '<p class="tg-modal-sub"><b>' + displayName + '</b>, Telegram успешно связан с сайтом! Теперь в хедере появится твой профиль.</p>' +
+                    '<a href="profile.php" class="tg-bot-open-btn" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 0 20px rgba(34,197,94,0.4);">' +
+                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Мой профиль</a>' +
+                    '<button class="tg-skip-btn" onclick="location.reload()">Закрыть и обновить</button>';
+                // Перезагружаем страницу через 2 сек чтобы показать профиль в хедере
+                setTimeout(function(){ window.location.reload(); }, 2000);
             }
         })
         .catch(function(){});
