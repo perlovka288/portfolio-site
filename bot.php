@@ -214,7 +214,58 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // /customer_КОД — ручная отправка кода привязки (альтернатива кнопке)
+    // /debug_db — только для админа, показывает структуру tg_links
+    if ($text === '/debug_db' && (string)$chat_id === $admin_id) {
+        try {
+            // Проверяем существование таблицы
+            $tables = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'tg_links'")->fetchAll(PDO::FETCH_COLUMN);
+            if (empty($tables)) {
+                $msg = "❌ Таблица tg_links НЕ существует!\n\nНужно запустить миграцию.";
+            } else {
+                $cols = $pdo->query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tg_links' ORDER BY ordinal_position")->fetchAll(PDO::FETCH_ASSOC);
+                $count = $pdo->query("SELECT COUNT(*) FROM tg_links")->fetchColumn();
+                $msg = "✅ Таблица tg_links существует\n\nКолонки:\n";
+                foreach ($cols as $c) { $msg .= "• {$c['column_name']} ({$c['data_type']})\n"; }
+                $msg .= "\nЗаписей: {$count}";
+            }
+        } catch (Throwable $e) {
+            $msg = "❌ Ошибка: " . $e->getMessage();
+        }
+        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $msg]);
+        exit;
+    }
+
+    // /fix_db — только для админа, создаёт/чинит таблицу tg_links
+    if ($text === '/fix_db' && (string)$chat_id === $admin_id) {
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS tg_links (
+                    id            SERIAL PRIMARY KEY,
+                    site_code     VARCHAR(20)  NOT NULL,
+                    session_id    VARCHAR(128) NOT NULL DEFAULT '',
+                    linked        SMALLINT     NOT NULL DEFAULT 0,
+                    tg_id         VARCHAR(64)  DEFAULT NULL,
+                    tg_username   VARCHAR(128) DEFAULT NULL,
+                    tg_first_name VARCHAR(255) DEFAULT NULL,
+                    tg_photo_url  TEXT         DEFAULT NULL,
+                    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uniq_tg_links_code UNIQUE (site_code)
+                )
+            ");
+            // Добавляем колонки если их нет
+            foreach (['tg_id VARCHAR(64)', 'tg_username VARCHAR(128)', 'tg_first_name VARCHAR(255)', 'tg_photo_url TEXT'] as $col) {
+                $colName = explode(' ', $col)[0];
+                try { $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS {$col} DEFAULT NULL"); } catch (Throwable $e) {}
+            }
+            $msg = "✅ Таблица tg_links создана/проверена успешно!\n\nТеперь попробуй привязку снова.";
+        } catch (Throwable $e) {
+            $msg = "❌ Ошибка: " . $e->getMessage();
+        }
+        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $msg]);
+        exit;
+    }
+
+
     if (strpos($text, '/customer_') === 0) {
         $site_code = strtoupper(trim(str_replace('/customer_', '', $text)));
         botLog("customer_ handler: code={$site_code} raw={$text}");
@@ -361,6 +412,37 @@ if (isset($update['message'])) {
  */
 function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
     botLog("linkTgAccount chat_id={$chat_id} code={$site_code}");
+
+    // Гарантируем существование таблицы и всех колонок
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS tg_links (
+                id            SERIAL PRIMARY KEY,
+                site_code     VARCHAR(20)  NOT NULL,
+                session_id    VARCHAR(128) NOT NULL DEFAULT '',
+                linked        SMALLINT     NOT NULL DEFAULT 0,
+                tg_id         VARCHAR(64)  DEFAULT NULL,
+                tg_username   VARCHAR(128) DEFAULT NULL,
+                tg_first_name VARCHAR(255) DEFAULT NULL,
+                tg_photo_url  TEXT         DEFAULT NULL,
+                created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uniq_tg_links_code UNIQUE (site_code)
+            )
+        ");
+        foreach ([
+            'tg_id VARCHAR(64)',
+            'tg_username VARCHAR(128)',
+            'tg_first_name VARCHAR(255)',
+            'tg_photo_url TEXT'
+        ] as $colDef) {
+            $colName = explode(' ', $colDef)[0];
+            try {
+                $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS {$colDef} DEFAULT NULL");
+            } catch (Throwable $e) { /* уже есть */ }
+        }
+    } catch (Throwable $e) {
+        botLog("linkTgAccount: ensure table error: " . $e->getMessage());
+    }
 
     try {
         // Проверяем — есть ли такой код в таблице
