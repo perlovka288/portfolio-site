@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 ob_start();
 session_start();
 require_once 'auth.php';
@@ -1206,7 +1206,13 @@ function activateAdminTab(tab) {
     else if (tab === 'orders')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
     else if (tab === 'avatar')    { show('avatar'); }
-    else if (tab === 'appeals')   { if (apPanel) apPanel.style.display = 'block'; }
+    else if (tab === 'appeals')   {
+        if (apPanel) {
+            apPanel.style.display = 'block';
+            const innerAppeals = apPanel.querySelector('.panel[data-panel="appeals"]');
+            if (innerAppeals) innerAppeals.classList.remove('tab-hidden');
+        }
+    }
 }
 
 function initFileInputs() {
