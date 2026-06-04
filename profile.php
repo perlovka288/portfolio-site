@@ -2,6 +2,9 @@
 session_start();
 require_once 'config/db.php';
 
+$adminTgId = getenv('ADMIN_ID') ?: '1710365896';
+$isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+
 // ── Получаем данные привязки по сессии ──────────────────────────
 $sid     = session_id();
 $profile = null;
@@ -19,6 +22,9 @@ try {
 
     if ($row && $row['linked'] && $row['linked'] !== 'f') {
         $profile = $row;
+        if (!$isAdmin && !empty($row['tg_id']) && (string)$row['tg_id'] === $adminTgId) {
+            $isAdmin = true;
+        }
 
         // Загружаем заказы по tg_id (client_chat_id) и по username
         $tg_id      = $row['tg_id'] ?? '';
@@ -240,6 +246,12 @@ body::before {
     font-family: inherit;
     white-space: nowrap;
 }
+.btn-catalog {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #c0c0d0;
+}
+.btn-catalog:hover { background: rgba(255,255,255,0.1); }
 .btn-order {
     background: linear-gradient(135deg, #fb923c, #f97316);
     color: #fff;
@@ -438,7 +450,10 @@ body::before {
     </div>
 
     <div class="profile-info">
-        <div class="profile-name"><?= htmlspecialchars($displayName) ?></div>
+        <div class="profile-name">
+            <?= htmlspecialchars($displayName) ?>
+            <?php if ($isAdmin): ?><span style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;color:#fb923c;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.35);border-radius:5px;padding:2px 7px;vertical-align:middle;margin-left:6px;">admin</span><?php endif; ?>
+        </div>
         <?php if (!empty($profile['tg_username'])): ?>
             <div class="profile-username">@<?= htmlspecialchars($profile['tg_username']) ?></div>
         <?php endif; ?>
@@ -459,6 +474,10 @@ body::before {
     </div>
 
     <div class="profile-actions">
+        <a href="index.php" class="profile-action-btn btn-catalog">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            В каталог
+        </a>
         <a href="order.php" class="profile-action-btn btn-order">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             Новый заказ

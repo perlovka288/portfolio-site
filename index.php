@@ -8,6 +8,14 @@ if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
 }
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
+// Если пользователь привязал TG и его tg_id = ADMIN_ID — тоже admin
+$adminTgId = getenv('ADMIN_ID') ?: '1710365896';
+if (!$isAdmin && !empty($tgProfile['tg_id'] ?? '') && (string)$tgProfile['tg_id'] === $adminTgId) {
+    $isAdmin = true;
+}
+// Примечание: $tgProfile заполняется ниже в блоке работы с tg_links,
+// поэтому повторно проверяем после его заполнения (см. ниже)
+
 // ── AJAX: проверить статус привязки (polling) ──────────────────
 if (isset($_GET['check_linked'])) {
     header('Content-Type: application/json');
@@ -54,17 +62,22 @@ $isLinked = false;
 $tgProfile = [];
 try {
     $sid  = session_id();
-    $stmt = $pdo->prepare("SELECT site_code, linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$sid]);
     $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
         $isLinked  = true;
         $tgProfile = [
+            'tg_id'      => $linkRow['tg_id'] ?? '',
             'username'   => $linkRow['tg_username'] ?? '',
             'first_name' => $linkRow['tg_first_name'] ?? '',
             'photo_url'  => $linkRow['tg_photo_url'] ?? '',
         ];
+        // Проверяем — вдруг это админ по TG ID
+        if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgId) {
+            $isAdmin = true;
+        }
     } elseif ($linkRow) {
         $linkCode = $linkRow['site_code'];
     } else {
@@ -426,6 +439,19 @@ body::after {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.tg-admin-tag {
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fb923c;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.35);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+    line-height: 14px;
+}
 .tg-link-trigger-btn {
     cursor: pointer;
     display: inline-flex;
@@ -550,6 +576,9 @@ body::after {
             <span class="tg-user-name">
                 <?= htmlspecialchars($tgProfile['first_name'] ?: ('@' . $tgProfile['username'])) ?>
             </span>
+            <?php if ($isAdmin): ?>
+                <span class="tg-admin-tag">admin</span>
+            <?php endif; ?>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
         </a>
         <?php else: ?>
