@@ -355,19 +355,160 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // Админ-панель
-    if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель') {
+    // Админ-панель — открыть постоянное меню
+    if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель' || $text_key === 'админ-панель' || $text === '💻 Админ-панель') {
         if ((string)$chat_id !== $admin_id) {
             sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => '⛔ Доступ закрыт.']);
             exit;
         }
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $admin_id,
-            'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие:",
+            'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие из меню ниже 👇",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(adminKeyboard(), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
         ]);
         exit;
+    }
+
+    // ── Обработка кнопок админ-меню ──────────────────────────────
+    if ((string)$chat_id === $admin_id) {
+
+        // Очередь заказов
+        if ($text === '🗂 Очередь заказов') {
+            showAdminQueue($pdo, $token, $admin_id, $site_url);
+            exit;
+        }
+
+        // Статистика
+        if ($text === '📊 Статистика') {
+            $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+            $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
+            $active   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress','urgent')")->fetchColumn();
+            $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
+            $tg_links = 0;
+            try { $tg_links = (int)$pdo->query("SELECT COUNT(*) FROM tg_links WHERE linked=TRUE")->fetchColumn(); } catch(Throwable $e){}
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => "📊 *Статистика*\n\n"
+                    . "📦 Всего заказов: *{$total}*\n"
+                    . "🚀 Активных: *{$active}*\n"
+                    . "✅ Выполнено: *{$ready}*\n"
+                    . "❌ Отклонено: *{$declined}*\n"
+                    . "🔗 TG привязок: *{$tg_links}*",
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Бэкап БД
+        if ($text === '💾 Бэкап БД (SQL)') {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id' => $admin_id,
+                'text'    => '⏳ Генерирую SQL-дамп базы данных…',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            adminSendDbBackup($pdo, $token, $admin_id);
+            exit;
+        }
+
+        // Привязки TG
+        if ($text === '🔗 Привязки TG') {
+            try {
+                $rows = $pdo->query("SELECT tg_username, tg_first_name, tg_id, created_at FROM tg_links WHERE linked=TRUE ORDER BY created_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
+                if (empty($rows)) {
+                    $msg = "🔗 *Привязки TG*\n\nПока никто не привязал Telegram.";
+                } else {
+                    $msg = "🔗 *Привязки TG* (" . count($rows) . ")\n\n";
+                    foreach ($rows as $r) {
+                        $name = $r['tg_first_name'] ?: '—';
+                        $uname = $r['tg_username'] ? '@'.$r['tg_username'] : '—';
+                        $date = date('d.m.Y', strtotime($r['created_at']));
+                        $msg .= "• {$name} {$uname} ({$date})\n";
+                    }
+                }
+            } catch (Throwable $e) {
+                $msg = "❌ Ошибка: " . $e->getMessage();
+            }
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => $msg,
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Диагностика БД
+        if ($text === '🐛 Диагностика БД') {
+            try {
+                $tables = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
+                $msg = "🐛 *Диагностика БД*\n\nТаблицы:\n";
+                foreach ($tables as $t) {
+                    $cnt = (int)$pdo->query("SELECT COUNT(*) FROM \"{$t}\"")->fetchColumn();
+                    $msg .= "• `{$t}` — {$cnt} строк\n";
+                }
+                // Проверяем колонки tg_links
+                if (in_array('tg_links', $tables)) {
+                    $cols = $pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name='tg_links' ORDER BY ordinal_position")->fetchAll(PDO::FETCH_COLUMN);
+                    $msg .= "\ntg\\_links колонки: " . implode(', ', $cols);
+                } else {
+                    $msg .= "\n⚠️ Таблица tg\\_links отсутствует!";
+                }
+            } catch (Throwable $e) {
+                $msg = "❌ Ошибка: " . $e->getMessage();
+            }
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => $msg,
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Починить БД
+        if ($text === '🔧 Починить БД') {
+            try {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS tg_links (
+                        id            SERIAL PRIMARY KEY,
+                        site_code     VARCHAR(20)  NOT NULL,
+                        session_id    VARCHAR(128) NOT NULL DEFAULT '',
+                        linked        SMALLINT     NOT NULL DEFAULT 0,
+                        tg_id         VARCHAR(64)  DEFAULT NULL,
+                        tg_username   VARCHAR(128) DEFAULT NULL,
+                        tg_first_name VARCHAR(255) DEFAULT NULL,
+                        tg_photo_url  TEXT         DEFAULT NULL,
+                        created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT uniq_tg_links_code UNIQUE (site_code)
+                    )
+                ");
+                foreach (['tg_id VARCHAR(64)', 'tg_username VARCHAR(128)', 'tg_first_name VARCHAR(255)', 'tg_photo_url TEXT'] as $col) {
+                    try { $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS {$col} DEFAULT NULL"); } catch(Throwable $e){}
+                }
+                $msg = "✅ *БД починена!*\n\nТаблица tg\\_links создана и все колонки добавлены.\nТеперь привязка TG должна работать.";
+            } catch (Throwable $e) {
+                $msg = "❌ Ошибка: " . $e->getMessage();
+            }
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => $msg,
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Вернуться в главное меню
+        if ($text === '◀️ Главное меню') {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => "🏠 Главное меню",
+                'reply_markup' => json_encode(mainKeyboard(true), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
     }
 
     // /status_X — клиент проверяет статус и привязывает chat_id
@@ -467,7 +608,8 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         return;
     }
 
-    if ($row['linked']) {
+    // PostgreSQL возвращает boolean как 't'/'f' или true/false
+    if ($row['linked'] === true || $row['linked'] === 't' || $row['linked'] == 1) {
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $chat_id,
             'text'       => "✅ *Этот код уже был использован.*\n\nТвой Telegram уже привязан к сайту. Можешь вернуться и оформить заказ.",
@@ -506,11 +648,11 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         botLog("photo fetch error: " . $e->getMessage());
     }
 
-    // ШАГ 1 — базовый UPDATE (linked=1), работает всегда
+    // ШАГ 1 — базовый UPDATE (linked=TRUE), PostgreSQL boolean
     try {
-        $pdo->prepare("UPDATE tg_links SET linked = 1 WHERE site_code = ?")
+        $pdo->prepare("UPDATE tg_links SET linked = TRUE WHERE site_code = ?")
             ->execute([$site_code]);
-        botLog("linkTgAccount: linked=1 set for code={$site_code}");
+        botLog("linkTgAccount: linked=TRUE set for code={$site_code}");
     } catch (Throwable $e) {
         botLog("linkTgAccount DB error (update linked): " . $e->getMessage());
         sendTelegram($token, 'sendMessage', [
@@ -716,12 +858,27 @@ function mainKeyboard($isAdmin) {
         [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
     ];
     if ($isAdmin) {
-        $buttons[] = [['text' => '💻 Admin Panel']];
+        $buttons[] = [['text' => '💻 Админ-панель']];
     }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }
 
-function adminKeyboard() {
+// Постоянное Reply-меню для админа (показывается внизу как клавиатура)
+function adminReplyKeyboard() {
+    return [
+        'keyboard' => [
+            [['text' => '🗂 Очередь заказов'],   ['text' => '📊 Статистика']],
+            [['text' => '💾 Бэкап БД (SQL)'],    ['text' => '🔗 Привязки TG']],
+            [['text' => '🐛 Диагностика БД'],     ['text' => '🔧 Починить БД']],
+            [['text' => '◀️ Главное меню']],
+        ],
+        'resize_keyboard'  => true,
+        'one_time_keyboard'=> false,
+        'input_field_placeholder' => 'Выбери действие…',
+    ];
+}
+
+function adminInlineKeyboard() {
     return [
         'inline_keyboard' => [
             [['text' => '🗂️ Показать очередь заказов', 'callback_data' => 'adm_show_queue']],
@@ -767,6 +924,87 @@ function orderKeyboard($order_id, $status, $telegram) {
 }
 
 // ── Admin helpers ──────────────────────────────────────────────
+
+function adminSendDbBackup($pdo, $token, $admin_id) {
+    try {
+        $tables = $pdo->query("
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = current_schema()
+            ORDER BY table_name
+        ")->fetchAll(PDO::FETCH_COLUMN);
+
+        $date = date('Y-m-d_H-i');
+        $sql  = "-- ========================================\n";
+        $sql .= "-- Kostlim Design DB Backup\n";
+        $sql .= "-- Date: " . date('Y-m-d H:i:s') . "\n";
+        $sql .= "-- Tables: " . implode(', ', $tables) . "\n";
+        $sql .= "-- ========================================\n\n";
+
+        foreach ($tables as $table) {
+            $sql .= "\n-- ── TABLE: {$table} ──\n";
+
+            // Структура — получаем колонки
+            $cols = $pdo->query("
+                SELECT column_name, data_type, character_maximum_length,
+                       is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = '{$table}'
+                ORDER BY ordinal_position
+            ")->fetchAll(PDO::FETCH_ASSOC);
+
+            $sql .= "-- Columns: " . implode(', ', array_column($cols, 'column_name')) . "\n";
+            $sql .= "TRUNCATE TABLE \"{$table}\" RESTART IDENTITY CASCADE;\n";
+
+            // Данные
+            $rows = $pdo->query("SELECT * FROM \"{$table}\"")->fetchAll(PDO::FETCH_ASSOC);
+            if (empty($rows)) {
+                $sql .= "-- (no data)\n";
+                continue;
+            }
+
+            $colNames = array_keys($rows[0]);
+            $colList  = implode(', ', array_map(fn($c) => "\"{$c}\"", $colNames));
+
+            foreach ($rows as $row) {
+                $vals = array_map(function($v) {
+                    if ($v === null) return 'NULL';
+                    if (is_bool($v)) return $v ? 'TRUE' : 'FALSE';
+                    // Экранируем строку
+                    return "'" . str_replace("'", "''", (string)$v) . "'";
+                }, array_values($row));
+                $sql .= "INSERT INTO \"{$table}\" ({$colList}) VALUES (" . implode(', ', $vals) . ");\n";
+            }
+        }
+
+        // Пишем во временный файл
+        $filename = "backup_{$date}.sql";
+        $filepath = sys_get_temp_dir() . '/' . $filename;
+        file_put_contents($filepath, $sql);
+
+        // Отправляем через sendDocument
+        $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, [
+            'chat_id'  => $admin_id,
+            'document' => new CURLFile($filepath, 'application/sql', $filename),
+            'caption'  => "💾 *Бэкап БД*\n📅 {$date}\n📊 Таблиц: " . count($tables) . "\n📝 Размер: " . round(strlen($sql)/1024, 1) . " KB",
+            'parse_mode' => 'Markdown',
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+
+        @unlink($filepath);
+
+    } catch (Throwable $e) {
+        botLog("adminSendDbBackup error: " . $e->getMessage());
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $admin_id,
+            'text'    => "❌ Ошибка при создании бэкапа:\n" . $e->getMessage(),
+        ]);
+    }
+}
 
 function showAdminQueue($pdo, $token, $admin_id, $site_url) {
     $q_stmt = $pdo->query("

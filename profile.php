@@ -17,7 +17,7 @@ try {
     $stmt->execute([$sid]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($row && $row['linked']) {
+    if ($row && $row['linked'] && $row['linked'] !== 'f') {
         $profile = $row;
 
         // Загружаем заказы по tg_id (client_chat_id) и по username

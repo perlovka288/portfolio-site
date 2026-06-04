@@ -16,7 +16,7 @@ if (isset($_GET['check_linked'])) {
         $stmt = $pdo->prepare("SELECT linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
         $stmt->execute([$sid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!empty($row['linked'])) {
+        if (!empty($row['linked']) && $row['linked'] !== 'f' && $row['linked'] !== false) {
             echo json_encode([
                 'linked'     => true,
                 'username'   => $row['tg_username'] ?? '',
@@ -58,7 +58,7 @@ try {
     $stmt->execute([$sid]);
     $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($linkRow && $linkRow['linked']) {
+    if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
         $isLinked  = true;
         $tgProfile = [
             'username'   => $linkRow['tg_username'] ?? '',
@@ -624,6 +624,183 @@ body::after {
 <footer>
     <div class="container">© <?= date('Y') ?> Kostlim Design</div>
 </footer>
+
+<?php if (!$isLinked): ?>
+<!-- ══ ВСПЛЫВАЮЩАЯ ПЛАШКА ПРИВЯЗКИ TG ══ -->
+<div class="tg-float-banner" id="tgFloatBanner">
+    <button class="tg-float-close" id="tgFloatClose" title="Закрыть">×</button>
+    <div class="tg-float-inner">
+        <div class="tg-float-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </div>
+        <div class="tg-float-text">
+            <div class="tg-float-title">Привяжи Telegram</div>
+            <div class="tg-float-sub">Получай уведомления о заказах и&nbsp;личный профиль с&nbsp;историей</div>
+        </div>
+    </div>
+    <div class="tg-float-perks">
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            Статусы заказов в боте
+        </div>
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            Личный профиль на сайте
+        </div>
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            История всех заказов
+        </div>
+    </div>
+    <button class="tg-float-btn" onclick="openTgModal(); document.getElementById('tgFloatBanner').classList.remove('show');">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Привязать Telegram
+    </button>
+</div>
+
+<style>
+.tg-float-banner {
+    position: fixed;
+    bottom: 28px;
+    right: 24px;
+    width: 270px;
+    background: #0f0f14;
+    border: 1px solid rgba(249,115,22,0.35);
+    border-radius: 18px;
+    padding: 18px 16px 16px;
+    box-shadow: 0 0 40px rgba(249,115,22,0.15), 0 20px 60px rgba(0,0,0,0.7);
+    z-index: 8000;
+    transform: translateY(20px) scale(0.96);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .35s cubic-bezier(.34,1.56,.64,1), opacity .3s ease;
+}
+.tg-float-banner.show {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+}
+/* Оранжевое свечение сверху */
+.tg-float-banner::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: 20px; right: 20px; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(249,115,22,0.7), transparent);
+    border-radius: 2px;
+}
+
+.tg-float-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: none; border: none;
+    color: #44445a; font-size: 18px;
+    cursor: pointer; line-height: 1;
+    transition: color .2s;
+    padding: 2px 4px;
+}
+.tg-float-close:hover { color: #888; }
+
+.tg-float-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-right: 18px;
+}
+.tg-float-icon {
+    width: 42px; height: 42px; flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(249,115,22,0.2), rgba(249,115,22,0.06));
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+}
+.tg-float-title {
+    font-size: 14px;
+    font-weight: 900;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+.tg-float-sub {
+    font-size: 11px;
+    color: #8a8a96;
+    line-height: 1.45;
+}
+
+.tg-float-perks {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+.tg-float-perk {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: #c0c0d0;
+    font-weight: 600;
+}
+
+.tg-float-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 0 18px rgba(249,115,22,0.35);
+    transition: opacity .2s, transform .2s;
+}
+.tg-float-btn:hover { opacity: .88; transform: translateY(-1px); }
+
+@media(max-width: 480px) {
+    .tg-float-banner {
+        width: calc(100vw - 32px);
+        right: 16px;
+        bottom: 20px;
+        border-radius: 16px;
+    }
+}
+</style>
+
+<script>
+(function() {
+    var banner  = document.getElementById('tgFloatBanner');
+    var closeBtn = document.getElementById('tgFloatClose');
+    if (!banner) return;
+
+    // Не показываем если пользователь уже закрывал (до конца сессии)
+    if (sessionStorage.getItem('tgBannerClosed')) return;
+
+    // Показываем через 4 секунды
+    var showTimer = setTimeout(function() {
+        banner.classList.add('show');
+    }, 4000);
+
+    closeBtn.addEventListener('click', function() {
+        banner.classList.remove('show');
+        sessionStorage.setItem('tgBannerClosed', '1');
+        clearTimeout(showTimer);
+    });
+})();
+</script>
+<?php endif; ?>
 
 <script>
 // ── Статус привязки (из PHP) ──
