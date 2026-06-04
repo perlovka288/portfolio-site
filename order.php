@@ -155,13 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
      (username, telegram, service_key, details, screenshot, example_photo, status, client_ip, session_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW()) RETURNING id");
      $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $user_ip, session_id()]);
-        // For Postgres: use RETURNING id in the INSERT if available; if not, attempt to fetch via statement
-        try {
-            $order_row = $stmt->fetch(PDO::FETCH_ASSOC);
-            $order_id = (int)($order_row['id'] ?? 0);
-        } catch (Throwable $e) {
-            $order_id = 0;
-        }
+        $order_id = $pdo->lastInsertId();
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";
 

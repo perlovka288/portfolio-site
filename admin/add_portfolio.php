@@ -93,11 +93,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $stmt = $pdo->prepare("\
             INSERT INTO portfolio (title, price_rub, price_uah, category, image_url, created_at)\
-            VALUES (?, ?, ?, ?, ?, NOW()) RETURNING id\
+            VALUES (?, ?, ?, ?, ?, NOW())\
         ");
         $stmt->execute([$title, $price_rub, $price_uah, $category, $image_url]);
-        $portfolio_row = $stmt->fetch(PDO::FETCH_ASSOC);
-        $portfolio_id = (int)($portfolio_row['id'] ?? 0);
+        $portfolio_id = $pdo->lastInsertId();
 
         // ── Публикуем в Telegram-канал ─────────────────────────────
         $channel_result = postToChannel($bot_token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url);

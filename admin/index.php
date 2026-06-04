@@ -733,7 +733,10 @@ $ordersTotal = (int)$countStmt->fetchColumn();
 $ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
 
 $offset = ($orders_page - 1) * $ordersPerPage;
-$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,o.price_rub,o.price_uan,p.title,p.price_rub AS price_rub_from_price,p.price_uan AS price_uan_from_price
+$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,
+    COALESCE(o.price_rub, p.price_rub) AS price_rub,
+    COALESCE(o.price_uan, p.price_uan) AS price_uan,
+    p.title, p.price_rub AS price_rub_from_price, p.price_uan AS price_uan_from_price
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ? $where : '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
 $stmt = $pdo->prepare($sql);
 // bind params
