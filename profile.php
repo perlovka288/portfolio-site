@@ -69,9 +69,17 @@ if (isset($_POST['send_appeal'])) {
             }
         }
         if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
-            $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message) VALUES (?, ?, ?, ?, ?)")
-    ->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
-$appealMsg = 'ok';
+            // создаём запись-обращение (поток) и сохраняем первое сообщение как сообщение клиента
+            try {
+                $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
+                $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject]);
+                $aid = (int)$ins->fetchColumn();
+                if ($aid > 0) {
+                    $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
+                    $m->execute([$aid, $appealText]);
+                }
+                $appealMsg = 'ok';
+            } catch (Throwable $e) { $appealMsg = 'err'; }
 
 // ── Уведомление админу о новом обращении ──────────────────
 $_tgToken  = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
@@ -521,20 +529,27 @@ body::before {
                 <?php if (!empty($orderAppeals)): ?>
                 <div style="margin-top:14px;">
                     <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#8a8a96;margin-bottom:8px;">💬 Обращения по заказу</div>
-                    <?php foreach ($orderAppeals as $ap): ?>
-                        <?php if ($ap['status'] === 'answered' && !empty($ap['reply'])): ?>
-                        <div class="appeal-reply-block">
-                            <div class="appeal-reply-subject">📩 <?= htmlspecialchars($ap['subject']) ?></div>
-                            <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Твой вопрос: <?= htmlspecialchars(mb_substr($ap['message'], 0, 120)) ?><?= mb_strlen($ap['message']) > 120 ? '...' : '' ?></div>
-                            <div class="appeal-reply-text"><?= htmlspecialchars($ap['reply']) ?></div>
-                            <div class="appeal-reply-meta"><?= $ap['replied_at'] ? '✅ Ответ ' . date('d.m.Y H:i', strtotime($ap['replied_at'])) : '' ?></div>
-                        </div>
-                        <?php else: ?>
-                        <div class="appeal-pending-block">
-                            <div class="appeal-pending-text">🕐 Обращение «<?= htmlspecialchars($ap['subject']) ?>» — ожидает ответа дизайнера</div>
-                        </div>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
+                        <?php foreach ($orderAppeals as $ap): ?>
+                            <div style="margin-bottom:10px;border-radius:8px;padding:10px;background:#0b0b0f;">
+                                <div style="font-size:13px;font-weight:800;margin-bottom:6px;">📩 <?= htmlspecialchars($ap['subject'] ?? '') ?></div>
+                                <?php
+                                    $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                    $mstmt->execute([(int)$ap['id']]);
+                                    $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                ?>
+                                <?php if (empty($msgs)): ?>
+                                    <div style="color:#8a8a96;">Сообщений пока нет.</div>
+                                <?php else: ?>
+                                    <?php foreach ($msgs as $m): ?>
+                                        <?php if (($m['author'] ?? '') === 'admin'): ?>
+                                            <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Ответ администратора</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                        <?php else: ?>
+                                            <div style="background:rgba(249,115,22,.04);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Сообщение клиента</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -575,7 +590,6 @@ body::before {
             <?php if (!empty($order['details'])): ?>
             <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
             <?php endif; ?>
-            <!-- Для готовых заказов тоже можно написать обращение -->
             <div class="order-actions-row">
                 <button type="button" class="btn-appeal-toggle" onclick="toggleAppeal(<?= $oid ?>)">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -592,21 +606,30 @@ body::before {
                     <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить</button>
                 </form>
             </div>
+
             <?php if (!empty($orderAppeals)): ?>
             <div style="margin-top:14px;">
                 <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#8a8a96;margin-bottom:8px;">💬 Обращения</div>
                 <?php foreach ($orderAppeals as $ap): ?>
-                    <?php if ($ap['status'] === 'answered' && !empty($ap['reply'])): ?>
-                    <div class="appeal-reply-block">
-                        <div class="appeal-reply-subject">📩 <?= htmlspecialchars($ap['subject']) ?></div>
-                        <div class="appeal-reply-text"><?= htmlspecialchars($ap['reply']) ?></div>
-                        <div class="appeal-reply-meta"><?= $ap['replied_at'] ? date('d.m.Y H:i', strtotime($ap['replied_at'])) : '' ?></div>
+                    <div style="margin-bottom:10px;border-radius:8px;padding:10px;background:#0b0b0f;">
+                        <div style="font-size:13px;font-weight:800;margin-bottom:6px;">📩 <?= htmlspecialchars($ap['subject'] ?? '') ?></div>
+                        <?php
+                            $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                            $mstmt->execute([(int)$ap['id']]);
+                            $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                        ?>
+                        <?php if (empty($msgs)): ?>
+                            <div style="color:#8a8a96;">Сообщений пока нет.</div>
+                        <?php else: ?>
+                            <?php foreach ($msgs as $m): ?>
+                                <?php if (($m['author'] ?? '') === 'admin'): ?>
+                                    <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Ответ администратора</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                <?php else: ?>
+                                    <div style="background:rgba(249,115,22,.04);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Сообщение клиента</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
-                    <?php else: ?>
-                    <div class="appeal-pending-block">
-                        <div class="appeal-pending-text">🕐 «<?= htmlspecialchars($ap['subject']) ?>» — ожидает ответа</div>
-                    </div>
-                    <?php endif; ?>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>

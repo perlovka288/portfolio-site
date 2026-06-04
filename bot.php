@@ -981,13 +981,21 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "⏱ *Осталось:* {$days_str}\n";
 
     if (!empty($item['screenshot'])) {
-        $msg .= "📸 *Чек:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['screenshot']) . ")\n";
+        if (str_starts_with($item['screenshot'], 'http://') || str_starts_with($item['screenshot'], 'https://')) {
+            $msg .= "📸 *Чек:* [Открыть файл]({$item['screenshot']})\n";
+        } else {
+            $msg .= "📸 *Чек:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['screenshot']) . ")\n";
+        }
     } else {
         $msg .= "📸 *Чек:* _не прикреплён_\n";
     }
 
     if (!empty($item['example_photo'])) {
-        $msg .= "🖼 *Референс:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['example_photo']) . ")\n";
+        if (str_starts_with($item['example_photo'], 'http://') || str_starts_with($item['example_photo'], 'https://')) {
+            $msg .= "🖼 *Референс:* [Открыть файл]({$item['example_photo']})\n";
+        } else {
+            $msg .= "🖼 *Референс:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['example_photo']) . ")\n";
+        }
     } else {
         $msg .= "🖼 *Референс:* _не прикреплён_\n";
     }
@@ -1041,12 +1049,20 @@ function sendOrderPhotos($token, $chat_id, $item) {
     foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
         if (empty($item[$field])) continue;
         $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
-        if (!is_file($path)) continue;
-        sendTelegramFile($token, 'sendPhoto', [
-            'chat_id' => $chat_id,
-            'photo'   => new CURLFile($path),
-            'caption' => "{$label} к заказу #{$item['id']}",
-        ]);
+        if (is_file($path)) {
+            sendTelegramFile($token, 'sendPhoto', [
+                'chat_id' => $chat_id,
+                'photo'   => new CURLFile($path),
+                'caption' => "{$label} к заказу #{$item['id']}",
+            ]);
+        } elseif (str_starts_with($item[$field], 'http://') || str_starts_with($item[$field], 'https://')) {
+            // send by URL
+            sendTelegram($token, 'sendPhoto', [
+                'chat_id' => $chat_id,
+                'photo'   => $item[$field],
+                'caption' => "{$label} к заказу #{$item['id']}",
+            ]);
+        }
     }
 }
 

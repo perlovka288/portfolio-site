@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 ob_start();
 session_start();
 require_once 'auth.php';
@@ -564,16 +564,12 @@ if (isset($_POST['reply_appeal'])) {
     $appealId = (int)($_POST['appeal_id'] ?? 0);
     $reply    = trim($_POST['reply_text'] ?? '');
     if ($appealId > 0 && $reply !== '') {
-        $oldReplyStmt = $pdo->prepare("SELECT reply FROM appeals WHERE id = ? LIMIT 1");
-        $oldReplyStmt->execute([$appealId]);
-        $oldReply = trim((string)$oldReplyStmt->fetchColumn());
-        $timestamp = date('d.m.Y H:i');
-        $newReply  = $oldReply !== ''
-            ? $oldReply . "\n\n" . "Ответ администратора ({$timestamp}):\n" . $reply
-            : $reply;
-
-        $pdo->prepare("UPDATE appeals SET reply = ?, status = 'answered', replied_at = NOW() WHERE id = ?")
-            ->execute([$newReply, $appealId]);
+        // Сохраняем сообщение в потоке
+        try {
+            $mstmt = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
+            $mstmt->execute([$appealId, $reply]);
+            $pdo->prepare("UPDATE appeals SET status = 'answered', replied_at = NOW() WHERE id = ?")->execute([$appealId]);
+        } catch (Throwable $e) { /* ignore */ }
 
         $ap = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(a.telegram, ''), NULLIF(o.telegram, ''), '') AS client_telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
         $ap->execute([$appealId]);
@@ -742,6 +738,66 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $openAppealsCount = count(array_filter($appeals, fn($a) => $a['status'] === 'open'));
 } catch (Throwable $e) { /* таблица ещё не создана */ }
+
+// ── Просмотр заказа в админке (детальная форма) ─────────────────
+$viewOrder = null;
+if (isset($_GET['view_order'])) {
+    $vid = (int)$_GET['view_order'];
+    if ($vid > 0) {
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? LIMIT 1");
+        $stmt->execute([$vid]);
+        $viewOrder = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($viewOrder) {
+            try {
+                $ast = $pdo->prepare("SELECT * FROM appeals WHERE order_id = ? ORDER BY id ASC");
+                $ast->execute([$vid]);
+                $orderAppeals = $ast->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e) { $orderAppeals = []; }
+        } else {
+            $orderAppeals = [];
+        }
+    }
+}
+
+// ── Отправить сообщение клиенту по заказу из админки ────────────
+if (isset($_POST['send_order_message'])) {
+    $oid     = (int)($_POST['order_id'] ?? 0);
+    $subj    = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
+    $body    = trim($_POST['msg_text'] ?? '');
+    if ($oid > 0 && $body !== '') {
+        // получаем данные заказа
+        $ost = $pdo->prepare("SELECT id, username, telegram, client_chat_id FROM orders WHERE id = ? LIMIT 1");
+        $ost->execute([$oid]);
+        $orow = $ost->fetch(PDO::FETCH_ASSOC);
+
+        $sendTo = '';
+        if ($orow) {
+            $sendTo = trim((string)($orow['client_chat_id'] ?? '')) ?: trim((string)($orow['telegram'] ?? ''));
+        }
+
+        // создаём поток обращений (appeal) и добавляем сообщение от администратора
+        try {
+            $adminName = 'Администратор';
+            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
+            $ins->execute([$oid, $adminName, $sendTo, $subj]);
+            $aid = (int)$ins->fetchColumn();
+            if ($aid > 0) {
+                $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
+                $m->execute([$aid, $body]);
+            }
+        } catch (Throwable $e) { /* ignore */ }
+
+        // уведомляем клиента через Telegram, если есть chat_id
+        if ($sendTo !== '' && TELEGRAM_BOT_TOKEN !== '') {
+            $text = "📨 <b>Сообщение по вашему заказу #{$oid}</b>\n\n" . htmlspecialchars($body);
+            // используем sendTelegramRequest helper
+            sendTelegramRequest('sendMessage', ['chat_id' => $sendTo, 'text' => $text, 'parse_mode' => 'HTML']);
+        }
+
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?view_order=' . $oid . '&msg=sent');
+        exit;
+    }
+}
 
 $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
@@ -973,7 +1029,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <h2>🧾 Последние заказы</h2>
                         <div class="admin-table-wrap">
                             <table style="min-width:520px;">
-                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус</th><th>Сумма</th></tr></thead>
+                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус</th><th>Сумма</th><th>Действие</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($recentOrders as $order): ?>
                                         <tr>
@@ -981,6 +1037,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
                                             <td><span class="status"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
                                             <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
+                                            <td><a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>">Открыть</a></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -1132,12 +1189,24 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
                                 <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                             </div>
-                            <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($ap['message']) ?></div>
-                            <?php if (!empty($ap['reply'])): ?>
-                                <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;">
-                                    <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">История ответов · <?= $ap['replied_at'] ? date('d.m.Y H:i',strtotime($ap['replied_at'])) : '' ?></div>
-                                    <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($ap['reply']) ?></div>
-                                </div>
+                            <?php
+                                $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                $mstmt->execute([(int)$ap['id']]);
+                                $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                            ?>
+                            <?php if (!empty($msgs)): ?>
+                                <?php foreach ($msgs as $m): ?>
+                                    <?php if (($m['author'] ?? '') === 'admin'): ?>
+                                        <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;color:#d8d8e8;">
+                                            <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ответ администратора · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?></div>
+                                            <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
                             <?php endif; ?>
                             <form action="" method="POST" style="display:grid;gap:8px;">
                                 <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
@@ -1151,6 +1220,72 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </div>
                     <?php endforeach; ?>
                     </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- ════ ДЕТАЛЬ ЗАКАЗА ════ -->
+            <div id="order-detail-panel" style="display:none;">
+                <div class="panel" data-panel="order-detail" style="max-width:960px;margin:0 auto;">
+                    <?php if (!empty($viewOrder)): ?>
+                        <h2>📦 Заказ #<?= (int)$viewOrder['id'] ?> — <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></h2>
+                        <div style="margin-bottom:12px;color:#8a8a96;font-size:13px;">Статус: <strong><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></strong> · <?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
+                        <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($viewOrder['details'] ?? '') ?></div>
+
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                            <?php $sSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/'); ?>
+                            <?php if ($sSrc !== ''): ?>
+                                <div style="max-width:320px;">Чек оплаты:<br><a href="<?= htmlspecialchars($sSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($sSrc) ?>" style="max-width:320px;border-radius:8px;" onerror="this.style.display='none'"></a></div>
+                            <?php else: ?>
+                                <div style="color:#8a8a96;">Чек оплаты: не прикреплён</div>
+                            <?php endif; ?>
+                            <?php $eSrc = imgSrc($viewOrder['example_photo'] ?? '', '../uploads/orders/'); ?>
+                            <?php if ($eSrc !== ''): ?>
+                                <div style="max-width:320px;">Референс:<br><a href="<?= htmlspecialchars($eSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($eSrc) ?>" style="max-width:320px;border-radius:8px;" onerror="this.style.display='none'"></a></div>
+                            <?php else: ?>
+                                <div style="color:#8a8a96;">Референс: не прикреплён</div>
+                            <?php endif; ?>
+                        </div>
+
+                        <h3 style="margin-top:6px;margin-bottom:8px;">💬 Переписка и обращения</h3>
+                        <?php if (!empty($orderAppeals)): ?>
+                            <?php foreach ($orderAppeals as $oap): ?>
+                                <?php
+                                    $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                    $mstmt->execute([(int)$oap['id']]);
+                                    $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                ?>
+                                <div style="background:#0b0b0f;padding:10px;border-radius:6px;margin-bottom:8px;">
+                                    <div style="font-size:12px;color:#8a8a96;margin-bottom:8px;"><strong><?= htmlspecialchars($oap['subject']?:'Обращение') ?></strong></div>
+                                    <?php if (empty($msgs)): ?>
+                                        <div style="color:#8a8a96;">Сообщений пока нет.</div>
+                                    <?php else: ?>
+                                        <?php foreach ($msgs as $m): ?>
+                                            <?php if (($m['author'] ?? '') === 'admin'): ?>
+                                                <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Админ</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                            <?php else: ?>
+                                                <div style="background:rgba(249,115,22,.04);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Клиент</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div style="color:#8a8a96;margin-bottom:12px;">Переписка отсутствует.</div>
+                        <?php endif; ?>
+
+                        <form action="" method="POST" style="display:grid;gap:8px;max-width:720px;">
+                            <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                            <input type="text" name="msg_subject" placeholder="Тема (необязательно)" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>">
+                            <textarea name="msg_text" required rows="4" placeholder="Напиши сообщение клиенту (он получит уведомление в Telegram)" style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;"> </textarea>
+                            <div>
+                                <button type="submit" name="send_order_message" class="btn-panel">📤 Отправить клиенту</button>
+                                <a href="<?= $_SERVER['PHP_SELF'] ?>" class="delete-link" style="margin-left:10px;">Назад к панели</a>
+                            </div>
+                        </form>
+                    <?php else: ?>
+                        <h2>📦 Заказ не найден</h2>
+                        <div style="color:#8a8a96;">Выберите заказ из списка, чтобы открыть детальную карточку.</div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1269,8 +1404,17 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAvatarField();
     activateAdminTab('overview');
     const params = new URLSearchParams(window.location.search);
-    if (params.has('order')) {
-        activateAdminTab('appeals');
+    if (params.has('view_order')) {
+        activateAdminTab('orders');
+        // show order-detail panel if present
+        setTimeout(() => {
+            const det = document.querySelector('.panel[data-panel="order-detail"]');
+            if (det) {
+                document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
+                det.classList.remove('tab-hidden');
+                document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'orders'));
+            }
+        }, 40);
     }
     initFileInputs();
     initAntiTheft();
