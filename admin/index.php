@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 ob_start();
 session_start();
 require_once 'auth.php';
@@ -564,22 +564,35 @@ if (isset($_POST['reply_appeal'])) {
     $appealId = (int)($_POST['appeal_id'] ?? 0);
     $reply    = trim($_POST['reply_text'] ?? '');
     if ($appealId > 0 && $reply !== '') {
-        $pdo->prepare("UPDATE appeals SET reply = ?, status = 'answered', replied_at = NOW() WHERE id = ?")
-            ->execute([$reply, $appealId]);
+        $oldReplyStmt = $pdo->prepare("SELECT reply FROM appeals WHERE id = ? LIMIT 1");
+        $oldReplyStmt->execute([$appealId]);
+        $oldReply = trim((string)$oldReplyStmt->fetchColumn());
+        $timestamp = date('d.m.Y H:i');
+        $newReply  = $oldReply !== ''
+            ? $oldReply . "\n\n" . "Ответ администратора ({$timestamp}):\n" . $reply
+            : $reply;
 
-        $ap = $pdo->prepare("SELECT a.*, o.telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
+        $pdo->prepare("UPDATE appeals SET reply = ?, status = 'answered', replied_at = NOW() WHERE id = ?")
+            ->execute([$newReply, $appealId]);
+
+        $ap = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(a.telegram, ''), NULLIF(o.telegram, ''), '') AS client_telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
         $ap->execute([$appealId]);
         $ap = $ap->fetch(PDO::FETCH_ASSOC);
 
-        if ($ap && !empty($ap['telegram']) && TELEGRAM_BOT_TOKEN !== '') {
+        if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
             $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
-            $text = "✅ Ответ на ваше обращение <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> получен!\n\n" .
+            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n" .
                     "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n" .
                     "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
             $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-            curl_setopt_array($ch, [CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,
-                CURLOPT_POSTFIELDS=>['chat_id'=>$ap['telegram'],'text'=>$text,'parse_mode'=>'HTML']]);
-            curl_exec($ch); curl_close($ch);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 10,
+                CURLOPT_POSTFIELDS     => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML'],
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
         }
         $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
     }
@@ -1120,13 +1133,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                             </div>
                             <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($ap['message']) ?></div>
-                            <?php if (!$isOpen && $ap['reply']): ?>
+                            <?php if (!empty($ap['reply'])): ?>
                                 <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;">
-                                    <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ваш ответ · <?= $ap['replied_at'] ? date('d.m.Y H:i',strtotime($ap['replied_at'])) : '' ?></div>
+                                    <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">История ответов · <?= $ap['replied_at'] ? date('d.m.Y H:i',strtotime($ap['replied_at'])) : '' ?></div>
                                     <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($ap['reply']) ?></div>
                                 </div>
                             <?php endif; ?>
-                            <?php if ($isOpen): ?>
                             <form action="" method="POST" style="display:grid;gap:8px;">
                                 <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
                                 <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;" onfocus="this.style.borderColor='#f97316';" onblur="this.style.borderColor='#2a2a38';"></textarea>
