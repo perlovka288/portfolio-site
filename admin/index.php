@@ -1148,7 +1148,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     </button>
                                 </div>
                             </form>
-                            <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
                     </div>
