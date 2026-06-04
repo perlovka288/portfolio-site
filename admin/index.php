@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 session_start();
 require_once 'auth.php';
 require_once '../config/db.php';
@@ -15,7 +15,6 @@ $telegramLastError = '';
 ensureDefaultPortfolioCategories($pdo);
 
 // ── AJAX endpoint: добавить портфолио ────────────────────────────
-// Возвращает JSON, не перезагружает страницу
 if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     header('Content-Type: application/json; charset=utf-8');
     ob_start();
@@ -211,20 +210,14 @@ function drawTextFit($img, string $text, int $x, int $y, int $maxW, int $size, i
         imagettftext($img, $size, 0, $x, $y, $color, $font, $text);
         return;
     }
-
     $fontId = 5;
     $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
     $sourceH = max(1, imagefontheight($fontId));
     $targetH = max(18, $size);
     $targetW = (int)round($sourceW * ($targetH / $sourceH));
-    if ($targetW > $maxW) {
-        $targetW = $maxW;
-        $targetH = (int)round($sourceH * ($targetW / $sourceW));
-    }
-
+    if ($targetW > $maxW) { $targetW = $maxW; $targetH = (int)round($sourceH * ($targetW / $sourceW)); }
     $tmp = imagecreatetruecolor($sourceW, $sourceH);
-    imagealphablending($tmp, false);
-    imagesavealpha($tmp, true);
+    imagealphablending($tmp, false); imagesavealpha($tmp, true);
     $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
     imagefill($tmp, 0, 0, $transparent);
     imagestring($tmp, $fontId, 0, 0, $text, $color);
@@ -247,20 +240,14 @@ function drawTextCenteredFit($img, string $text, int $centerX, int $y, int $maxW
         imagettftext($img, $size, 0, (int)round($centerX - ($textW / 2)), $y, $color, $font, $text);
         return;
     }
-
     $fontId = 5;
     $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
     $sourceH = max(1, imagefontheight($fontId));
     $targetH = max(18, $size);
     $targetW = (int)round($sourceW * ($targetH / $sourceH));
-    if ($targetW > $maxW) {
-        $targetW = $maxW;
-        $targetH = (int)round($sourceH * ($targetW / $sourceW));
-    }
-
+    if ($targetW > $maxW) { $targetW = $maxW; $targetH = (int)round($sourceH * ($targetW / $sourceW)); }
     $tmp = imagecreatetruecolor($sourceW, $sourceH);
-    imagealphablending($tmp, false);
-    imagesavealpha($tmp, true);
+    imagealphablending($tmp, false); imagesavealpha($tmp, true);
     $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
     imagefill($tmp, 0, 0, $transparent);
     imagestring($tmp, $fontId, 0, 0, $text, $color);
@@ -270,75 +257,36 @@ function drawTextCenteredFit($img, string $text, int $centerX, int $y, int $maxW
 
 function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
 {
-    $sw = imagesx($src);
-    $sh = imagesy($src);
+    $sw = imagesx($src); $sh = imagesy($src);
     if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
-
-    $srcRatio = $sw / $sh;
-    $dstRatio = $dw / $dh;
-    if ($srcRatio > $dstRatio) {
-        $cropH = $sh;
-        $cropW = (int)round($sh * $dstRatio);
-        $sx = (int)round(($sw - $cropW) / 2);
-        $sy = 0;
-    } else {
-        $cropW = $sw;
-        $cropH = (int)round($sw / $dstRatio);
-        $sx = 0;
-        $sy = (int)round(($sh - $cropH) / 2);
-    }
+    $srcRatio = $sw / $sh; $dstRatio = $dw / $dh;
+    if ($srcRatio > $dstRatio) { $cropH = $sh; $cropW = (int)round($sh * $dstRatio); $sx = (int)round(($sw - $cropW) / 2); $sy = 0; }
+    else { $cropW = $sw; $cropH = (int)round($sw / $dstRatio); $sx = 0; $sy = (int)round(($sh - $cropH) / 2); }
     imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
 }
 
 function copyImageContain($dst, $src, int $dx, int $dy, int $dw, int $dh): void
 {
-    $sw = imagesx($src);
-    $sh = imagesy($src);
+    $sw = imagesx($src); $sh = imagesy($src);
     if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
-
     $scale = min($dw / $sw, $dh / $sh);
-    $drawW = (int)round($sw * $scale);
-    $drawH = (int)round($sh * $scale);
-    $drawX = $dx + (int)round(($dw - $drawW) / 2);
-    $drawY = $dy + (int)round(($dh - $drawH) / 2);
-
+    $drawW = (int)round($sw * $scale); $drawH = (int)round($sh * $scale);
+    $drawX = $dx + (int)round(($dw - $drawW) / 2); $drawY = $dy + (int)round(($dh - $drawH) / 2);
     imagecopyresampled($dst, $src, $drawX, $drawY, 0, 0, $drawW, $drawH, $sw, $sh);
 }
 
 function applyRoundedCorners($img, int $radius): void
 {
-    $w = imagesx($img);
-    $h = imagesy($img);
+    $w = imagesx($img); $h = imagesy($img);
     $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
     for ($y = 0; $y < $h; $y++) {
         for ($x = 0; $x < $w; $x++) {
-            $inCorner = false;
-            $cx = $x;
-            $cy = $y;
-            if ($x < $radius && $y < $radius) {
-                $cx = $radius;
-                $cy = $radius;
-                $inCorner = true;
-            } elseif ($x >= $w - $radius && $y < $radius) {
-                $cx = $w - $radius - 1;
-                $cy = $radius;
-                $inCorner = true;
-            } elseif ($x < $radius && $y >= $h - $radius) {
-                $cx = $radius;
-                $cy = $h - $radius - 1;
-                $inCorner = true;
-            } elseif ($x >= $w - $radius && $y >= $h - $radius) {
-                $cx = $w - $radius - 1;
-                $cy = $h - $radius - 1;
-                $inCorner = true;
-            }
-            if ($inCorner) {
-                $dx = $x - $cx;
-                $dy = $y - $cy;
-                if (($dx * $dx + $dy * $dy) > ($radius * $radius)) {
-                    imagesetpixel($img, $x, $y, $transparent);
-                }
-            }
+            $inCorner = false; $cx = $x; $cy = $y;
+            if ($x < $radius && $y < $radius) { $cx = $radius; $cy = $radius; $inCorner = true; }
+            elseif ($x >= $w - $radius && $y < $radius) { $cx = $w - $radius - 1; $cy = $radius; $inCorner = true; }
+            elseif ($x < $radius && $y >= $h - $radius) { $cx = $radius; $cy = $h - $radius - 1; $inCorner = true; }
+            elseif ($x >= $w - $radius && $y >= $h - $radius) { $cx = $w - $radius - 1; $cy = $h - $radius - 1; $inCorner = true; }
+            if ($inCorner) { $dx = $x - $cx; $dy = $y - $cy; if (($dx * $dx + $dy * $dy) > ($radius * $radius)) imagesetpixel($img, $x, $y, $transparent); }
         }
     }
 }
@@ -346,20 +294,15 @@ function applyRoundedCorners($img, int $radius): void
 function drawCircularImage($dst, $src, int $x, int $y, int $size): void
 {
     $avatar = imagecreatetruecolor($size, $size);
-    imagealphablending($avatar, false);
-    imagesavealpha($avatar, true);
+    imagealphablending($avatar, false); imagesavealpha($avatar, true);
     $transparent = imagecolorallocatealpha($avatar, 0, 0, 0, 127);
     imagefill($avatar, 0, 0, $transparent);
     imagecopyresampled($avatar, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
-
     $radius = $size / 2;
     for ($py = 0; $py < $size; $py++) {
         for ($px = 0; $px < $size; $px++) {
-            $dx = $px - $radius;
-            $dy = $py - $radius;
-            if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) {
-                imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
-            }
+            $dx = $px - $radius; $dy = $py - $radius;
+            if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
         }
     }
     imagedestroy($avatar);
@@ -370,46 +313,27 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     if (!extension_loaded('gd') || !is_file($mainPath)) return $mainPath;
     $main = imageFromFile($mainPath);
     if (!$main) return $mainPath;
-
     $avatar = (is_file($avatarPath)) ? imageFromFile($avatarPath) : null;
-    $mainW = max(1, imagesx($main));
-    $mainH = max(1, imagesy($main));
-    $catW = (int)($category['width_px'] ?? 0);
-    $catH = (int)($category['height_px'] ?? 0);
+    $mainW = max(1, imagesx($main)); $mainH = max(1, imagesy($main));
+    $catW = (int)($category['width_px'] ?? 0); $catH = (int)($category['height_px'] ?? 0);
     $isDesign = !empty($category['is_design']);
-    if ($catW <= 0 || $catH <= 0) {
-        $catW = $mainW;
-        $catH = $mainH;
-    }
-
-    $outW = $catW;
-    $outH = $catH;
-
-    $scale = 2;
-    $canvasW = $outW * $scale;
-    $canvasH = $outH * $scale;
+    if ($catW <= 0 || $catH <= 0) { $catW = $mainW; $catH = $mainH; }
+    $outW = $catW; $outH = $catH;
+    $scale = 2; $canvasW = $outW * $scale; $canvasH = $outH * $scale;
     $canvas = imagecreatetruecolor($canvasW, $canvasH);
-    imagealphablending($canvas, true);
-    imagesavealpha($canvas, true);
-
+    imagealphablending($canvas, true); imagesavealpha($canvas, true);
     $template = channelTemplatePath();
     $templateImg = $template !== '' ? imageFromFile($template) : null;
-    if ($templateImg) {
-        copyImageCover($canvas, $templateImg, 0, 0, $canvasW, $canvasH);
-        imagedestroy($templateImg);
-    } else {
+    if ($templateImg) { copyImageCover($canvas, $templateImg, 0, 0, $canvasW, $canvasH); imagedestroy($templateImg); }
+    else {
         for ($y = 0; $y < $canvasH; $y++) {
-            $mix = $y / $canvasH;
-            $r = (int)(10 + 34 * $mix);
-            $g = (int)(10 + 12 * $mix);
-            $b = (int)(14 + 4 * $mix);
+            $mix = $y / $canvasH; $r = (int)(10 + 34 * $mix); $g = (int)(10 + 12 * $mix); $b = (int)(14 + 4 * $mix);
             imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
         }
         $glow = imagecolorallocatealpha($canvas, 249, 115, 22, 105);
         imagefilledellipse($canvas, (int)($canvasW * .86), (int)($canvasH * .18), (int)($canvasW * .70), (int)($canvasH * .45), $glow);
         imagefilledellipse($canvas, (int)($canvasW * .15), (int)($canvasH * .92), (int)($canvasW * .55), (int)($canvasH * .35), $glow);
     }
-
     $padding = (int)round(min($canvasW, $canvasH) * 0.055);
     $avatarSize = $avatar ? (int)round(min($canvasW, $canvasH) * 0.12) : 0;
     $brandH = $avatar ? (int)round($avatarSize * 1.45) : 0;
@@ -417,36 +341,27 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
     $availableW = $canvasW - ($padding * 2);
     $availableH = $canvasH - ($padding * 2) - $brandH - $gap;
     if ($availableH < (int)round($canvasH * .48)) $availableH = (int)round($canvasH * .48);
-
     $frameScale = min($availableW / $catW, $availableH / $catH);
-    $panelW = (int)round($catW * $frameScale);
-    $panelH = (int)round($catH * $frameScale);
-    $panelX = (int)round(($canvasW - $panelW) / 2);
-    $panelY = $padding + (int)round(($availableH - $panelH) / 2);
-
+    $panelW = (int)round($catW * $frameScale); $panelH = (int)round($catH * $frameScale);
+    $panelX = (int)round(($canvasW - $panelW) / 2); $panelY = $padding + (int)round(($availableH - $panelH) / 2);
     $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 78);
     drawFilledRoundedRect($canvas, $panelX + (8 * $scale), $panelY + (10 * $scale), $panelW, $panelH, 34 * $scale, $shadow);
-
     $panel = imagecreatetruecolor($panelW, $panelH);
-    imagealphablending($panel, true);
-    imagesavealpha($panel, true);
+    imagealphablending($panel, true); imagesavealpha($panel, true);
     $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
     imagefill($panel, 0, 0, $transparent);
     copyImageContain($panel, $main, 0, 0, $panelW, $panelH);
     applyRoundedCorners($panel, 26 * $scale);
     imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
     imagedestroy($panel);
-
     $line = imagecolorallocatealpha($canvas, 255, 255, 255, 34);
     imagesetthickness($canvas, max(1, 2 * $scale));
     imagerectangle($canvas, $panelX, $panelY, $panelX + $panelW, $panelY + $panelH, $line);
-
     if ($avatar && $isDesign) {
         $avatarSize = (int)round(min($panelW, $panelH) * 0.26);
         $avatarSize = max(80 * $scale, min($avatarSize, 190 * $scale));
         $avatarPad = (int)round($avatarSize * 0.18);
-        $blockW = $avatarSize + ($avatarPad * 2);
-        $blockH = $avatarSize + ($avatarPad * 2);
+        $blockW = $avatarSize + ($avatarPad * 2); $blockH = $avatarSize + ($avatarPad * 2);
         $blockX = $panelX + $panelW - $blockW - (int)round($panelW * 0.035);
         $blockY = $panelY + $panelH - $blockH - (int)round($panelH * 0.055);
         $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
@@ -454,38 +369,28 @@ function createWatermarkedImage(string $mainPath, string $avatarPath, string $ti
         drawCircularImage($canvas, $avatar, $blockX + $avatarPad, $blockY + $avatarPad, $avatarSize);
         imagedestroy($avatar);
     } elseif ($avatar) {
-        $blockW = (int)round($avatarSize * 1.6);
-        $blockH = (int)round($avatarSize * 1.25);
-        $blockX = (int)round(($canvasW - $blockW) / 2);
-        $blockY = $panelY + $panelH + $gap;
+        $blockW = (int)round($avatarSize * 1.6); $blockH = (int)round($avatarSize * 1.25);
+        $blockX = (int)round(($canvasW - $blockW) / 2); $blockY = $panelY + $panelH + $gap;
         $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 22);
         drawFilledRoundedRect($canvas, $blockX, $blockY, $blockW, $blockH, 24 * $scale, $blockBg);
         drawCircularImage($canvas, $avatar, (int)round(($canvasW - $avatarSize) / 2), $blockY + (int)round(($blockH - $avatarSize) / 2), $avatarSize);
         imagedestroy($avatar);
     }
-
     $final = imagecreatetruecolor($outW, $outH);
     imagecopyresampled($final, $canvas, 0, 0, 0, 0, $outW, $outH, $canvasW, $canvasH);
-
     $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
     imagejpeg($final, $output, 100);
-    imagedestroy($main);
-    imagedestroy($canvas);
-    imagedestroy($final);
+    imagedestroy($main); imagedestroy($canvas); imagedestroy($final);
     return $output;
 }
+
 function downloadToTemp(string $url): string
 {
     if ($url === '') return '';
     $tmp = tempnam(sys_get_temp_dir(), 'imgdl_') . '.jpg';
     $ch  = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT        => 20,
-    ]);
-    $data = curl_exec($ch);
-    curl_close($ch);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 20]);
+    $data = curl_exec($ch); curl_close($ch);
     if ($data && file_put_contents($tmp, $data)) return $tmp;
     return '';
 }
@@ -494,95 +399,44 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 {
     global $telegramLastError;
     $imgVal = (string)($case['image'] ?? '');
-
-    if (str_starts_with($imgVal, 'http://') || str_starts_with($imgVal, 'https://')) {
-        $mainPath   = downloadToTemp($imgVal);
-        $downloaded = true;
-    } else {
-        $mainPath   = $uploadDir . basename($imgVal);
-        $downloaded = false;
-    }
-
+    if (str_starts_with($imgVal, 'http://') || str_starts_with($imgVal, 'https://')) { $mainPath = downloadToTemp($imgVal); $downloaded = true; }
+    else { $mainPath = $uploadDir . basename($imgVal); $downloaded = false; }
     if (!is_file($mainPath)) return false;
-
-    $rub     = (int)($case['price_rub'] ?? 0);
-    $uan     = (int)($case['price_uan'] ?? 0);
+    $rub = (int)($case['price_rub'] ?? 0); $uan = (int)($case['price_uan'] ?? 0);
     $category = [];
     try {
         $catKey = (string)($case['category_key'] ?? '');
-        if ($catKey !== '') {
-            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
-            $stmt->execute([$catKey]);
-            $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        }
+        if ($catKey !== '') { $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1'); $stmt->execute([$catKey]); $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: []; }
     } catch (Throwable $e) {}
-
     $avatarVal = (string)($case['avatar_image'] ?? '');
     try {
-        if ($avatarVal === '' && empty($category['is_design'])) {
-            $stmt      = $pdo->query('SELECT avatar FROM users LIMIT 1');
-            $avatarVal = (string)($stmt->fetchColumn() ?: '');
-        }
+        if ($avatarVal === '' && empty($category['is_design'])) { $stmt = $pdo->query('SELECT avatar FROM users LIMIT 1'); $avatarVal = (string)($stmt->fetchColumn() ?: ''); }
     } catch (Throwable $e) {}
-
-    if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) {
-        $avatarPath       = downloadToTemp($avatarVal);
-        $avatarDownloaded = true;
-    } else {
-        $avatarPath       = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : '';
-        $avatarDownloaded = false;
-    }
-
+    if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) { $avatarPath = downloadToTemp($avatarVal); $avatarDownloaded = true; }
+    else { $avatarPath = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : ''; $avatarDownloaded = false; }
     $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
-    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n";
-    $caption .= "💬 Оценить данную работу можно в комментариях.\n\n";
-    $caption .= '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
-
-    $result = sendTelegramRequest('sendPhoto', [
-        'chat_id'    => PORTFOLIO_CHANNEL_CHAT,
-        'caption'    => $caption,
-        'parse_mode' => 'HTML',
-    ], [
-        'photo' => new CURLFile($photoPath),
-    ]);
-
+    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+    $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($photoPath)]);
     if ($photoPath !== $mainPath && is_file($photoPath)) unlink($photoPath);
     if ($downloaded && is_file($mainPath)) unlink($mainPath);
     if ($avatarDownloaded && $avatarPath !== '' && is_file($avatarPath)) unlink($avatarPath);
-
     return (bool)($result['ok'] ?? false);
 }
 
 function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 {
     if (!is_file($tmpPath)) { error_log("ImgBB: file not found ($tmpPath)"); return ''; }
-    $keys = array_filter([
-        getenv('IMGBB_API_KEY')  ?: '',
-        getenv('IMGBB_API_KEY2') ?: '',
-        getenv('IMGBB_API_KEY3') ?: '',
-    ]);
+    $keys = array_filter([getenv('IMGBB_API_KEY') ?: '', getenv('IMGBB_API_KEY2') ?: '', getenv('IMGBB_API_KEY3') ?: '']);
     if (empty($keys)) { error_log("ImgBB: no API keys set"); return ''; }
-
     $b64 = base64_encode(file_get_contents($tmpPath));
     foreach ($keys as $index => $apiKey) {
         $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 60,
-            CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
-        ]);
-        $res  = curl_exec($ch);
-        $cerr = curl_error($ch);
-        curl_close($ch);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
+        $res = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
         if ($res === false || $res === '') { error_log("ImgBB key#".($index+1)." curl error: $cerr"); continue; }
-        $data = json_decode($res, true);
-        $url  = $data['data']['url'] ?? '';
+        $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
         if ($url !== '') { error_log("ImgBB key#".($index+1)." OK => $url"); return $url; }
-        $statusCode = $data['status'] ?? 0;
-        $errMsg     = $data['error']['message'] ?? ($data['message'] ?? '');
-        error_log("ImgBB key#".($index+1)." failed (status=$statusCode): $errMsg");
-        continue;
+        error_log("ImgBB key#".($index+1)." failed: " . ($data['error']['message'] ?? ''));
     }
     error_log("ImgBB: all keys failed for $name");
     return '';
@@ -596,7 +450,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) { $message = '❌ Файл слишком большой.'; return ''; }
     if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) { error_log("UPLOAD[$field]: err=$err"); return ''; }
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext     = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) { error_log("UPLOAD[$field]: bad ext=$ext"); return ''; }
     $tmp = $_FILES[$field]['tmp_name'];
     $url = uploadToImgBB($tmp, $prefix . '_' . time());
@@ -605,7 +459,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
-        $dest     = $uploadDir . $filename;
+        $dest = $uploadDir . $filename;
         if (move_uploaded_file($tmp, $dest)) { error_log("UPLOAD[$field]: local fallback OK => $filename"); return $filename; }
     }
     error_log("UPLOAD[$field]: both methods failed");
@@ -619,7 +473,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     $err = $_FILES[$field]['error'][$id] ?? UPLOAD_ERR_NO_FILE;
     if ($err !== UPLOAD_ERR_OK) { error_log("UPLOAD_NESTED[$field][$id]: err=$err"); return ''; }
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext     = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
+    $ext = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) return '';
     $tmp = $_FILES[$field]['tmp_name'][$id];
     $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
@@ -627,7 +481,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
-        $dest     = $uploadDir . $filename;
+        $dest = $uploadDir . $filename;
         if (move_uploaded_file($tmp, $dest)) return $filename;
     }
     return '';
@@ -662,30 +516,44 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
     $publish_tg   = !empty($_POST['publish_tg']);
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
-    if ($title === '') {
-        $message = '❌ Укажи название проекта.';
-    } elseif ($filename_main === '') {
-        if ($message === '') $message = '❌ Загрузи главное изображение.';
-    } else {
+    if ($title === '') { $message = '❌ Укажи название проекта.'; }
+    elseif ($filename_main === '') { if ($message === '') $message = '❌ Загрузи главное изображение.'; }
+    else {
         $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
         $postedToChannel = false;
         if ($publish_tg) {
-            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-                'title'        => $title,
-                'category_key' => $category_key,
-                'price_rub'    => $price_rub,
-                'price_uan'    => $price_uan,
-                'image'        => $filename_main,
-                'avatar_image' => $filename_avatar,
-            ]);
+            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, ['title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan, 'image' => $filename_main, 'avatar_image' => $filename_avatar]);
         }
         $message = '✅ Портфолио сохранено!';
-        if ($publish_tg) {
-            $message .= $postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.');
-        } else {
-            $message .= ' Без публикации в Telegram.';
+        if ($publish_tg) { $message .= $postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.'); }
+        else { $message .= ' Без публикации в Telegram.'; }
+    }
+}
+
+// ===================== APPEALS =====================
+if (isset($_POST['reply_appeal'])) {
+    $appealId = (int)($_POST['appeal_id'] ?? 0);
+    $reply    = trim($_POST['reply_text'] ?? '');
+    if ($appealId > 0 && $reply !== '') {
+        $pdo->prepare("UPDATE appeals SET reply = ?, status = 'answered', replied_at = NOW() WHERE id = ?")
+            ->execute([$reply, $appealId]);
+
+        $ap = $pdo->prepare("SELECT a.*, o.telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
+        $ap->execute([$appealId]);
+        $ap = $ap->fetch(PDO::FETCH_ASSOC);
+
+        if ($ap && !empty($ap['telegram']) && TELEGRAM_BOT_TOKEN !== '') {
+            $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
+            $text = "✅ Ответ на ваше обращение <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> получен!\n\n" .
+                    "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n" .
+                    "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
+            $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+            curl_setopt_array($ch, [CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,
+                CURLOPT_POSTFIELDS=>['chat_id'=>$ap['telegram'],'text'=>$text,'parse_mode'=>'HTML']]);
+            curl_exec($ch); curl_close($ch);
         }
+        $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
     }
 }
 
@@ -744,16 +612,13 @@ if (isset($_POST['add_price_service'])) {
     $image        = uploadImage('service_image', 'price', $uploadDir);
     if ($category_key === '') $category_key = 'service_' . time();
     $category_key = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $category_key));
-    if ($title === '') {
-        $message = '❌ Укажи название услуги.';
-    } else {
+    if ($title === '') { $message = '❌ Укажи название услуги.'; }
+    else {
         $stmt = $pdo->prepare("INSERT INTO prices (category_key,title,description,price_rub,price_uan,features,image) VALUES (?,?,?,?,?,?,?)");
         try {
             $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]);
             $message = '✅ Новая услуга добавлена в прайс.';
-        } catch (PDOException $e) {
-            $message = '❌ Такой ключ услуги уже существует.';
-        }
+        } catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
     }
 }
 
@@ -771,16 +636,13 @@ if (isset($_POST['add_portfolio_category'])) {
     $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
     if ($catKey === '') $catKey = 'cat_' . time();
     $catKey = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $catKey));
-    if ($catTitle === '') {
-        $message = '❌ Укажи название категории.';
-    } else {
+    if ($catTitle === '') { $message = '❌ Укажи название категории.'; }
+    else {
         try {
             $pdo->prepare("INSERT INTO portfolio_categories (category_key,title,width_px,height_px,is_design,sort_order) VALUES (?,?,?,?,?,100)")
                 ->execute([$catKey, $catTitle, $catWidth, $catHeight, $catIsDesign]);
             $message = '✅ Категория добавлена.';
-        } catch (PDOException $e) {
-            $message = '❌ Такая категория уже существует.';
-        }
+        } catch (PDOException $e) { $message = '❌ Такая категория уже существует.'; }
     }
 }
 
@@ -828,6 +690,18 @@ foreach ($categories as $category) {
 
 $statusLabels = ['pending'=>'Ожидает','in_progress'=>'В процессе','ready'=>'Готов','declined'=>'Отклонен'];
 
+// ── Загрузка обращений ──────────────────────────────────────────
+$appeals = [];
+$openAppealsCount = 0;
+try {
+    $appeals = $pdo->query("
+        SELECT a.id, a.order_id, a.username, a.subject, a.message, a.reply, a.status, a.created_at, a.replied_at, a.telegram
+        FROM appeals a
+        ORDER BY a.status ASC, a.id DESC
+    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $openAppealsCount = count(array_filter($appeals, fn($a) => $a['status'] === 'open'));
+} catch (Throwable $e) { /* таблица ещё не создана */ }
+
 $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
 $imgbbKeys         = array_filter([getenv('IMGBB_API_KEY')?: '', getenv('IMGBB_API_KEY2')?: '', getenv('IMGBB_API_KEY3')?: '']);
@@ -861,7 +735,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .notice { border: 1px solid rgba(249,115,22,.45); background: rgba(249,115,22,.10); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
         .notice.success { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.10); color: #86efac; }
         .notice.error   { border-color: rgba(239,68,68,.45);  background: rgba(239,68,68,.10);  color: #fca5a5; }
-
         .admin-board { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 18px; align-items: start; }
         .admin-tabs { position: sticky; top: 18px; display: grid; gap: 9px; background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 12px; }
         .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #d8d8e8; font-weight: 900; text-align: left; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
@@ -912,7 +785,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr:last-child td { border-bottom: 0; }
         tr:hover td { background: rgba(255,255,255,.015); }
         .thumb-pair { display: flex; align-items: center; gap: 8px; }
-        /* Антивор: превью в таблице кейсов */
         .case-thumb-wrap { position: relative; display: inline-block; user-select: none; }
         .case-thumb-wrap::after { content: ''; position: absolute; inset: 0; z-index: 2; cursor: default; }
         .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0b0b10; pointer-events: none; user-select: none; -webkit-user-drag: none; display: block; }
@@ -929,7 +801,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
         .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
         .tab-hidden { display: none !important; }
-        /* Всплывающий тост */
         #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
         #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
         #admin-toast.success { background: #0f2b1a; border: 1px solid rgba(34,197,94,.5); color: #86efac; }
@@ -941,7 +812,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 </head>
 <body>
 
-<!-- Тост-уведомление -->
 <div id="admin-toast"></div>
 
 <main class="admin-shell">
@@ -976,6 +846,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="price"      onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
             <button type="button" class="admin-tab"        data-tab="orders"     onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Заказы</button>
             <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
+            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?>
+            </button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
         </nav>
 
@@ -994,54 +868,33 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <!-- Добавить в портфолио -->
                     <section class="panel" data-panel="portfolio-add">
                         <h2>📁 Добавить в портфолио</h2>
-                        <!-- AJAX-форма: кнопка сразу показывает результат, не перезагружает страницу -->
                         <form id="portfolio-form" enctype="multipart/form-data">
                             <label>Название проекта</label>
                             <input type="text" name="title" required placeholder="Например: сет Naruto">
-
                             <label>Категория графики</label>
                             <select name="category_key" id="category_select" onchange="toggleAvatarField()">
                                 <?php foreach ($categories as $category): ?>
                                     <option value="<?= htmlspecialchars($category['category_key']) ?>">
                                         <?= htmlspecialchars($category['title']) ?>
-                                        <?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?>
-                                            (<?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?>)
-                                        <?php endif; ?>
+                                        <?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> (<?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?>)<?php endif; ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
-
                             <div class="two-cols">
-                                <div>
-                                    <label>Цена в рублях</label>
-                                    <input type="number" name="price_rub" value="0" min="0">
-                                </div>
-                                <div>
-                                    <label>Цена в гривнах</label>
-                                    <input type="number" name="price_uan" value="0" min="0">
-                                </div>
+                                <div><label>Цена в рублях</label><input type="number" name="price_rub" value="0" min="0"></div>
+                                <div><label>Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
                             </div>
-
                             <label>Главное изображение / шапка</label>
                             <input type="file" name="image" accept="image/*" required>
-
-                            <label class="tg-checkbox">
-                                <input type="checkbox" name="publish_tg" value="1" checked>
-                                Публиковать в Telegram-канал
-                            </label>
-
+                            <label class="tg-checkbox"><input type="checkbox" name="publish_tg" value="1" checked> Публиковать в Telegram-канал</label>
                             <div id="avatar_upload_block" style="display:none;">
                                 <label>Аватарка к оформлению</label>
                                 <input type="file" name="avatar_image" accept="image/*">
                                 <div class="avatar-hint">Для категории "Оформление" шапка широкая, аватарка — круглое превью.</div>
                             </div>
-
                             <button type="submit" class="btn-panel" id="portfolio-submit-btn">
                                 <span class="btn-text">Загрузить в кейсы</span>
-                                <span class="btn-spinner">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                                    Загружаем на ImgBB...
-                                </span>
+                                <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем на ImgBB...</span>
                             </button>
                         </form>
                         <style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
@@ -1055,24 +908,19 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <input type="text" name="cat_title" required placeholder="Например: Пост VK">
                             <label>Ключ категории</label>
                             <input type="text" name="cat_key" placeholder="vk_post">
-                            <div class="avatar-hint">Латиница без пробелов. По этому ключу фильтруется раздел на главной.</div>
+                            <div class="avatar-hint">Латиница без пробелов.</div>
                             <div class="two-cols">
                                 <div><label>Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
                                 <div><label>Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
                             </div>
-                            <div class="avatar-hint">Размер категории задает пропорцию рамки работы внутри Telegram-постера. Фон и итоговый постер остаются отдельными, работа вписывается целиком без обрезки.</div>
-                            <label style="display:flex;gap:8px;align-items:center;margin-top:14px;">
-                                <input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;">
-                                Это оформление с аватаркой
-                            </label>
+                            <div class="avatar-hint">Размер задает пропорцию рамки работы внутри Telegram-постера.</div>
+                            <label style="display:flex;gap:8px;align-items:center;margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;"> Это оформление с аватаркой</label>
                             <button type="submit" name="add_portfolio_category" class="btn-panel">Добавить категорию</button>
                         </form>
                         <div style="margin-top:14px;display:grid;gap:8px;">
                             <?php foreach ($categories as $category): ?>
                                 <div style="display:flex;justify-content:space-between;gap:10px;color:#d8d8e8;font-size:12px;border-top:1px solid #242432;padding-top:8px;">
-                                    <span><?= htmlspecialchars($category['title']) ?>
-                                        <?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> · <?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?><?php endif; ?>
-                                    </span>
+                                    <span><?= htmlspecialchars($category['title']) ?><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> · <?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?><?php endif; ?></span>
                                     <a class="delete-link" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">Удалить</a>
                                 </div>
                             <?php endforeach; ?>
@@ -1107,7 +955,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <input type="text" name="service_title" required placeholder="Например: Баннер для постов">
                             <label>Ключ услуги</label>
                             <input type="text" name="service_key" placeholder="post_banner">
-                            <div class="avatar-hint">Латиницей, без пробелов. Попадёт в форму заказа и Telegram-бот.</div>
+                            <div class="avatar-hint">Латиницей, без пробелов.</div>
                             <div class="two-cols">
                                 <div><label>Цена в рублях</label><input type="number" name="service_price_rub" value="0" min="0"></div>
                                 <div><label>Цена в гривнах</label><input type="number" name="service_price_uan" value="0" min="0"></div>
@@ -1156,9 +1004,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <?php foreach ($services as $service): $id = (int)$service['id']; ?>
                                             <tr>
                                                 <td>
-                                                    <?php if (!empty($service['image'])): ?>
-                                                        <div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div>
-                                                    <?php else: ?><span style="color:#666674;font-size:11px;">Нет обложки</span><?php endif; ?>
+                                                    <?php if (!empty($service['image'])): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div><?php else: ?><span style="color:#666674;font-size:11px;">Нет обложки</span><?php endif; ?>
                                                     <div style="margin-top:8px;"><input type="file" name="price_images[<?= $id ?>]" accept="image/*"></div>
                                                 </td>
                                                 <td>
@@ -1195,15 +1041,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <tr>
                                             <td>
                                                 <div class="thumb-pair">
-                                                    <?php if ($img !== ''): ?>
-                                                        <!-- Антивор: обёртка с ::after overlay -->
-                                                        <div class="case-thumb-wrap">
-                                                            <img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="case-thumb" alt="" draggable="false">
-                                                        </div>
-                                                    <?php endif; ?>
-                                                    <?php if ($ava !== ''): ?>
-                                                        <img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-ava" alt="" draggable="false">
-                                                    <?php endif; ?>
+                                                    <?php if ($img !== ''): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="case-thumb" alt="" draggable="false"></div><?php endif; ?>
+                                                    <?php if ($ava !== ''): ?><img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-ava" alt="" draggable="false"><?php endif; ?>
                                                 </div>
                                             </td>
                                             <td><strong><?= htmlspecialchars($work['title']??'Без названия') ?></strong></td>
@@ -1226,12 +1065,61 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </div>
                 </section>
             </div>
+
+            <!-- ════ ПАНЕЛЬ ОБРАЩЕНИЙ ════ -->
+            <div id="appeals-panel" style="display:none;">
+                <div class="panel" data-panel="appeals" style="max-width:960px;margin:0 auto;">
+                    <h2>📩 Обращения клиентов
+                        <?php if ($openAppealsCount > 0): ?>
+                            <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
+                        <?php endif; ?>
+                    </h2>
+                    <?php if (empty($appeals)): ?>
+                        <p style="color:#8a8a96;">Обращений пока нет.</p>
+                    <?php else: ?>
+                    <div style="display:grid;gap:14px;">
+                    <?php foreach ($appeals as $ap): ?>
+                        <?php $isOpen = $ap['status'] === 'open'; ?>
+                        <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : '#111116' ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : '#20202c' ?>;">
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                                <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
+                                <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
+                                <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
+                                <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : 'background:rgba(34,197,94,.15);color:#86efac;' ?>">
+                                    <?= $isOpen ? '⏳ Ожидает ответа' : '✅ Отвечено' ?>
+                                </span>
+                                <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
+                                <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
+                            </div>
+                            <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($ap['message']) ?></div>
+                            <?php if (!$isOpen && $ap['reply']): ?>
+                                <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;">
+                                    <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ваш ответ · <?= $ap['replied_at'] ? date('d.m.Y H:i',strtotime($ap['replied_at'])) : '' ?></div>
+                                    <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($ap['reply']) ?></div>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($isOpen): ?>
+                            <form action="" method="POST" style="display:grid;gap:8px;">
+                                <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
+                                <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;" onfocus="this.style.borderColor='#f97316';" onblur="this.style.borderColor='#2a2a38';"></textarea>
+                                <div>
+                                    <button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;box-shadow:0 6px 18px rgba(249,115,22,.3);transition:.2s;">
+                                        📤 Отправить ответ
+                                    </button>
+                                </div>
+                            </form>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
     </div>
 </main>
 
 <script>
-// ── Тост-уведомление ─────────────────────────────────────────
 function showToast(msg, type = 'success', duration = 5000) {
     const t = document.getElementById('admin-toast');
     t.textContent = msg;
@@ -1240,35 +1128,20 @@ function showToast(msg, type = 'success', duration = 5000) {
     t._timer = setTimeout(() => { t.classList.remove('show'); }, duration);
 }
 
-// ── AJAX загрузка портфолио ──────────────────────────────────
 document.getElementById('portfolio-form').addEventListener('submit', async function(e) {
     e.preventDefault();
-    const btn    = document.getElementById('portfolio-submit-btn');
-    const form   = this;
-
+    const btn  = document.getElementById('portfolio-submit-btn');
+    const form = this;
     btn.disabled = true;
     btn.classList.add('loading');
     showToast('⏳ Загружаем на ImgBB... Это может занять 10–30 сек.', 'loading', 60000);
-
     const fd = new FormData(form);
     fd.append('add_portfolio', '1');
-
     try {
-        const resp = await fetch('', {
-            method:  'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            body:    fd,
-        });
+        const resp = await fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
         const data = await resp.json();
         showToast(data.msg, data.ok ? 'success' : 'error', 7000);
-        if (data.ok) {
-            form.reset();
-            // Сбрасываем подписи файлов
-            document.querySelectorAll('.file-upload-name, .mini-file-name').forEach(el => {
-                el.textContent = 'Файл не выбран';
-                el.classList.remove('has-file');
-            });
-        }
+        if (data.ok) { form.reset(); document.querySelectorAll('.file-upload-name, .mini-file-name').forEach(el => { el.textContent = 'Файл не выбран'; el.classList.remove('has-file'); }); }
     } catch (err) {
         showToast('❌ Ошибка соединения. Попробуй ещё раз.', 'error', 7000);
     } finally {
@@ -1277,7 +1150,6 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
     }
 });
 
-// ── Показать/скрыть поле аватарки ────────────────────────────
 function toggleAvatarField() {
     const category = document.getElementById('category_select').value;
     const block    = document.getElementById('avatar_upload_block');
@@ -1285,8 +1157,9 @@ function toggleAvatarField() {
     block.style.display = designCategories.includes(category) ? 'block' : 'none';
 }
 
-// ── Переключение вкладок ─────────────────────────────────────
 function activateAdminTab(tab) {
+    const apPanel = document.getElementById('appeals-panel');
+    if (apPanel) apPanel.style.display = 'none';
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     const stats  = document.querySelector('.stats-grid');
     const layout = document.querySelector('.admin-layout');
@@ -1305,9 +1178,9 @@ function activateAdminTab(tab) {
     else if (tab === 'orders')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
     else if (tab === 'avatar')    { show('avatar'); }
+    else if (tab === 'appeals')   { if (apPanel) apPanel.style.display = 'block'; }
 }
 
-// ── Стилизация file inputs ────────────────────────────────────
 function initFileInputs() {
     document.querySelectorAll('input[type="file"]').forEach(input => {
         if (input.dataset.styled) return;
@@ -1325,7 +1198,7 @@ function initFileInputs() {
         nameSpan.className = isMini ? 'mini-file-name' : 'file-upload-name';
         nameSpan.textContent = 'Файл не выбран';
         input.addEventListener('change', () => {
-            const name    = input.files[0]?.name || 'Файл не выбран';
+            const name = input.files[0]?.name || 'Файл не выбран';
             const hasFile = !!input.files[0];
             nameSpan.textContent = hasFile ? name : 'Файл не выбран';
             nameSpan.classList.toggle('has-file', hasFile);
@@ -1337,27 +1210,13 @@ function initFileInputs() {
     });
 }
 
-// ── Антивор: блок ПКМ и drag на превью ───────────────────────
 function initAntiTheft() {
-    // Блок правой кнопки на картинках портфолио
     document.addEventListener('contextmenu', function(e) {
         const target = e.target;
-        if (target.tagName === 'IMG' &&
-            (target.classList.contains('case-thumb') ||
-             target.classList.contains('case-ava') ||
-             target.classList.contains('price-thumb'))) {
-            e.preventDefault();
-            return false;
-        }
+        if (target.tagName === 'IMG' && (target.classList.contains('case-thumb') || target.classList.contains('case-ava') || target.classList.contains('price-thumb'))) { e.preventDefault(); return false; }
     }, true);
-    // Блок drag
     document.addEventListener('dragstart', function(e) {
-        if (e.target.tagName === 'IMG') {
-            const c = e.target.classList;
-            if (c.contains('case-thumb') || c.contains('case-ava') || c.contains('price-thumb')) {
-                e.preventDefault();
-            }
-        }
+        if (e.target.tagName === 'IMG') { const c = e.target.classList; if (c.contains('case-thumb') || c.contains('case-ava') || c.contains('price-thumb')) e.preventDefault(); }
     }, true);
 }
 
