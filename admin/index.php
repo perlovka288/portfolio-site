@@ -1,4 +1,5 @@
 ﻿<?php
+ob_start();
 session_start();
 require_once 'auth.php';
 require_once '../config/db.php';
