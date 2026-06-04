@@ -70,6 +70,71 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     exit;
 }
 
+// ── Админские POST действия над заказом (взять/срочный/готов/откл/бан/написать клиенту)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
+    $orderId = (int)($_POST['order_id'] ?? 0);
+    $action  = trim($_POST['order_action']);
+
+    if ($orderId > 0) {
+        try {
+            if ($action === 'take_work') {
+                $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$orderId]);
+                $msgAdmin = "🚀 Заказ #{$orderId} взят в работу.";
+                // log action (if table exists)
+            } elseif ($action === 'urgent') {
+                $pdo->prepare("UPDATE orders SET status = 'urgent' WHERE id = ?")->execute([$orderId]);
+                $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
+                // log action (if table exists)
+            } elseif ($action === 'ready') {
+                $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$orderId]);
+                $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
+                // log action (if table exists)
+            } elseif ($action === 'decline') {
+                $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$orderId]);
+                $msgAdmin = "❌ Заказ #{$orderId} отклонён.";
+                // log action (if table exists)
+            } elseif ($action === 'ban') {
+                // Добавляем в blacklist по telegram из заказа
+                $tg = '';
+                $r = $pdo->prepare("SELECT telegram, client_ip FROM orders WHERE id = ? LIMIT 1"); $r->execute([$orderId]); $ord = $r->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tg = $ord['telegram'] ?? '';
+                $ip = $ord['client_ip'] ?? null;
+                if ($tg !== '') {
+                    $ins = $pdo->prepare("INSERT INTO blacklist (telegram, ip, reason, created_at) VALUES (?, ?, ?, NOW())");
+                    $ins->execute([$tg, $ip, 'admin_ban']);
+                }
+                $msgAdmin = "🚫 Клиент заказа #{$orderId} добавлен в чёрный список.";
+                // log action (if table exists)
+            } elseif ($action === 'message_client') {
+                $text = trim($_POST['message_text'] ?? '');
+                // Отправлять через Telegram, если client_chat_id есть
+                $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1"); $stmt->execute([$orderId]);
+                $chat = $stmt->fetchColumn();
+                if (!empty($chat) && $text !== '') {
+                    // используем sendTelegramRequest, определённую в этом файле
+                    sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'Markdown']);
+                    $msgAdmin = "✉️ Сообщение отправлено клиенту (chat_id: {$chat}).";
+                    // log action (if table exists)
+                } else {
+                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного чат_id или пустой текст.";
+                }
+            }
+
+            if (!empty($msgAdmin)) {
+                // уведомим администратора в Telegram о действии
+                if (defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
+                    sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $msgAdmin, 'parse_mode' => 'Markdown']);
+                }
+            }
+        } catch (Throwable $e) {
+            $message = 'Ошибка выполнения действия: ' . $e->getMessage();
+        }
+    }
+
+    // После обработки — перенаправляем чтобы избежать повторного submit
+    header('Location: ' . $_SERVER['REQUEST_URI']); exit;
+}
+
 function sendTelegramRequest(string $method, array $params, array $files = []): ?array
 {
     global $telegramLastError;
@@ -1279,19 +1344,66 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <div style="margin-bottom:12px;color:#8a8a96;font-size:13px;">Статус: <strong><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></strong> · <?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
                         <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($viewOrder['details'] ?? '') ?></div>
 
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-                            <?php $sSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/'); ?>
-                            <?php if ($sSrc !== ''): ?>
-                                <div style="max-width:320px;">Чек оплаты:<br><a href="<?= htmlspecialchars($sSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($sSrc) ?>" style="max-width:320px;border-radius:8px;" onerror="this.style.display='none'"></a></div>
-                            <?php else: ?>
-                                <div style="color:#8a8a96;">Чек оплаты: не прикреплён</div>
-                            <?php endif; ?>
-                            <?php $eSrc = imgSrc($viewOrder['example_photo'] ?? '', '../uploads/orders/'); ?>
-                            <?php if ($eSrc !== ''): ?>
-                                <div style="max-width:320px;">Референс:<br><a href="<?= htmlspecialchars($eSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($eSrc) ?>" style="max-width:320px;border-radius:8px;" onerror="this.style.display='none'"></a></div>
-                            <?php else: ?>
-                                <div style="color:#8a8a96;">Референс: не прикреплён</div>
-                            <?php endif; ?>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-start;">
+                            <?php
+                                // Screenshot (single file)
+                                $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
+                            ?>
+                            <div style="min-width:200px;max-width:360px;">
+                                <div style="font-size:13px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
+                                <?php if ($screenshotSrc !== ''): ?>
+                                    <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:360px;border-radius:8px;display:block;margin-bottom:6px;" onerror="this.style.display='none'"></a>
+                                <?php else: ?>
+                                    <div style="color:#8a8a96;">Чек оплаты: не прикреплён</div>
+                                <?php endif; ?>
+                            </div>
+
+                            <div style="flex:1;min-width:220px;">
+                                <div style="font-size:13px;color:#8a8a96;margin-bottom:6px;">Референсы / Примеры</div>
+                                <?php
+                                    $examples = [];
+                                    $raw = $viewOrder['example_photo'] ?? '';
+                                    if ($raw !== '') {
+                                        $dec = json_decode($raw, true);
+                                        if (is_array($dec)) $examples = $dec;
+                                        else $examples = [$raw];
+                                    }
+                                ?>
+                                <?php if (!empty($examples)): ?>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                        <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
+                                            <?php if ($exSrc !== ''): ?>
+                                                <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank" style="display:block;"><img src="<?= htmlspecialchars($exSrc) ?>" style="max-width:160px;border-radius:8px;" onerror="this.style.display='none'"></a>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <div style="color:#8a8a96;">Референсы: не прикреплены</div>
+                                <?php endif; ?>
+                            </div>
+
+                            <div style="width:100%;margin-top:8px;">
+                                <?php $cleanTg = trim($viewOrder['telegram'] ?? ''); $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@'); ?>
+                                <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                    <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                    <button name="order_action" value="take_work" class="btn-panel" style="background:linear-gradient(135deg,#fb923c,#f97316);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;">🚀 Взять в работу</button>
+                                    <button name="order_action" value="urgent" class="btn-panel" style="background:#efb84a;padding:8px 12px;border-radius:8px;border:none;color:#000;font-weight:800;">⚡️ Срочный</button>
+                                    <button name="order_action" value="ready" class="btn-panel" style="background:#34d399;padding:8px 12px;border-radius:8px;border:none;color:#042;">✅ Готов</button>
+                                    <button name="order_action" value="decline" class="btn-panel" style="background:#fb7185;padding:8px 12px;border-radius:8px;border:none;color:#fff;" onclick="return confirm('Отклонить заказ? Вы уверены?');">❌ Отклонить</button>
+                                    <button name="order_action" value="ban" class="btn-panel" style="background:#7c3aed;padding:8px 12px;border-radius:8px;border:none;color:#fff;" onclick="return confirm('Добавить клиента в чёрный список? Это действие нельзя отменить. Продолжить?');">🚫 В чёрный список</button>
+                                    <?php if ($cleanTg !== ''): ?>
+                                        <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" class="btn-panel" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:#111827;color:#fff;text-decoration:none;">💬 Связаться</a>
+                                    <?php endif; ?>
+                                </form>
+                                <div style="margin-top:10px;">
+                                    <form method="POST">
+                                        <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                        <input type="hidden" name="order_action" value="message_client">
+                                        <textarea name="message_text" rows="3" placeholder="Написать сообщение клиенту (Telegram)" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2a38;background:#0b0b10;color:#fff;margin-bottom:6px;"></textarea>
+                                        <div><button type="submit" class="btn-panel" style="background:linear-gradient(135deg,#60a5fa,#3b82f6);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;">✉️ Отправить клиенту</button></div>
+                                    </form>
+                                </div>
+                            </div>
                         </div>
 
                         <h3 style="margin-top:6px;margin-bottom:8px;">💬 Переписка и обращения</h3>
