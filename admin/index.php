@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 ob_start();
 session_start();
 require_once 'auth.php';
@@ -1251,6 +1251,10 @@ function initAntiTheft() {
 document.addEventListener('DOMContentLoaded', () => {
     toggleAvatarField();
     activateAdminTab('overview');
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('order')) {
+        activateAdminTab('appeals');
+    }
     initFileInputs();
     initAntiTheft();
     document.querySelectorAll('.admin-tab').forEach(btn => {

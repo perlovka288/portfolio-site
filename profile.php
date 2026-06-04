@@ -58,7 +58,15 @@ if (isset($_POST['send_appeal'])) {
         $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
         if ($linkRow) {
             $appealTelegram = $linkRow['tg_id'] ?? '';
-            $appealUsername = !empty($linkRow['tg_first_name']) ? $linkRow['tg_first_name'] : ('@' . ltrim($linkRow['tg_username'] ?? 'user', '@'));
+            $tgFirstName  = trim((string)($linkRow['tg_first_name'] ?? ''));
+            $tgUsername   = trim((string)($linkRow['tg_username'] ?? ''));
+            if ($tgFirstName !== '' && $tgUsername !== '') {
+                $appealUsername = $tgFirstName . ' (@' . ltrim($tgUsername, '@') . ')';
+            } elseif ($tgFirstName !== '') {
+                $appealUsername = $tgFirstName;
+            } elseif ($tgUsername !== '') {
+                $appealUsername = '@' . ltrim($tgUsername, '@');
+            }
         }
         if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
             $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message) VALUES (?, ?, ?, ?, ?)")
@@ -68,10 +76,10 @@ $appealMsg = 'ok';
 // ── Уведомление админу о новом обращении ──────────────────
 $_tgToken  = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
 $_adminId  = getenv('ADMIN_ID') ?: '1710365896';
-$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php';
+$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php?order=' . $appealOrderId;
 $_tgText   = "📩 <b>Новое обращение!</b>\n\n"
-    . "👤 Клиент: <b>" . htmlspecialchars($appealUsername) . "</b>\n"
-    . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
+    . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
+    . "📋 Заказ: <b><a href=\"" . $_siteUrl . "\">#" . $appealOrderId . "</a></b>\n"
     . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
     . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
     . "🔗 <a href=\"" . $_siteUrl . "\">Открыть админ-панель → Обращения</a>";
