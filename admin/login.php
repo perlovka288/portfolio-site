@@ -1,6 +1,6 @@
 <?php
-require_once '../config/db.php';
 session_start();
+require_once '../config/db.php';
 
 const ADMIN_USERNAME = 'Kostlim';
 const ADMIN_EMAIL = 'jeffkostlim@gmail.com';
