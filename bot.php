@@ -980,24 +980,11 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "🔹 *Статус:* {$status_text}\n";
     $msg .= "⏱ *Осталось:* {$days_str}\n";
 
-    if (!empty($item['screenshot'])) {
-        if (str_starts_with($item['screenshot'], 'http://') || str_starts_with($item['screenshot'], 'https://')) {
-            $msg .= "📸 *Чек:* [Открыть файл]({$item['screenshot']})\n";
-        } else {
-            $msg .= "📸 *Чек:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['screenshot']) . ")\n";
-        }
+    // Photos (screenshot / example) are sent as media album separately
+    if (!empty($item['screenshot']) || !empty($item['example_photo'])) {
+        $msg .= "📸 *Файлы:* отправлены как альбом (фото ниже)\n";
     } else {
-        $msg .= "📸 *Чек:* _не прикреплён_\n";
-    }
-
-    if (!empty($item['example_photo'])) {
-        if (str_starts_with($item['example_photo'], 'http://') || str_starts_with($item['example_photo'], 'https://')) {
-            $msg .= "🖼 *Референс:* [Открыть файл]({$item['example_photo']})\n";
-        } else {
-            $msg .= "🖼 *Референс:* [Открыть файл]({$site_url}uploads/orders/" . rawurlencode($item['example_photo']) . ")\n";
-        }
-    } else {
-        $msg .= "🖼 *Референс:* _не прикреплён_\n";
+        $msg .= "📸 *Файлы:* _не прикреплены_\n";
     }
 
     return $msg;
@@ -1046,23 +1033,64 @@ function getOrderTelegram($pdo, $order_id) {
 }
 
 function sendOrderPhotos($token, $chat_id, $item) {
+    // collect available photos
+    $media = [];
     foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
         if (empty($item[$field])) continue;
         $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
         if (is_file($path)) {
-            sendTelegramFile($token, 'sendPhoto', [
-                'chat_id' => $chat_id,
-                'photo'   => new CURLFile($path),
+            $media[] = [
+                'type' => 'photo',
+                'media' => curl_file_create($path),
                 'caption' => "{$label} к заказу #{$item['id']}",
-            ]);
+            ];
         } elseif (str_starts_with($item[$field], 'http://') || str_starts_with($item[$field], 'https://')) {
-            // send by URL
-            sendTelegram($token, 'sendPhoto', [
-                'chat_id' => $chat_id,
-                'photo'   => $item[$field],
+            $media[] = [
+                'type' => 'photo',
+                'media' => $item[$field],
                 'caption' => "{$label} к заказу #{$item['id']}",
-            ]);
+            ];
         }
+    }
+
+    if (empty($media)) return;
+
+    $count = count($media);
+    // If only one media, send as single photo
+    if ($count === 1) {
+        $m = $media[0];
+        if ($m['media'] instanceof CURLFile) {
+            sendTelegramFile($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
+        } else {
+            sendTelegram($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
+        }
+        return;
+    }
+
+    // multiple media: media group (2..10)
+    // detect if any are local files
+    $useFiles = false;
+    foreach ($media as $m) {
+        if ($m['media'] instanceof CURLFile) { $useFiles = true; break; }
+    }
+
+    if ($useFiles) {
+        // When uploading local files, attach each as "photoN" and reference via "attach://photoN" in media array
+        $post = ['chat_id' => $chat_id];
+        $mediaPayload = [];
+        $i = 0;
+        foreach ($media as $m) {
+            $i++;
+            $attachKey = "photo{$i}";
+            $post[$attachKey] = $m['media'];
+            $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
+        }
+        $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+        sendTelegramFile($token, 'sendMediaGroup', $post);
+    } else {
+        // All media are URLs — send via sendMediaGroup with JSON payload
+        $mediaPayload = array_map(fn($m) => ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']], $media);
+        sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
     }
 }
 
