@@ -62,8 +62,30 @@ if (isset($_POST['send_appeal'])) {
         }
         if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
             $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message) VALUES (?, ?, ?, ?, ?)")
-                ->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
-            $appealMsg = 'ok';
+    ->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
+$appealMsg = 'ok';
+
+// ── Уведомление админу о новом обращении ──────────────────
+$_tgToken  = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+$_adminId  = getenv('ADMIN_ID') ?: '1710365896';
+$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php';
+$_tgText   = "📩 <b>Новое обращение!</b>\n\n"
+    . "👤 Клиент: <b>" . htmlspecialchars($appealUsername) . "</b>\n"
+    . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
+    . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
+    . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
+    . "🔗 <a href=\"" . $_siteUrl . "\">Открыть админ-панель → Обращения</a>";
+$_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
+curl_setopt_array($_ch, [
+    CURLOPT_POST           => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 8,
+    CURLOPT_POSTFIELDS     => ['chat_id' => $_adminId, 'text' => $_tgText, 'parse_mode' => 'HTML'],
+]);
+curl_exec($_ch);
+curl_close($_ch);
+unset($_ch, $_tgToken, $_adminId, $_siteUrl, $_tgText);
+// ──────────────────────────────────────────────────────────
         } else {
             $appealMsg = 'err';
         }

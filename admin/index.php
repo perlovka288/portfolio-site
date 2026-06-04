@@ -97,6 +97,33 @@ function sendTelegramRequest(string $method, array $params, array $files = []): 
     return $data;
 }
 
+// ── Уведомление админу о новом обращении ────────────────────────
+function notifyAdminNewAppeal(array $ap): void
+{
+    if (TELEGRAM_BOT_TOKEN === '' || ADMIN_TELEGRAM_ID === '') return;
+    $adminUrl = PUBLIC_SITE_URL . 'admin/index.php';
+    $text = "📩 <b>Новое обращение!</b>\n\n"
+        . "👤 Клиент: <b>" . htmlspecialchars($ap['username'] ?? '') . "</b>\n"
+        . "📋 Заказ: <b>#" . (int)($ap['order_id'] ?? 0) . "</b>\n"
+        . "📌 Тема: <b>" . htmlspecialchars($ap['subject'] ?? '') . "</b>\n\n"
+        . "💬 <i>" . htmlspecialchars(mb_substr($ap['message'] ?? '', 0, 300)) . (mb_strlen($ap['message'] ?? '') > 300 ? '...' : '') . "</i>\n\n"
+        . "🔗 <a href=\"" . $adminUrl . "\">Открыть админ-панель</a>";
+
+    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+    curl_setopt_array($ch, [
+        CURLOPT_POST          => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT       => 10,
+        CURLOPT_POSTFIELDS    => [
+            'chat_id'    => ADMIN_TELEGRAM_ID,
+            'text'       => $text,
+            'parse_mode' => 'HTML',
+        ],
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
 function defaultPortfolioCategories(): array
 {
     return [
