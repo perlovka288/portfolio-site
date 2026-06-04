@@ -91,12 +91,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Сохраняем в БД ─────────────────────────────────────────────
     try {
-        $stmt = $pdo->prepare("
-            INSERT INTO portfolio (title, price_rub, price_uah, category, image_url, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
+        $stmt = $pdo->prepare("\
+            INSERT INTO portfolio (title, price_rub, price_uah, category, image_url, created_at)\
+            VALUES (?, ?, ?, ?, ?, NOW()) RETURNING id\
         ");
         $stmt->execute([$title, $price_rub, $price_uah, $category, $image_url]);
-        $portfolio_id = $pdo->lastInsertId();
+        $portfolio_row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $portfolio_id = (int)($portfolio_row['id'] ?? 0);
 
         // ── Публикуем в Telegram-канал ─────────────────────────────
         $channel_result = postToChannel($bot_token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url);

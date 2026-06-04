@@ -716,10 +716,32 @@ $activeValue = $pdo->query("
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress')
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
-$recentOrders = $pdo->query("
-    SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,p.title,p.price_rub,p.price_uan
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key ORDER BY o.id DESC LIMIT 8
-")->fetchAll(PDO::FETCH_ASSOC);
+$ordersPerPage = 15;
+$orders_page = max(1, (int)($_GET['orders_page'] ?? 1));
+$orders_status = trim((string)($_GET['orders_status'] ?? ''));
+
+$where = '';
+$params = [];
+if ($orders_status !== '') {
+    $where = "WHERE o.status = ?";
+    $params[] = $orders_status;
+}
+
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders o " . $where);
+$countStmt->execute($params);
+$ordersTotal = (int)$countStmt->fetchColumn();
+$ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
+
+$offset = ($orders_page - 1) * $ordersPerPage;
+$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,o.price_rub,o.price_uan,p.title,p.price_rub AS price_rub_from_price,p.price_uan AS price_uan_from_price
+    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ? $where : '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
+$stmt = $pdo->prepare($sql);
+// bind params
+$execParams = $params;
+$execParams[] = $ordersPerPage;
+$execParams[] = $offset;
+$stmt->execute($execParams);
+$recentOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $categoryLabels = [];
 foreach ($categories as $category) {
@@ -1028,7 +1050,20 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                     <!-- Последние заказы -->
                     <section class="panel" data-panel="orders">
-                        <h2>🧾 Последние заказы</h2>
+                        <h2>🧾 Заказы</h2>
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                            <form method="GET" style="display:flex;gap:8px;align-items:center;">
+                                <input type="hidden" name="view_order" value="">
+                                <label style="color:#8a8a96;font-size:13px;">Статус:</label>
+                                <select name="orders_status" onchange="this.form.submit()">
+                                    <option value="">Все</option>
+                                    <?php foreach ($statusLabels as $sk => $sv): ?>
+                                        <option value="<?= htmlspecialchars($sk) ?>" <?= $orders_status === $sk ? 'selected' : '' ?>><?= htmlspecialchars($sv) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </form>
+                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего заказов: <strong><?= $ordersTotal ?></strong></div>
+                        </div>
                         <div class="admin-table-wrap">
                             <table style="min-width:520px;">
                                 <thead><tr><th>ID</th><th>Клиент</th><th>Статус</th><th>Сумма</th><th>Действие</th></tr></thead>
@@ -1045,6 +1080,13 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 </tbody>
                             </table>
                         </div>
+                        <?php if ($ordersTotalPages > 1): ?>
+                            <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
+                                <?php for ($p = 1; $p <= $ordersTotalPages; $p++): ?>
+                                    <a href="<?= $_SERVER['PHP_SELF'] . '?orders_page=' . $p . ($orders_status !== '' ? '&orders_status=' . urlencode($orders_status) : '') ?>" class="btn-panel" style="width:auto;padding:8px 12px;<?= $p === $orders_page ? 'opacity:1;box-shadow:0 6px 16px rgba(249,115,22,.22);' : 'opacity:0.7;' ?>"><?= $p ?></a>
+                                <?php endfor; ?>
+                            </div>
+                        <?php endif; ?>
                     </section>
 
                     <!-- Добавить услугу в прайс -->
@@ -1408,9 +1450,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     if (params.has('view_order')) {
         activateAdminTab('orders');
-        // show order-detail panel if present
+        // show order-detail panel wrapper and inner panel if present
         setTimeout(() => {
+            const wrapper = document.getElementById('order-detail-panel');
             const det = document.querySelector('.panel[data-panel="order-detail"]');
+            if (wrapper) wrapper.style.display = 'block';
             if (det) {
                 document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
                 det.classList.remove('tab-hidden');
