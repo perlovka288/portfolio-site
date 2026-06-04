@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 require_once __DIR__ . '/config/db.php';
 
@@ -1033,18 +1033,21 @@ function getOrderTelegram($pdo, $order_id) {
 }
 
 function sendOrderPhotos($token, $chat_id, $item) {
+    botLog("sendOrderPhotos: order={$item['id']} start");
     // collect available photos
     $media = [];
     foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
         if (empty($item[$field])) continue;
         $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
         if (is_file($path)) {
+            botLog("sendOrderPhotos: found local file {$path}");
             $media[] = [
                 'type' => 'photo',
                 'media' => curl_file_create($path),
                 'caption' => "{$label} к заказу #{$item['id']}",
             ];
         } elseif (str_starts_with($item[$field], 'http://') || str_starts_with($item[$field], 'https://')) {
+            botLog("sendOrderPhotos: found remote URL {$item[$field]}");
             $media[] = [
                 'type' => 'photo',
                 'media' => $item[$field],
@@ -1059,11 +1062,13 @@ function sendOrderPhotos($token, $chat_id, $item) {
     // If only one media, send as single photo
     if ($count === 1) {
         $m = $media[0];
+        botLog("sendOrderPhotos: sending single photo, caption={$m['caption']}");
         if ($m['media'] instanceof CURLFile) {
-            sendTelegramFile($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
+            $res = sendTelegramFile($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
         } else {
-            sendTelegram($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
+            $res = sendTelegram($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
         }
+        botLog("sendOrderPhotos: single send result=" . substr((string)$res, 0, 200));
         return;
     }
 
@@ -1086,11 +1091,13 @@ function sendOrderPhotos($token, $chat_id, $item) {
             $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
         }
         $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
-        sendTelegramFile($token, 'sendMediaGroup', $post);
+        $res = sendTelegramFile($token, 'sendMediaGroup', $post);
+        botLog("sendOrderPhotos: sendMediaGroup result=" . substr((string)$res, 0, 200));
     } else {
         // All media are URLs — send via sendMediaGroup with JSON payload
         $mediaPayload = array_map(fn($m) => ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']], $media);
-        sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
+        $res = sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
+        botLog("sendOrderPhotos: sendMediaGroup (urls) result=" . substr((string)$res, 0, 200));
     }
 }
 

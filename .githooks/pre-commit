@@ -1,0 +1,24 @@
+#!/bin/sh
+# Git pre-commit hook: strip BOMs from staged PHP files
+# To enable: git config core.hooksPath .githooks
+
+echo "Running BOM strip on staged PHP files..."
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\.(php|phtml|inc)$" || true)
+if [ -z "$files" ]; then
+  echo "No PHP files staged."
+  exit 0
+fi
+
+for f in $files; do
+  # remove BOM and leading whitespace
+  if [ -f "$f" ]; then
+    # use perl to remove BOM
+    perl -0777 -pe 's/^\xEF\xBB\xBF//' -i "$f"
+    perl -0777 -pe 's/^\s*(<\?php)/$1/' -i "$f"
+    git add "$f"
+    echo "Stripped BOM/whitespace: $f"
+  fi
+done
+
+echo "Pre-commit BOM strip completed."
+exit 0
