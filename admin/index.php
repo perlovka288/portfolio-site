@@ -989,11 +989,16 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; pointer-events: none; user-select: none; -webkit-user-drag: none; }
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
-.status.pending { background: rgba(249,115,22,.18); color: #fb923c; }
-.status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
-.status.urgent { background: rgba(234,88,12,.18); color: #fb923c; }
-.status.ready { background: rgba(34,197,94,.16); color: #86efac; }
-.status.declined { background: rgba(239,68,68,.15); color: #fca5a5; }
+        .status.pending { background: rgba(249,115,22,.18); color: #fb923c; }
+        .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
+        .status.urgent { background: rgba(234,88,12,.18); color: #fb923c; }
+        .status.ready { background: rgba(34,197,94,.16); color: #86efac; }
+        .status.declined { background: rgba(239,68,68,.15); color: #fca5a5; }
+        tr.order-row.status-ready td { background: rgba(34,197,94,.08); }
+        tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
+        tr.order-row.status-urgent td { background: rgba(234,88,12,.08); }
+        tr.order-row.status-declined td { background: rgba(239,68,68,.06); }
+        tr.order-row.status-pending td { background: rgba(249,115,22,.04); }
         .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
         .delete-link:hover { background: rgba(255,107,118,.12); border-color: #ff6b76; }
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
@@ -1178,7 +1183,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <thead><tr><th>ID</th><th>Клиент</th><th>Статус</th><th>Сумма</th><th>Действие</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($recentOrders as $order): ?>
-                                        <tr>
+                                        <tr class="order-row status-<?= htmlspecialchars($order['status']) ?>">
                                             <td>#<?= (int)$order['id'] ?></td>
                                             <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
                                             <td><span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
