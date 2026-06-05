@@ -10,7 +10,7 @@ try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
 } catch (PDOException $e) {
-    // ignore; column may already exist or database user may not have alter privileges
+    // ignore
 }
 
 $message = '';
@@ -22,7 +22,59 @@ define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
 define('ADMIN_TELEGRAM_ID', '1710365896');
 $telegramLastError = '';
 
+// ══════════════════════════════════════════════════════════════════
+// DonationAlerts — заглушки (если нет отдельного файла da.php)
+// ══════════════════════════════════════════════════════════════════
+if (!function_exists('daEnsureAccessToken')) {
+    function daEnsureAccessToken(PDO $pdo): ?string { return null; }
+}
+if (!function_exists('daGetAuthorizeUrl')) {
+    function daGetAuthorizeUrl(): string { return '#'; }
+}
+if (!function_exists('daGetDonations')) {
+    function daGetDonations(PDO $pdo, int $limit = 200): array { return []; }
+}
+if (!function_exists('daGetCurrentMonthDonationTotalUsd')) {
+    function daGetCurrentMonthDonationTotalUsd(array $donations): float { return 0.0; }
+}
+if (!function_exists('daGetCurrentMonthPayoutStats')) {
+    function daGetCurrentMonthPayoutStats(PDO $pdo): array {
+        return ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+    }
+}
+
 ensureDefaultPortfolioCategories($pdo);
+
+// ──────────────────────────────────────────────────────────────────
+// Вспомогательная функция: дедлайн заказа
+// ──────────────────────────────────────────────────────────────────
+function calcDeadline(string $created_at, bool $isUrgent = false): ?\DateTime
+{
+    try {
+        $dt = new \DateTime($created_at);
+        $dt->modify($isUrgent ? '+1 day' : '+5 days');
+        return $dt;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+function deadlineBadge(string $created_at, bool $isUrgent = false): string
+{
+    $dl = calcDeadline($created_at, $isUrgent);
+    if (!$dl) return '';
+    $now = new \DateTime();
+    $diff = $now->diff($dl);
+    $overdue = $dl < $now;
+    $dateStr = $dl->format('d.m.Y H:i');
+    $color = $overdue ? '#ef4444' : ($isUrgent ? '#f97316' : '#60a5fa');
+    $bg    = $overdue ? 'rgba(239,68,68,.18)' : ($isUrgent ? 'rgba(249,115,22,.18)' : 'rgba(96,165,250,.12)');
+    $icon  = $overdue ? '🔴' : ($isUrgent ? '⚡' : '📅');
+    $label = $overdue
+        ? "ПРОСРОЧЕН ({$dateStr})"
+        : ($isUrgent ? "Срочно: {$dateStr}" : "Сдать: {$dateStr}");
+    return "<span style=\"display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;background:{$bg};color:{$color};border:1px solid {$color}33;\">{$icon} {$label}</span>";
+}
 
 // ── AJAX endpoint: добавить портфолио ────────────────────────────
 if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
@@ -77,68 +129,121 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     exit;
 }
 
-// ── Админские POST действия над заказом (взять/срочный/готов/откл/бан/написать клиенту)
+// ── Уведомление клиенту о смене статуса ──────────────────────────
+function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): void
+{
+    $stmt = $pdo->prepare("SELECT client_chat_id, telegram, username FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return;
+
+    $chatId = trim((string)($row['client_chat_id'] ?? ''));
+    if ($chatId === '') {
+        $tg = trim((string)($row['telegram'] ?? ''));
+        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
+        $chatId = $tg;
+    }
+    if ($chatId === '') return;
+
+    $statusMessages = [
+        'in_progress' => "🎨 Ваш заказ #<b>{$orderId}</b> взят в работу! Дизайнер уже начал выполнение.",
+        'urgent'      => "⚡ Ваш заказ #<b>{$orderId}</b> помечен как срочный — срок сдачи 24 часа.",
+        'ready'       => "🎉 Ваш заказ #<b>{$orderId}</b> готов! Дизайнер свяжется для передачи файлов.",
+        'declined'    => "❌ К сожалению, ваш заказ #<b>{$orderId}</b> был отклонён. Для уточнений напишите дизайнеру.",
+    ];
+
+    $text = $statusMessages[$newStatus] ?? null;
+    if (!$text) return;
+
+    $profileUrl = PUBLIC_SITE_URL . 'includes/profile.php?order=' . $orderId;
+    $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
+
+    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+// ── Установить дедлайн при взятии в работу ───────────────────────
+function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
+{
+    $interval = $isUrgent ? '+1 day' : '+5 days';
+    $deadline = (new \DateTime())->modify($interval)->format('Y-m-d H:i:s');
+    try {
+        $pdo->prepare("UPDATE orders SET deadline = ? WHERE id = ?")->execute([$deadline, $orderId]);
+    } catch (\Throwable $e) {}
+}
+
+// ── Админские POST действия над заказом ──────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
     $orderId = (int)($_POST['order_id'] ?? 0);
     $action  = trim($_POST['order_action']);
 
     if ($orderId > 0) {
         try {
+            $msgAdmin = '';
             if ($action === 'take_work') {
                 $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$orderId]);
+                setOrderDeadline($pdo, $orderId, false);
+                notifyClientOrderStatus($pdo, $orderId, 'in_progress');
                 $msgAdmin = "🚀 Заказ #{$orderId} взят в работу.";
-                // log action (if table exists)
             } elseif ($action === 'urgent') {
                 $pdo->prepare("UPDATE orders SET status = 'urgent' WHERE id = ?")->execute([$orderId]);
+                setOrderDeadline($pdo, $orderId, true);
+                notifyClientOrderStatus($pdo, $orderId, 'urgent');
                 $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
-                // log action (if table exists)
             } elseif ($action === 'ready') {
                 $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$orderId]);
+                notifyClientOrderStatus($pdo, $orderId, 'ready');
                 $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
-                // log action (if table exists)
             } elseif ($action === 'decline') {
                 $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$orderId]);
+                notifyClientOrderStatus($pdo, $orderId, 'declined');
                 $msgAdmin = "❌ Заказ #{$orderId} отклонён.";
-                // log action (if table exists)
             } elseif ($action === 'ban') {
-                // Добавляем в blacklist по telegram из заказа
-                $tg = '';
-                $r = $pdo->prepare("SELECT telegram, client_ip FROM orders WHERE id = ? LIMIT 1"); $r->execute([$orderId]); $ord = $r->fetch(PDO::FETCH_ASSOC) ?: [];
-                $tg = $ord['telegram'] ?? '';
-                $ip = $ord['client_ip'] ?? null;
+                $r = $pdo->prepare("SELECT telegram, client_ip FROM orders WHERE id = ? LIMIT 1");
+                $r->execute([$orderId]);
+                $ord = $r->fetch(PDO::FETCH_ASSOC) ?: [];
+                $tg  = $ord['telegram'] ?? '';
+                $ip  = $ord['client_ip'] ?? null;
                 if ($tg !== '') {
                     $ins = $pdo->prepare("INSERT INTO blacklist (telegram, ip, reason, created_at) VALUES (?, ?, ?, NOW())");
                     $ins->execute([$tg, $ip, 'admin_ban']);
                 }
                 $msgAdmin = "🚫 Клиент заказа #{$orderId} добавлен в чёрный список.";
-                // log action (if table exists)
             } elseif ($action === 'message_client') {
                 $text = trim($_POST['message_text'] ?? '');
-                // Отправлять через Telegram, если client_chat_id есть
-                $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1"); $stmt->execute([$orderId]);
-                $chat = $stmt->fetchColumn();
+                $stmt = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
+                $stmt->execute([$orderId]);
+                $row  = $stmt->fetch(PDO::FETCH_ASSOC);
+                $chat = trim((string)($row['client_chat_id'] ?? ''));
+                if ($chat === '') {
+                    $tg = trim((string)($row['telegram'] ?? ''));
+                    $chat = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
+                }
                 if (!empty($chat) && $text !== '') {
-                    // используем sendTelegramRequest, определённую в этом файле
-                    sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'Markdown']);
+                    sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
                     $msgAdmin = "✉️ Сообщение отправлено клиенту (chat_id: {$chat}).";
-                    // log action (if table exists)
                 } else {
                     $msgAdmin = "⚠️ Невозможно отправить: нет привязанного чат_id или пустой текст.";
                 }
             }
 
             if (!empty($msgAdmin)) {
-                // уведомим администратора в Telegram о действии
                 if (defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
                     sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $msgAdmin, 'parse_mode' => 'Markdown']);
                 }
             }
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $message = 'Ошибка выполнения действия: ' . $e->getMessage();
         }
     }
 
-    // После обработки — перенаправляем чтобы избежать повторного submit
     header('Location: ' . $_SERVER['REQUEST_URI']); exit;
 }
 
@@ -172,7 +277,6 @@ function sendTelegramRequest(string $method, array $params, array $files = []): 
     return $data;
 }
 
-// ── Уведомление админу о новом обращении ────────────────────────
 function notifyAdminNewAppeal(array $ap): void
 {
     if (TELEGRAM_BOT_TOKEN === '' || ADMIN_TELEGRAM_ID === '') return;
@@ -185,18 +289,9 @@ function notifyAdminNewAppeal(array $ap): void
         . "🔗 <a href=\"" . $adminUrl . "\">Открыть админ-панель</a>";
 
     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-    curl_setopt_array($ch, [
-        CURLOPT_POST          => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT       => 10,
-        CURLOPT_POSTFIELDS    => [
-            'chat_id'    => ADMIN_TELEGRAM_ID,
-            'text'       => $text,
-            'parse_mode' => 'HTML',
-        ],
-    ]);
-    curl_exec($ch);
-    curl_close($ch);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+        CURLOPT_POSTFIELDS => ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $text, 'parse_mode' => 'HTML']]);
+    curl_exec($ch); curl_close($ch);
 }
 
 function defaultPortfolioCategories(): array
@@ -216,16 +311,10 @@ function ensureDefaultPortfolioCategories(PDO $pdo): void
         INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT (category_key) DO UPDATE SET
-            title = EXCLUDED.title,
-            width_px = EXCLUDED.width_px,
-            height_px = EXCLUDED.height_px,
-            is_design = EXCLUDED.is_design,
-            sort_order = EXCLUDED.sort_order
+            title = EXCLUDED.title, width_px = EXCLUDED.width_px, height_px = EXCLUDED.height_px,
+            is_design = EXCLUDED.is_design, sort_order = EXCLUDED.sort_order
     ");
-
-    foreach (defaultPortfolioCategories() as $category) {
-        $stmt->execute($category);
-    }
+    foreach (defaultPortfolioCategories() as $category) { $stmt->execute($category); }
 }
 
 function imageFromFile(string $path)
@@ -244,48 +333,19 @@ function imageFromFile(string $path)
 function gdFontPath(bool $regular = false): string
 {
     $paths = $regular
-        ? [
-            __DIR__ . '/../assets/fonts/GoogleSans-Regular.ttf',
-            __DIR__ . '/../assets/fonts/GoogleSansText-Regular.ttf',
-            __DIR__ . '/../assets/fonts/ProductSans-Regular.ttf',
-            __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
-            __DIR__ . '/../assets/fonts/Vera.ttf',
-            'C:/Windows/Fonts/arial.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        ]
-        : [
-            __DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf',
-            __DIR__ . '/../assets/fonts/GoogleSansText-Bold.ttf',
-            __DIR__ . '/../assets/fonts/ProductSans-Bold.ttf',
-            __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
-            __DIR__ . '/../assets/fonts/VeraBd.ttf',
-            'C:/Windows/Fonts/arialbd.ttf',
-            'C:/Windows/Fonts/arial.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ];
-    foreach ($paths as $path) {
-        if (is_file($path)) return $path;
-    }
+        ? [__DIR__ . '/../assets/fonts/GoogleSans-Regular.ttf', __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
+           '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+        : [__DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf', __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
+           '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'];
+    foreach ($paths as $path) { if (is_file($path)) return $path; }
     return '';
 }
 
 function channelTemplatePath(): string
 {
-    $paths = [
-        __DIR__ . '/../uploads/channel_template.png',
-        __DIR__ . '/../uploads/channel-template.png',
-        __DIR__ . '/../uploads/cover_template.png',
-        __DIR__ . '/../uploads/cover-template.png',
-        __DIR__ . '/channel_template.png',
-        __DIR__ . '/channel-template.png',
-        __DIR__ . '/../assets/channel_template.png',
-        __DIR__ . '/../assets/channel-template.png',
-    ];
-    foreach ($paths as $path) {
-        if (is_file($path)) return $path;
-    }
+    $paths = [__DIR__ . '/../uploads/channel_template.png', __DIR__ . '/../uploads/channel-template.png',
+              __DIR__ . '/../assets/channel_template.png'];
+    foreach ($paths as $path) { if (is_file($path)) return $path; }
     return '';
 }
 
@@ -403,8 +463,8 @@ function drawCircularImage($dst, $src, int $x, int $y, int $size): void
     $radius = $size / 2;
     for ($py = 0; $py < $size; $py++) {
         for ($px = 0; $px < $size; $px++) {
-            $dx = $px - $radius; $dy = $py - $radius;
-            if (($dx * $dx + $dy * $dy) <= ($radius * $radius)) imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
+            $ddx = $px - $radius; $ddy = $py - $radius;
+            if (($ddx * $ddx + $ddy * $ddy) <= ($radius * $radius)) imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
         }
     }
     imagedestroy($avatar);
@@ -508,12 +568,18 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
     $category = [];
     try {
         $catKey = (string)($case['category_key'] ?? '');
-        if ($catKey !== '') { $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1'); $stmt->execute([$catKey]); $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: []; }
-    } catch (Throwable $e) {}
+        if ($catKey !== '') {
+            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
+            $stmt->execute([$catKey]); $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+    } catch (\Throwable $e) {}
     $avatarVal = (string)($case['avatar_image'] ?? '');
     try {
-        if ($avatarVal === '' && empty($category['is_design'])) { $stmt = $pdo->query('SELECT avatar FROM users LIMIT 1'); $avatarVal = (string)($stmt->fetchColumn() ?: ''); }
-    } catch (Throwable $e) {}
+        if ($avatarVal === '' && empty($category['is_design'])) {
+            $stmt = $pdo->query('SELECT avatar FROM users LIMIT 1');
+            $avatarVal = (string)($stmt->fetchColumn() ?: '');
+        }
+    } catch (\Throwable $e) {}
     if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) { $avatarPath = downloadToTemp($avatarVal); $avatarDownloaded = true; }
     else { $avatarPath = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : ''; $avatarDownloaded = false; }
     $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
@@ -533,14 +599,13 @@ function uploadToImgBB(string $tmpPath, string $name = 'image'): string
     $b64 = base64_encode(file_get_contents($tmpPath));
     foreach ($keys as $index => $apiKey) {
         $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+            CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
         $res = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($res === false || $res === '') { error_log("ImgBB key#".($index+1)." curl error: $cerr"); continue; }
+        if ($res === false || $res === '') { continue; }
         $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
-        if ($url !== '') { error_log("ImgBB key#".($index+1)." OK => $url"); return $url; }
-        error_log("ImgBB key#".($index+1)." failed: " . ($data['error']['message'] ?? ''));
+        if ($url !== '') { return $url; }
     }
-    error_log("ImgBB: all keys failed for $name");
     return '';
 }
 
@@ -550,21 +615,19 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
     if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return '';
     if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) { $message = '❌ Файл слишком большой.'; return ''; }
-    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) { error_log("UPLOAD[$field]: err=$err"); return ''; }
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) return '';
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
     $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) { error_log("UPLOAD[$field]: bad ext=$ext"); return ''; }
+    if (!in_array($ext, $allowed, true)) return '';
     $tmp = $_FILES[$field]['tmp_name'];
     $url = uploadToImgBB($tmp, $prefix . '_' . time());
-    if ($url !== '') { error_log("UPLOAD[$field]: imgbb OK => $url"); return $url; }
-    error_log("UPLOAD[$field]: imgbb failed, falling back to local");
+    if ($url !== '') return $url;
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
         $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) { error_log("UPLOAD[$field]: local fallback OK => $filename"); return $filename; }
+        if (move_uploaded_file($tmp, $dest)) return $filename;
     }
-    error_log("UPLOAD[$field]: both methods failed");
     $message = '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY.';
     return '';
 }
@@ -573,7 +636,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
 {
     if (empty($_FILES[$field]['name'][$id]) || empty($_FILES[$field]['tmp_name'][$id])) return '';
     $err = $_FILES[$field]['error'][$id] ?? UPLOAD_ERR_NO_FILE;
-    if ($err !== UPLOAD_ERR_OK) { error_log("UPLOAD_NESTED[$field][$id]: err=$err"); return ''; }
+    if ($err !== UPLOAD_ERR_OK) return '';
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
     $ext = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) return '';
@@ -609,7 +672,7 @@ if (isset($_POST['upload_site_avatar'])) {
     }
 }
 
-// ===================== PORTFOLIO (обычная форма, не AJAX) =====================
+// ===================== PORTFOLIO =====================
 if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     $title        = trim($_POST['title'] ?? '');
     $category_key = $_POST['category_key'] ?? 'preview';
@@ -627,9 +690,7 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
         if ($publish_tg) {
             $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, ['title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan, 'image' => $filename_main, 'avatar_image' => $filename_avatar]);
         }
-        $message = '✅ Портфолио сохранено!';
-        if ($publish_tg) { $message .= $postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки.'); }
-        else { $message .= ' Без публикации в Telegram.'; }
+        $message = '✅ Портфолио сохранено!' . ($publish_tg ? ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram: ' . ($telegramLastError ?: 'проверь настройки.')) : ' Без публикации в Telegram.');
     }
 }
 
@@ -638,31 +699,25 @@ if (isset($_POST['reply_appeal'])) {
     $appealId = (int)($_POST['appeal_id'] ?? 0);
     $reply    = trim($_POST['reply_text'] ?? '');
     if ($appealId > 0 && $reply !== '') {
-        // Сохраняем сообщение в потоке
         try {
             $mstmt = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
             $mstmt->execute([$appealId, $reply]);
             $pdo->prepare("UPDATE appeals SET status = 'answered', replied_at = NOW() WHERE id = ?")->execute([$appealId]);
-        } catch (Throwable $e) { /* ignore */ }
+        } catch (\Throwable $e) {}
 
-        $ap = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(a.telegram, ''), NULLIF(o.telegram, ''), '') AS client_telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
+        $ap = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(a.telegram,''), NULLIF(o.telegram,''), '') AS client_telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
         $ap->execute([$appealId]);
         $ap = $ap->fetch(PDO::FETCH_ASSOC);
 
         if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
             $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
-            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n" .
-                    "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n" .
-                    "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
+            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
+                  . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
+                  . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
             $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-            curl_setopt_array($ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 10,
-                CURLOPT_POSTFIELDS     => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML'],
-            ]);
-            curl_exec($ch);
-            curl_close($ch);
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                CURLOPT_POSTFIELDS => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML']]);
+            curl_exec($ch); curl_close($ch);
         }
         $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
     }
@@ -700,7 +755,7 @@ if (isset($_POST['update_portfolio_media'])) {
 // ===================== PRICES =====================
 if (isset($_POST['save_all_prices'])) {
     foreach (($_POST['prices'] ?? []) as $id => $data) {
-        $id       = (int)$id;
+        $id = (int)$id;
         $newImage = uploadNestedImage('price_images', $id, 'price', $uploadDir);
         if ($newImage !== '') {
             $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=? WHERE id=?");
@@ -726,10 +781,8 @@ if (isset($_POST['add_price_service'])) {
     if ($title === '') { $message = '❌ Укажи название услуги.'; }
     else {
         $stmt = $pdo->prepare("INSERT INTO prices (category_key,title,description,price_rub,price_uan,features,image) VALUES (?,?,?,?,?,?,?)");
-        try {
-            $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]);
-            $message = '✅ Новая услуга добавлена в прайс.';
-        } catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
+        try { $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]); $message = '✅ Новая услуга добавлена в прайс.'; }
+        catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
     }
 }
 
@@ -779,10 +832,10 @@ $orderStats = $pdo->query("
     FROM orders
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
-$daAccessToken = daEnsureAccessToken($pdo);
-$daConnected = $daAccessToken !== null;
+$daAccessToken  = daEnsureAccessToken($pdo);
+$daConnected    = $daAccessToken !== null;
 $daDonationTotalUsd = 0.0;
-$daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+$daPayoutStats  = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
 if ($daConnected) {
     $daDonations = daGetDonations($pdo, 200);
     $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
@@ -801,32 +854,27 @@ $activeValue = $pdo->query("
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress','urgent')
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
-$ordersPerPage = 15;
-$orders_page = max(1, (int)($_GET['orders_page'] ?? 1));
-$orders_status = trim((string)($_GET['orders_status'] ?? ''));
+$ordersPerPage  = 15;
+$orders_page    = max(1, (int)($_GET['orders_page'] ?? 1));
+$orders_status  = trim((string)($_GET['orders_status'] ?? ''));
 
-$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at, cooperation FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at, cooperation, deadline FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
-$where = '';
-$params = [];
-if ($orders_status !== '') {
-    $where = "WHERE o.status = ?";
-    $params[] = $orders_status;
-}
+$where = ''; $params = [];
+if ($orders_status !== '') { $where = "WHERE o.status = ?"; $params[] = $orders_status; }
 
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders o " . $where);
 $countStmt->execute($params);
-$ordersTotal = (int)$countStmt->fetchColumn();
+$ordersTotal      = (int)$countStmt->fetchColumn();
 $ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
 
 $offset = ($orders_page - 1) * $ordersPerPage;
-$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,o.cooperation,
+$sql = "SELECT o.id, o.username, o.telegram, o.service_key, o.status, o.created_at, o.cooperation, o.deadline,
     CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END AS price_rub,
     CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END AS price_uan,
     p.title, p.price_rub AS price_rub_from_price, p.price_uan AS price_uan_from_price
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ? $where : '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
+    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ?: '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
 $stmt = $pdo->prepare($sql);
-// bind params
 $execParams = $params;
 $execParams[] = $ordersPerPage;
 $execParams[] = $offset;
@@ -840,27 +888,25 @@ foreach ($categories as $category) {
 }
 
 $statusLabels = [
-    'pending' => 'Новый',
+    'pending'     => 'Новый',
     'in_progress' => 'В процессе',
-    'urgent' => 'Срочный',
-    'ready' => 'Готов',
-    'declined' => 'Отклонён',
+    'urgent'      => 'Срочный',
+    'ready'       => 'Готов',
+    'declined'    => 'Отклонён',
 ];
 
-// ── Загрузка обращений ──────────────────────────────────────────
 $appeals = [];
 $openAppealsCount = 0;
 try {
     $appeals = $pdo->query("
         SELECT a.id, a.order_id, a.username, a.subject, a.message, a.reply, a.status, a.created_at, a.replied_at, a.telegram
-        FROM appeals a
-        ORDER BY a.status ASC, a.id DESC
+        FROM appeals a ORDER BY a.status ASC, a.id DESC
     ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $openAppealsCount = count(array_filter($appeals, fn($a) => $a['status'] === 'open'));
-} catch (Throwable $e) { /* таблица ещё не создана */ }
+} catch (\Throwable $e) {}
 
-// ── Просмотр заказа в админке (детальная форма) ─────────────────
-$viewOrder = null;
+$viewOrder    = null;
+$orderAppeals = [];
 if (isset($_GET['view_order'])) {
     $vid = (int)$_GET['view_order'];
     if ($vid > 0) {
@@ -872,30 +918,23 @@ if (isset($_GET['view_order'])) {
                 $ast = $pdo->prepare("SELECT * FROM appeals WHERE order_id = ? ORDER BY id ASC");
                 $ast->execute([$vid]);
                 $orderAppeals = $ast->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            } catch (Throwable $e) { $orderAppeals = []; }
-        } else {
-            $orderAppeals = [];
+            } catch (\Throwable $e) {}
         }
     }
 }
 
-// ── Отправить сообщение клиенту по заказу из админки ────────────
 if (isset($_POST['send_order_message'])) {
-    $oid     = (int)($_POST['order_id'] ?? 0);
-    $subj    = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
-    $body    = trim($_POST['msg_text'] ?? '');
+    $oid  = (int)($_POST['order_id'] ?? 0);
+    $subj = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
+    $body = trim($_POST['msg_text'] ?? '');
     if ($oid > 0 && $body !== '') {
-        // получаем данные заказа
         $ost = $pdo->prepare("SELECT id, username, telegram, client_chat_id FROM orders WHERE id = ? LIMIT 1");
         $ost->execute([$oid]);
         $orow = $ost->fetch(PDO::FETCH_ASSOC);
-
         $sendTo = '';
         if ($orow) {
-            $sendTo = trim((string)($orow['client_chat_id'] ?? '')) ?: trim((string)($orow['telegram'] ?? ''));
+            $sendTo = trim((string)($orow['client_chat_id'] ?? '')) ?: trim(ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', (string)($orow['telegram'] ?? '')), '@'));
         }
-
-        // создаём поток обращений (appeal) и добавляем сообщение от администратора
         try {
             $adminName = 'Администратор';
             $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
@@ -905,17 +944,12 @@ if (isset($_POST['send_order_message'])) {
                 $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
                 $m->execute([$aid, $body]);
             }
-        } catch (Throwable $e) { /* ignore */ }
-
-        // уведомляем клиента через Telegram, если есть chat_id
+        } catch (\Throwable $e) {}
         if ($sendTo !== '' && TELEGRAM_BOT_TOKEN !== '') {
             $text = "📨 <b>Сообщение по вашему заказу #{$oid}</b>\n\n" . htmlspecialchars($body);
-            // используем sendTelegramRequest helper
             sendTelegramRequest('sendMessage', ['chat_id' => $sendTo, 'text' => $text, 'parse_mode' => 'HTML']);
         }
-
-        header('Location: ' . $_SERVER['PHP_SELF'] . '?view_order=' . $oid . '&msg=sent');
-        exit;
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?view_order=' . $oid . '&msg=sent'); exit;
     }
 }
 
@@ -963,6 +997,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .stat-card span { color: #8a8a96; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         .stat-card strong { display: block; font-size: 25px; margin-top: 10px; }
         .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg,rgba(249,115,22,.18),#111116); }
+        .stat-card.warn strong { color: #f97316; }
         .admin-layout { display: grid; grid-template-columns: 380px minmax(0,1fr); gap: 18px; align-items: start; }
         .admin-layout.single-column { grid-template-columns: 1fr; }
         .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
@@ -1008,16 +1043,20 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; pointer-events: none; user-select: none; -webkit-user-drag: none; }
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
-        .status.pending { background: rgba(249,115,22,.18); color: #fb923c; }
+        .status.pending     { background: rgba(249,115,22,.18); color: #fb923c; }
         .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
-        .status.urgent { background: rgba(234,88,12,.18); color: #fb923c; }
-        .status.ready { background: rgba(34,197,94,.16); color: #86efac; }
-        .status.declined { background: rgba(239,68,68,.15); color: #fca5a5; }
-        tr.order-row.status-ready td { background: rgba(34,197,94,.08); }
+        .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
+        .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
+        .status.declined    { background: rgba(239,68,68,.15); color: #fca5a5; }
+        tr.order-row.status-ready td       { background: rgba(34,197,94,.08); }
         tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
-        tr.order-row.status-urgent td { background: rgba(234,88,12,.08); }
-        tr.order-row.status-declined td { background: rgba(239,68,68,.06); }
-        tr.order-row.status-pending td { background: rgba(249,115,22,.04); }
+        tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
+        tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
+        tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
+        /* Срочный ряд — красная обводка */
+        tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
+        .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
+        @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
         .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
         .delete-link:hover { background: rgba(255,107,118,.12); border-color: #ff6b76; }
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
@@ -1155,7 +1194,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <div><label>Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
                                 <div><label>Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
                             </div>
-                            <div class="avatar-hint">Размер задает пропорцию рамки работы внутри Telegram-постера.</div>
                             <label style="display:flex;gap:8px;align-items:center;margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;"> Это оформление с аватаркой</label>
                             <button type="submit" name="add_portfolio_category" class="btn-panel">Добавить категорию</button>
                         </form>
@@ -1177,25 +1215,19 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                                     <strong>Новые заказы:</strong>
                                     <span style="background:#f97316;color:#111827;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:800;"><?= count($pendingOrders) ?></span>
-                                    <span style="color:#d8d8e8;font-size:13px;">Поступили на сайт и ждут принятия.</span>
                                 </div>
                                 <div style="margin-top:12px;display:grid;gap:10px;">
                                     <?php foreach ($pendingOrders as $pord): ?>
                                         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:#0f0f14;">
                                             <div style="min-width:0;overflow:hidden;">
                                                 <div style="font-size:13px;color:#f8f8fa;">Заказ #<?= (int)$pord['id'] ?> — <?= htmlspecialchars($pord['username'] ?: 'Клиент') ?></div>
-                                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:#8a8a96;font-size:12px;">
-                                                    <span><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></span>
-                                                    <?php if (!empty($pord['cooperation'])): ?>
-                                                        <span style="background:rgba(251,146,60,.12);color:#fb923c;padding:4px 8px;border-radius:999px;font-size:11px;">Сотрудничество</span>
-                                                    <?php endif; ?>
-                                                </div>
+                                                <div style="color:#8a8a96;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
                                             </div>
                                             <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-                                                <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;">Открыть</a>
+                                                <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;margin-top:0;">Открыть</a>
                                                 <form method="POST" style="margin:0;">
                                                     <input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>">
-                                                    <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;padding:8px 12px;">Принять</button>
+                                                    <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;padding:8px 12px;margin-top:0;">Принять</button>
                                                 </form>
                                             </div>
                                         </div>
@@ -1205,8 +1237,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <?php endif; ?>
                         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
                             <form method="GET" style="display:flex;gap:8px;align-items:center;">
-                                <input type="hidden" name="view_order" value="">
-                                <label style="color:#8a8a96;font-size:13px;">Статус:</label>
+                                <label style="color:#8a8a96;font-size:13px;text-transform:none;margin:0;">Статус:</label>
                                 <select name="orders_status" onchange="this.form.submit()">
                                     <option value="">Все</option>
                                     <?php foreach ($statusLabels as $sk => $sv): ?>
@@ -1214,27 +1245,39 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <?php endforeach; ?>
                                 </select>
                             </form>
-                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего заказов: <strong><?= $ordersTotal ?></strong></div>
+                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
                         </div>
                         <div class="admin-table-wrap">
                             <table style="min-width:520px;">
-                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус</th><th>Сумма</th><th>Действие</th></tr></thead>
+                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус / Срок</th><th>Сумма</th><th>Действие</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($recentOrders as $order): ?>
+                                        <?php
+                                            $isUrgent = $order['status'] === 'urgent';
+                                            $deadlineHtml = '';
+                                            if (!empty($order['deadline'])) {
+                                                $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
+                                            } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
+                                                $deadlineHtml = deadlineBadge($order['created_at'], $isUrgent);
+                                            }
+                                        ?>
                                         <tr class="order-row status-<?= htmlspecialchars($order['status']) ?>">
                                             <td>#<?= (int)$order['id'] ?></td>
                                             <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
-                                            <td><span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
+                                            <td>
+                                                <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
+                                                <?php if ($deadlineHtml): ?><br><div style="margin-top:4px;"><?= $deadlineHtml ?></div><?php endif; ?>
+                                            </td>
                                             <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
                                             <td style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                                                 <?php if (!empty($order['cooperation'])): ?>
                                                     <span style="color:#fb923c;font-size:12px;padding:4px 8px;border:1px solid rgba(251,146,60,.2);border-radius:8px;">Сотрудничество</span>
                                                 <?php endif; ?>
-                                                <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;">Открыть</a>
+                                                <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;margin-top:0;padding:8px 12px;">Открыть</a>
                                                 <?php if ($order['status'] === 'pending'): ?>
                                                     <form method="POST" style="margin:0;">
                                                         <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                                        <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;">Принять</button>
+                                                        <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;margin-top:0;padding:8px 12px;">Принять</button>
                                                     </form>
                                                 <?php endif; ?>
                                             </td>
@@ -1246,7 +1289,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <?php if ($ordersTotalPages > 1): ?>
                             <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
                                 <?php for ($p = 1; $p <= $ordersTotalPages; $p++): ?>
-                                    <a href="<?= $_SERVER['PHP_SELF'] . '?orders_page=' . $p . ($orders_status !== '' ? '&orders_status=' . urlencode($orders_status) : '') ?>" class="btn-panel" style="width:auto;padding:8px 12px;<?= $p === $orders_page ? 'opacity:1;box-shadow:0 6px 16px rgba(249,115,22,.22);' : 'opacity:0.7;' ?>"><?= $p ?></a>
+                                    <a href="<?= $_SERVER['PHP_SELF'] . '?orders_page=' . $p . ($orders_status !== '' ? '&orders_status=' . urlencode($orders_status) : '') ?>" class="btn-panel" style="width:auto;padding:8px 12px;margin-top:0;<?= $p === $orders_page ? '' : 'opacity:0.7;' ?>"><?= $p ?></a>
                                 <?php endfor; ?>
                             </div>
                         <?php endif; ?>
@@ -1260,7 +1303,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <input type="text" name="service_title" required placeholder="Например: Баннер для постов">
                             <label>Ключ услуги</label>
                             <input type="text" name="service_key" placeholder="post_banner">
-                            <div class="avatar-hint">Латиницей, без пробелов.</div>
                             <div class="two-cols">
                                 <div><label>Цена в рублях</label><input type="number" name="service_price_rub" value="0" min="0"></div>
                                 <div><label>Цена в гривнах</label><input type="number" name="service_price_uan" value="0" min="0"></div>
@@ -1271,7 +1313,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
                             <label>Обложка услуги</label>
                             <input type="file" name="service_image" accept="image/*">
-                            <div class="avatar-hint">Рекомендуется 16:9.</div>
                             <button type="submit" name="add_price_service" class="btn-panel">Добавить услугу</button>
                         </form>
                     </section>
@@ -1314,7 +1355,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </td>
                                                 <td>
                                                     <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
-                                                    <div style="color:#8a8a96;margin-top:6px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
+                                                    <div style="color:#8a8a96;margin-top:6px;font-size:11px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
                                                 </td>
                                                 <td>
                                                     <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
@@ -1397,12 +1438,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                             </div>
                             <?php
-                                $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                $mstmt->execute([(int)$ap['id']]);
-                                $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                $mstmt2 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                $mstmt2->execute([(int)$ap['id']]);
+                                $msgs2 = $mstmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
                             ?>
-                            <?php if (!empty($msgs)): ?>
-                                <?php foreach ($msgs as $m): ?>
+                            <?php if (!empty($msgs2)): ?>
+                                <?php foreach ($msgs2 as $m): ?>
                                     <?php if (($m['author'] ?? '') === 'admin'): ?>
                                         <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;color:#d8d8e8;">
                                             <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ответ администратора · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?></div>
@@ -1413,16 +1454,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <?php endif; ?>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
+                                <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
                             <?php endif; ?>
                             <form action="" method="POST" style="display:grid;gap:8px;">
                                 <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
-                                <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;" onfocus="this.style.borderColor='#f97316';" onblur="this.style.borderColor='#2a2a38';"></textarea>
-                                <div>
-                                    <button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;box-shadow:0 6px 18px rgba(249,115,22,.3);transition:.2s;">
-                                        📤 Отправить ответ
-                                    </button>
-                                </div>
+                                <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
+                                <div><button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button></div>
                             </form>
                         </div>
                     <?php endforeach; ?>
@@ -1435,29 +1472,39 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <div id="order-detail-panel" style="display:none;">
                 <div class="panel" data-panel="order-detail" style="max-width:960px;margin:0 auto;">
                     <?php if (!empty($viewOrder)): ?>
+                        <?php
+                            $isUrgentView = $viewOrder['status'] === 'urgent';
+                            $dlBadge = '';
+                            if (!empty($viewOrder['deadline'])) {
+                                $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
+                            } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
+                                $dlBadge = deadlineBadge($viewOrder['created_at'], $isUrgentView);
+                            }
+                        ?>
                         <h2>📦 Заказ #<?= (int)$viewOrder['id'] ?> — <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></h2>
-                        <div style="margin-bottom:12px;color:#8a8a96;font-size:13px;">Статус: <strong><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></strong> · <?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
+                        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                            <span style="color:#8a8a96;font-size:13px;">Статус: <strong><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></strong></span>
+                            <span style="color:#8a8a96;font-size:13px;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></span>
+                            <?php if ($dlBadge): echo $dlBadge; endif; ?>
+                        </div>
                         <?php if (!empty($viewOrder['cooperation'])): ?>
-                            <div style="margin-bottom:12px;color:#fb923c;font-size:13px;">💼 <strong>Сотрудничество</strong> — при принятии заказа стоимость будет 0 ₽ / 0 ₴.</div>
+                            <div style="margin-bottom:12px;color:#fb923c;font-size:13px;">💼 <strong>Сотрудничество</strong> — стоимость 0 ₽ / 0 ₴.</div>
                         <?php endif; ?>
                         <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($viewOrder['details'] ?? '') ?></div>
 
                         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-start;">
-                            <?php
-                                // Screenshot (single file)
-                                $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
-                            ?>
+                            <?php $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/'); ?>
                             <div style="min-width:200px;max-width:360px;">
                                 <div style="font-size:13px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
                                 <?php if ($screenshotSrc !== ''): ?>
                                     <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:360px;border-radius:8px;display:block;margin-bottom:6px;" onerror="this.style.display='none'"></a>
                                 <?php else: ?>
-                                    <div style="color:#8a8a96;">Чек оплаты: не прикреплён</div>
+                                    <div style="color:#8a8a96;">Не прикреплён</div>
                                 <?php endif; ?>
                             </div>
 
                             <div style="flex:1;min-width:220px;">
-                                <div style="font-size:13px;color:#8a8a96;margin-bottom:6px;">Референсы / Примеры</div>
+                                <div style="font-size:13px;color:#8a8a96;margin-bottom:6px;">Референсы</div>
                                 <?php
                                     $examples = [];
                                     $raw = $viewOrder['example_photo'] ?? '';
@@ -1471,12 +1518,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                                         <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
                                             <?php if ($exSrc !== ''): ?>
-                                                <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank" style="display:block;"><img src="<?= htmlspecialchars($exSrc) ?>" style="max-width:160px;border-radius:8px;" onerror="this.style.display='none'"></a>
+                                                <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank"><img src="<?= htmlspecialchars($exSrc) ?>" style="max-width:160px;border-radius:8px;" onerror="this.style.display='none'"></a>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
                                     </div>
                                 <?php else: ?>
-                                    <div style="color:#8a8a96;">Референсы: не прикреплены</div>
+                                    <div style="color:#8a8a96;">Не прикреплены</div>
                                 <?php endif; ?>
                             </div>
 
@@ -1484,21 +1531,21 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <?php $cleanTg = trim($viewOrder['telegram'] ?? ''); $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@'); ?>
                                 <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                                     <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                    <button name="order_action" value="take_work" class="btn-panel" style="background:linear-gradient(135deg,#fb923c,#f97316);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;">🚀 Взять в работу</button>
-                                    <button name="order_action" value="urgent" class="btn-panel" style="background:#efb84a;padding:8px 12px;border-radius:8px;border:none;color:#000;font-weight:800;">⚡️ Срочный</button>
-                                    <button name="order_action" value="ready" class="btn-panel" style="background:#34d399;padding:8px 12px;border-radius:8px;border:none;color:#042;">✅ Готов</button>
-                                    <button name="order_action" value="decline" class="btn-panel" style="background:#fb7185;padding:8px 12px;border-radius:8px;border:none;color:#fff;" onclick="return confirm('Отклонить заказ? Вы уверены?');">❌ Отклонить</button>
-                                    <button name="order_action" value="ban" class="btn-panel" style="background:#7c3aed;padding:8px 12px;border-radius:8px;border:none;color:#fff;" onclick="return confirm('Добавить клиента в чёрный список? Это действие нельзя отменить. Продолжить?');">🚫 В чёрный список</button>
+                                    <button name="order_action" value="take_work" class="btn-panel" style="background:linear-gradient(135deg,#fb923c,#f97316);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;margin-top:0;">🚀 В работу</button>
+                                    <button name="order_action" value="urgent" class="btn-panel" style="background:#efb84a;padding:8px 12px;border-radius:8px;border:none;color:#000;font-weight:800;margin-top:0;">⚡️ Срочный</button>
+                                    <button name="order_action" value="ready" class="btn-panel" style="background:#34d399;padding:8px 12px;border-radius:8px;border:none;color:#042;font-weight:800;margin-top:0;">✅ Готов</button>
+                                    <button name="order_action" value="decline" class="btn-panel" style="background:#fb7185;padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;margin-top:0;" onclick="return confirm('Отклонить заказ?');">❌ Отклонить</button>
+                                    <button name="order_action" value="ban" class="btn-panel" style="background:#7c3aed;padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;margin-top:0;" onclick="return confirm('Добавить в чёрный список?');">🚫 Бан</button>
                                     <?php if ($cleanTg !== ''): ?>
-                                        <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" class="btn-panel" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:#111827;color:#fff;text-decoration:none;">💬 Связаться</a>
+                                        <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" class="btn-panel" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:#111827;color:#fff;text-decoration:none;margin-top:0;">💬 Связаться</a>
                                     <?php endif; ?>
                                 </form>
                                 <div style="margin-top:10px;">
                                     <form method="POST">
                                         <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                         <input type="hidden" name="order_action" value="message_client">
-                                        <textarea name="message_text" rows="3" placeholder="Написать сообщение клиенту (Telegram)" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2a38;background:#0b0b10;color:#fff;margin-bottom:6px;"></textarea>
-                                        <div><button type="submit" class="btn-panel" style="background:linear-gradient(135deg,#60a5fa,#3b82f6);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;">✉️ Отправить клиенту</button></div>
+                                        <textarea name="message_text" rows="3" placeholder="Написать сообщение клиенту (Telegram)" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2a38;background:#0b0b10;color:#fff;margin-bottom:6px;font-family:Montserrat,sans-serif;"></textarea>
+                                        <div><button type="submit" class="btn-panel" style="background:linear-gradient(135deg,#60a5fa,#3b82f6);padding:8px 12px;border-radius:8px;border:none;color:#fff;font-weight:800;margin-top:0;">✉️ Отправить клиенту</button></div>
                                     </form>
                                 </div>
                             </div>
@@ -1508,16 +1555,16 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <?php if (!empty($orderAppeals)): ?>
                             <?php foreach ($orderAppeals as $oap): ?>
                                 <?php
-                                    $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                    $mstmt->execute([(int)$oap['id']]);
-                                    $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                    $mstmt3 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                    $mstmt3->execute([(int)$oap['id']]);
+                                    $msgs3 = $mstmt3->fetchAll(PDO::FETCH_ASSOC) ?: [];
                                 ?>
                                 <div style="background:#0b0b0f;padding:10px;border-radius:6px;margin-bottom:8px;">
                                     <div style="font-size:12px;color:#8a8a96;margin-bottom:8px;"><strong><?= htmlspecialchars($oap['subject']?:'Обращение') ?></strong></div>
-                                    <?php if (empty($msgs)): ?>
+                                    <?php if (empty($msgs3)): ?>
                                         <div style="color:#8a8a96;">Сообщений пока нет.</div>
                                     <?php else: ?>
-                                        <?php foreach ($msgs as $m): ?>
+                                        <?php foreach ($msgs3 as $m): ?>
                                             <?php if (($m['author'] ?? '') === 'admin'): ?>
                                                 <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Админ</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
                                             <?php else: ?>
@@ -1534,15 +1581,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <form action="" method="POST" style="display:grid;gap:8px;max-width:720px;">
                             <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                             <input type="text" name="msg_subject" placeholder="Тема (необязательно)" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>">
-                            <textarea name="msg_text" required rows="4" placeholder="Напиши сообщение клиенту (он получит уведомление в Telegram)" style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;"> </textarea>
+                            <textarea name="msg_text" required rows="4" placeholder="Сообщение клиенту (получит уведомление в Telegram)" style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;"></textarea>
                             <div>
-                                <button type="submit" name="send_order_message" class="btn-panel">📤 Отправить клиенту</button>
-                                <a href="<?= $_SERVER['PHP_SELF'] ?>" class="delete-link" style="margin-left:10px;">Назад к панели</a>
+                                <button type="submit" name="send_order_message" class="btn-panel" style="margin-top:0;">📤 Отправить клиенту</button>
+                                <a href="<?= $_SERVER['PHP_SELF'] ?>" class="delete-link" style="margin-left:10px;">← Назад</a>
                             </div>
                         </form>
                     <?php else: ?>
                         <h2>📦 Заказ не найден</h2>
-                        <div style="color:#8a8a96;">Выберите заказ из списка, чтобы открыть детальную карточку.</div>
+                        <div style="color:#8a8a96;">Выберите заказ из списка.</div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1589,8 +1636,11 @@ function toggleAvatarField() {
 }
 
 function activateAdminTab(tab) {
-    const apPanel = document.getElementById('appeals-panel');
-    if (apPanel) apPanel.style.display = 'none';
+    const apPanel  = document.getElementById('appeals-panel');
+    const ordPanel = document.getElementById('order-detail-panel');
+    if (apPanel)  apPanel.style.display  = 'none';
+    if (ordPanel) ordPanel.style.display = 'none';
+
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     const stats  = document.querySelector('.stats-grid');
     const layout = document.querySelector('.admin-layout');
@@ -1599,8 +1649,7 @@ function activateAdminTab(tab) {
     document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
 
     const show = (...names) => names.forEach(n => {
-        const el = document.querySelector(`.panel[data-panel="${n}"]`);
-        if (el) el.classList.remove('tab-hidden');
+        document.querySelectorAll(`.panel[data-panel="${n}"]`).forEach(el => el.classList.remove('tab-hidden'));
     });
 
     if (tab === 'overview')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
@@ -1612,8 +1661,8 @@ function activateAdminTab(tab) {
     else if (tab === 'appeals')   {
         if (apPanel) {
             apPanel.style.display = 'block';
-            const innerAppeals = apPanel.querySelector('.panel[data-panel="appeals"]');
-            if (innerAppeals) innerAppeals.classList.remove('tab-hidden');
+            const inner = apPanel.querySelector('.panel[data-panel="appeals"]');
+            if (inner) inner.classList.remove('tab-hidden');
         }
     }
 }
@@ -1649,8 +1698,8 @@ function initFileInputs() {
 
 function initAntiTheft() {
     document.addEventListener('contextmenu', function(e) {
-        const target = e.target;
-        if (target.tagName === 'IMG' && (target.classList.contains('case-thumb') || target.classList.contains('case-ava') || target.classList.contains('price-thumb'))) { e.preventDefault(); return false; }
+        const t = e.target;
+        if (t.tagName === 'IMG' && (t.classList.contains('case-thumb') || t.classList.contains('case-ava') || t.classList.contains('price-thumb'))) { e.preventDefault(); return false; }
     }, true);
     document.addEventListener('dragstart', function(e) {
         if (e.target.tagName === 'IMG') { const c = e.target.classList; if (c.contains('case-thumb') || c.contains('case-ava') || c.contains('price-thumb')) e.preventDefault(); }
@@ -1659,11 +1708,9 @@ function initAntiTheft() {
 
 document.addEventListener('DOMContentLoaded', () => {
     toggleAvatarField();
-    activateAdminTab('overview');
     const params = new URLSearchParams(window.location.search);
     if (params.has('view_order')) {
         activateAdminTab('orders');
-        // show order-detail panel wrapper and inner panel if present
         setTimeout(() => {
             const wrapper = document.getElementById('order-detail-panel');
             const det = document.querySelector('.panel[data-panel="order-detail"]');
@@ -1674,6 +1721,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'orders'));
             }
         }, 40);
+    } else {
+        activateAdminTab('overview');
     }
     initFileInputs();
     initAntiTheft();
