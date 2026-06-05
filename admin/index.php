@@ -8,6 +8,7 @@ require_once '../config/db.php';
 
 try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
+    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
 } catch (PDOException $e) {
     // ignore; column may already exist or database user may not have alter privileges
 }
@@ -778,6 +779,16 @@ $orderStats = $pdo->query("
     FROM orders
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
+$daAccessToken = daEnsureAccessToken($pdo);
+$daConnected = $daAccessToken !== null;
+$daDonationTotalUsd = 0.0;
+$daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+if ($daConnected) {
+    $daDonations = daGetDonations($pdo, 200);
+    $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
+    $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
+}
+
 $revenue = $pdo->query("
     SELECT COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_rub END),0) AS rub,
            COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_uan END),0) AS uan
@@ -1078,6 +1089,20 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
                 <div class="stat-card"><span>В процессе</span><strong><?= (int)($orderStats['in_progress']??0) ?></strong></div>
                 <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
+            </section>
+
+            <section class="stats-grid">
+                <?php if (!$daConnected): ?>
+                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
+                    <div class="stat-card"><span>Донатов за месяц</span><strong>$0.00</strong></div>
+                    <div class="stat-card"><span>Выведено за месяц</span><strong>$0.00</strong></div>
+                    <div class="stat-card"><span>Комиссия</span><strong>$0.00</strong></div>
+                <?php else: ?>
+                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Подключено</strong><span>Токен сохранён</span></div>
+                    <div class="stat-card"><span>Донатов за месяц</span><strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong></div>
+                    <div class="stat-card"><span>Выведено за месяц</span><strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong></div>
+                    <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
+                <?php endif; ?>
             </section>
 
             <div class="admin-layout">

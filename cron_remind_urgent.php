@@ -3,19 +3,15 @@
 /**
  * cron_remind_urgent.php
  *
- * Скрипт для Cron — напоминает о срочных заказах каждые 2 часа.
+ * Скрипт для Cron — напоминает о срочных и активных заказах каждые 4 часа.
  *
- * КАК НАСТРОИТЬ (Render или любой Linux-хостинг):
+ * КАК НАСТРОИТЬ:
  * ──────────────────────────────────────────────────────────────
  * Добавь в crontab (crontab -e):
+ *   0 */4 * * * php /path/to/cron_remind_urgent.php >> /tmp/kostlim_cron.log 2>&1
  *
- *   0 * * * * php /path/to/cron_remind_urgent.php >> /tmp/kostlim_cron.log 2>&1
- *
- * Это запустит скрипт каждый час, но сам скрипт проверяет
- * внутренне — прошло ли 2 часа с последнего напоминания по каждому заказу.
- *
- * На Render (без cron): можно вызывать через внешний cron-сервис
- * (например cron-job.org) по URL: https://твой-сайт.onrender.com/cron_remind_urgent.php?secret=ТУТ_СЕКРЕТ
+ * Или вызывай через веб-сервис каждые 4 часа:
+ *   https://твой-сайт.onrender.com/cron_remind_urgent.php?secret=ТУТ_СЕКРЕТ
  * ──────────────────────────────────────────────────────────────
  */
 
@@ -27,9 +23,9 @@ if (php_sapi_name() !== 'cli') {
     $secret = $_GET['secret'] ?? '';
     if ($secret !== CRON_SECRET) {
         http_response_code(403);
-        echo 'Forbidden';
-        exit;
+        die('Forbidden');
     }
+    header('Content-Type: text/plain');
 }
 
 require_once __DIR__ . '/config/db.php';
@@ -37,66 +33,108 @@ require_once __DIR__ . '/config/db.php';
 $token    = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
 
-// Выбираем все срочные активные заказы
+// Выбираем все активные заказы (pending, in_progress, urgent)
 $stmt = $pdo->query("
-    SELECT id, username, service_key, urgent_deadline, last_reminded_at
+    SELECT id, username, telegram, service_key, status, deadline
     FROM orders
-    WHERE is_urgent = 1 AND status IN ('pending', 'in_progress')
+    WHERE status IN ('pending', 'in_progress', 'urgent')
+    ORDER BY deadline ASC, id ASC
 ");
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 if (empty($orders)) {
-    echo "[" . date('Y-m-d H:i:s') . "] Срочных заказов нет.\n";
+    $msg = "[" . date('Y-m-d H:i:s') . "] Нет активных заказов.\n";
+    echo $msg;
     exit;
 }
 
-$now = new DateTime();
-$reminded = 0;
+$now = time();
+$urgent_orders = [];
+$overdue_orders = [];
 
+// Сортируем по приоритету: просроченные, потом срочные, потом остальные
 foreach ($orders as $o) {
-    // Проверяем: прошло ли 2 часа с последнего напоминания
-    if (!empty($o['last_reminded_at'])) {
-        $last     = new DateTime($o['last_reminded_at']);
-        $diff_sec = $now->getTimestamp() - $last->getTimestamp();
-        if ($diff_sec < 7200) { // 2 часа = 7200 сек
-            continue;
-        }
+    if (empty($o['deadline'])) continue;
+    
+    $deadline_ts = strtotime($o['deadline']);
+    $diff = $deadline_ts - $now;
+    
+    if ($diff < 0) {
+        // Просроченный
+        $overdue_orders[] = [
+            'order' => $o,
+            'hours_overdue' => abs(ceil($diff / 3600)),
+        ];
+    } elseif ($diff < 24 * 3600 || $o['status'] === 'urgent') {
+        // Срочный (менее 24 часов или статус urgent)
+        $urgent_orders[] = [
+            'order' => $o,
+            'hours_left' => ceil($diff / 3600),
+        ];
     }
+}
 
-    $left_str = 'неизвестно';
-    $is_overdue = false;
-    if (!empty($o['urgent_deadline'])) {
-        $dt   = new DateTime($o['urgent_deadline']);
-        $diff = $now->diff($dt);
-        $h    = $diff->h + $diff->days * 24;
-        if ($dt > $now) {
-            $left_str = "~{$h} часов";
-        } else {
-            $left_str = "⚠️ ДЕДЛАЙН ПРОСРОЧЕН!";
-            $is_overdue = true;
-        }
+// Приоритет: сначала просроченные, потом срочные
+$sorted_orders = array_merge($overdue_orders, $urgent_orders);
+
+if (empty($sorted_orders)) {
+    echo "[" . date('Y-m-d H:i:s') . "] Нет срочных или просроченных заказов.\n";
+    exit;
+}
+
+// Формируем сообщение со списком заказов
+$message = "🚨 *АКТИВНЫЕ СРОЧНЫЕ ЗАКАЗЫ* 🚨\n";
+$message .= "(" . count($sorted_orders) . " шт.)\n\n";
+
+$keyboard = ['inline_keyboard' => []];
+
+foreach ($sorted_orders as $item) {
+    $o = $item['order'];
+    $status_emoji = [
+        'pending' => '⏳',
+        'in_progress' => '🎨',
+        'urgent' => '⚡️',
+    ][$o['status']] ?? '📦';
+    
+    if (isset($item['hours_overdue'])) {
+        // Просроченный
+        $message .= "🔴 *Заказ #{$o['id']}* — {$o['username']}\n";
+        $message .= "   ⚠️ ПРОСРОЧЕНО на {$item['hours_overdue']} ч!\n";
+    } else {
+        // Срочный
+        $message .= "{$status_emoji} *Заказ #{$o['id']}* — {$o['username']}\n";
+        $message .= "   ⏰ Осталось: ~{$item['hours_left']} ч.\n";
     }
+    
+    $message .= "   🎨 {$o['service_key']}\n";
+    $message .= "   📞 {$o['telegram']}\n\n";
+    
+    // Добавляем кнопку к заказу
+    $keyboard['inline_keyboard'][] = [[
+        'text' => "📦 Заказ #{$o['id']} ({$item['hours_left'] ?? $item['hours_overdue']} ч.)",
+        'callback_data' => "adm_view_{$o['id']}",
+    ]];
+}
 
-    $emoji = $is_overdue ? '🚨🚨' : '🚨';
-
-    $keyboard = json_encode([
-        'inline_keyboard' => [[
-            ['text' => "📦 Открыть заказ #{$o['id']}", 'callback_data' => "adm_view_{$o['id']}"],
-        ]],
-    ], JSON_UNESCAPED_UNICODE);
-
-    // Отправляем напоминание
-    $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+// Отправляем сообщение в Telegram
+$ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => http_build_query([
         'chat_id'      => $admin_id,
-        'text'         => "{$emoji} *Напоминание! Срочный заказ*\n\n📦 Заказ *#{$o['id']}* — {$o['username']}\n🎨 Услуга: {$o['service_key']}\n⏰ Осталось: *{$left_str}*",
+        'text'         => $message,
         'parse_mode'   => 'Markdown',
-        'reply_markup' => $keyboard,
-    ]));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_exec($ch);
-    curl_close($ch);
+        'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+    ]),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 10,
+]);
+$res = curl_exec($ch);
+curl_close($ch);
+
+$result = json_decode($res, true);
+$status = ($result['ok'] ?? false) ? 'OK' : 'FAIL';
+echo "[" . date('Y-m-d H:i:s') . "] Отправлено напоминание о " . count($sorted_orders) . " заказах. Status: {$status}\n";
 
     // Обновляем время последнего напоминания
     $pdo->prepare("UPDATE orders SET last_reminded_at = NOW() WHERE id = ?")->execute([$o['id']]);

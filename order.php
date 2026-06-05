@@ -156,7 +156,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
      (username, telegram, service_key, details, screenshot, example_photo, status, cooperation, client_ip, session_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NOW()) RETURNING id");
      $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $cooperation, $user_ip, session_id()]);
-        $order_id = $pdo->lastInsertId();
+        $order_id = (int)$stmt->fetchColumn();
+        if ($order_id <= 0) {
+            $order_id = (int)$pdo->lastInsertId();
+        }
 
         $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}. Для оплаты перейдите на DonationAlerts и в поле 'Сообщение' обязательно укажите номер заказа: #{$order_id}.";
 

@@ -658,37 +658,6 @@ body::after {
     </div>
 </header>
 
-<?php if ($isAdmin): ?>
-    <section class="da-stats-panel">
-        <?php if (!$daConnected): ?>
-            <div class="da-connect-panel">
-                <h2>DonationAlerts</h2>
-                <p>Чтобы увидеть статистику донатов и автоматическую оплату заказов, подключите DonationAlerts.</p>
-                <a class="da-connect-btn" href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>">Подключить DonationAlerts</a>
-            </div>
-        <?php else: ?>
-            <div class="da-stats-grid">
-                <div class="da-stat-card">
-                    <span>Донатов за месяц</span>
-                    <strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong>
-                </div>
-                <div class="da-stat-card">
-                    <span>На вывод за месяц</span>
-                    <strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong>
-                </div>
-                <div class="da-stat-card">
-                    <span>Комиссия вывода</span>
-                    <strong>$<?= number_format($daPayoutStats['commission'], 2, '.', '') ?></strong>
-                </div>
-                <div class="da-stat-card">
-                    <span>Чистыми</span>
-                    <strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong>
-                </div>
-            </div>
-        <?php endif; ?>
-    </section>
-<?php endif; ?>
-
 <main class="container portfolio-stage">
 
     <!-- ── Категории-фильтры ── -->

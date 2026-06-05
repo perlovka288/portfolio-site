@@ -75,7 +75,8 @@ if (isset($update['callback_query'])) {
     // Взять в работу
     if (strpos($callback_data, 'adm_work_') === 0) {
         $order_id = (int)str_replace('adm_work_', '', $callback_data);
-        $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$order_id]);
+        $deadline = date('Y-m-d H:i:s', time() + 5 * 86400); // +5 дней
+        $pdo->prepare("UPDATE orders SET status = 'in_progress', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
@@ -83,12 +84,12 @@ if (isset($update['callback_query'])) {
         ]);
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "🚀 *Заказ #{$order_id} взят в работу.*",
+            'text'       => "🚀 *Заказ #{$order_id} взят в работу.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
         // Уведомляем клиента — безопасно, без краша
         safeNotifyClient($pdo, $token, $order_id,
-            "🎨 *Ваш заказ #{$order_id} принят в работу!*\n\nДизайнер уже начал выполнение. Мы сообщим вам, когда заказ будет готов."
+            "🎨 *Ваш заказ #{$order_id} принят в работу!*\n\nДизайнер уже начал выполнение. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов."
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ взят в работу']);
         exit;
@@ -97,7 +98,8 @@ if (isset($update['callback_query'])) {
     // Срочный
     if (strpos($callback_data, 'adm_urgent_') === 0) {
         $order_id = (int)str_replace('adm_urgent_', '', $callback_data);
-        $pdo->prepare("UPDATE orders SET status = 'urgent' WHERE id = ?")->execute([$order_id]);
+        $deadline = date('Y-m-d H:i:s', time() + 24 * 3600); // +24 часа
+        $pdo->prepare("UPDATE orders SET status = 'urgent', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
@@ -105,12 +107,12 @@ if (isset($update['callback_query'])) {
         ]);
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "⚡️ *Заказ #{$order_id} переведён в СРОЧНЫЙ режим.*",
+            'text'       => "⚡️ *Заказ #{$order_id} переведён в СРОЧНЫЙ режим.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
         // Уведомляем клиента
         safeNotifyClient($pdo, $token, $order_id,
-            "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке — сегодня или завтра."
+            "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*"
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '⚡ Заказ срочный']);
         exit;
@@ -941,7 +943,7 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at
+        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, deadline
         FROM orders WHERE id = ? AND status IN ('pending','in_progress','urgent') LIMIT 1
     ");
     $o_stmt->execute([$order_id]);
@@ -977,6 +979,23 @@ function buildOrderCard($item, $price_info, $site_url) {
     $p_rub         = $price_info['price_rub'] ?? 0;
     $p_uan         = $price_info['price_uan'] ?? 0;
 
+    // Форматирование дедлайна
+    $deadline_text = '';
+    if (!empty($item['deadline'])) {
+        $deadline_dt = new DateTime($item['deadline']);
+        $diff = $deadline_dt->getTimestamp() - time();
+        
+        if ($diff < 0) {
+            $deadline_text = "🔴 *ПРОСРОЧЕНО!* На " . abs(ceil($diff / 3600)) . " ч.";
+        } elseif ($diff < 24 * 3600) { // менее 24 часов
+            $hours_left = ceil($diff / 3600);
+            $deadline_text = "🟠 *СРОЧНО!* Осталось ~{$hours_left} ч. (" . $deadline_dt->format('d.m в H:i') . ")";
+        } else {
+            $days_deadline = ceil($diff / (24 * 3600));
+            $deadline_text = "🟡 *Дедлайн:* " . $deadline_dt->format('d.m.Y в H:i') . " ({$days_deadline} дн.)";
+        }
+    }
+
     $msg  = "📦 *ЗАКАЗ #{$item['id']}*\n";
     $msg .= "━━━━━━━━━━━━━━━━━━\n";
     $msg .= "👤 *Имя:* "    . mdEscape($item['username'] ?? '') . "\n";
@@ -986,7 +1005,9 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "📝 *ТЗ:* "     . mdEscape($item['details'] ?? '') . "\n";
     $msg .= "━━━━━━━━━━━━━━━━━━\n";
     $msg .= "🔹 *Статус:* {$status_text}\n";
-    $msg .= "⏱ *Осталось:* {$days_str}\n";
+    if ($deadline_text) {
+        $msg .= "{$deadline_text}\n";
+    }
 
     // Photos (screenshot / example) are sent as media album separately
     if (!empty($item['screenshot']) || !empty($item['example_photo'])) {
