@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'config/db.php';
+require_once 'donationalerts.php';
 
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
@@ -98,6 +99,25 @@ try {
 } catch (Throwable $e) {
     // Если таблица не существует — генерируем код на клиентской стороне из session_id
     $linkCode = strtoupper(substr(md5(session_id()), 0, 6));
+}
+
+if (isset($_GET['code']) && trim((string)$_GET['code']) !== '') {
+    if (daExchangeAuthorizationCode($pdo, trim((string)$_GET['code']))) {
+        $redirectUrl = strtok($_SERVER['REQUEST_URI'], '?');
+        header('Location: ' . ($redirectUrl ?: '/'));
+        exit;
+    }
+}
+
+$daAccessToken = daEnsureAccessToken($pdo);
+$daConnected = $daAccessToken !== null;
+$daDonationTotalUsd = 0.0;
+$daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+
+if ($isAdmin && $daConnected) {
+    $daDonations = daGetDonations($pdo, 200);
+    $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
+    $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
 }
 
 function imgSrc(string $val, string $base = 'uploads/'): string {
@@ -458,7 +478,54 @@ body::after {
     align-items: center;
     gap: 6px;
 }
-
+.da-stats-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 22px 0 14px;
+}
+.da-connect-panel,
+.da-stat-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 18px 20px;
+    min-width: 220px;
+    flex: 1 1 220px;
+}
+.da-connect-panel h2,
+.da-stat-card span {
+    display: block;
+    color: #f8f8f2;
+    font-size: 11px;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+.da-connect-panel p {
+    color: #c7c7d8;
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.da-connect-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px 16px;
+    background: #f97316;
+    color: #111827;
+    border-radius: 12px;
+    font-weight: 800;
+    text-decoration: none;
+}
+.da-stat-card strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 22px;
+    color: #fff;
+}
 @media(max-width:700px){
     .tg-user-chip { max-width: 120px; font-size: 11px; }
     .tg-user-name { max-width: 70px; }
@@ -590,6 +657,37 @@ body::after {
         <?php endif; ?>
     </div>
 </header>
+
+<?php if ($isAdmin): ?>
+    <section class="da-stats-panel">
+        <?php if (!$daConnected): ?>
+            <div class="da-connect-panel">
+                <h2>DonationAlerts</h2>
+                <p>Чтобы увидеть статистику донатов и автоматическую оплату заказов, подключите DonationAlerts.</p>
+                <a class="da-connect-btn" href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>">Подключить DonationAlerts</a>
+            </div>
+        <?php else: ?>
+            <div class="da-stats-grid">
+                <div class="da-stat-card">
+                    <span>Донатов за месяц</span>
+                    <strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong>
+                </div>
+                <div class="da-stat-card">
+                    <span>На вывод за месяц</span>
+                    <strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong>
+                </div>
+                <div class="da-stat-card">
+                    <span>Комиссия вывода</span>
+                    <strong>$<?= number_format($daPayoutStats['commission'], 2, '.', '') ?></strong>
+                </div>
+                <div class="da-stat-card">
+                    <span>Чистыми</span>
+                    <strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong>
+                </div>
+            </div>
+        <?php endif; ?>
+    </section>
+<?php endif; ?>
 
 <main class="container portfolio-stage">
 

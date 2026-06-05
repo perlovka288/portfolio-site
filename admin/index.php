@@ -773,12 +773,14 @@ $orderStats = $pdo->query("
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $revenue = $pdo->query("
-    SELECT COALESCE(SUM(p.price_rub),0) AS rub, COALESCE(SUM(p.price_uan),0) AS uan
+    SELECT COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_rub END),0) AS rub,
+           COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_uan END),0) AS uan
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
 $activeValue = $pdo->query("
-    SELECT COALESCE(SUM(p.price_rub),0) AS rub, COALESCE(SUM(p.price_uan),0) AS uan
+    SELECT COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END),0) AS rub,
+           COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END),0) AS uan
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress','urgent')
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
@@ -786,7 +788,7 @@ $ordersPerPage = 15;
 $orders_page = max(1, (int)($_GET['orders_page'] ?? 1));
 $orders_status = trim((string)($_GET['orders_status'] ?? ''));
 
-$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at, cooperation FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
 $where = '';
 $params = [];
@@ -801,9 +803,9 @@ $ordersTotal = (int)$countStmt->fetchColumn();
 $ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
 
 $offset = ($orders_page - 1) * $ordersPerPage;
-$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,
-    p.price_rub AS price_rub,
-    p.price_uan AS price_uan,
+$sql = "SELECT o.id,o.username,o.telegram,o.service_key,o.status,o.created_at,o.cooperation,
+    CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END AS price_rub,
+    CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END AS price_uan,
     p.title, p.price_rub AS price_rub_from_price, p.price_uan AS price_uan_from_price
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ? $where : '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
 $stmt = $pdo->prepare($sql);
@@ -1151,7 +1153,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:#0f0f14;">
                                             <div style="min-width:0;overflow:hidden;">
                                                 <div style="font-size:13px;color:#f8f8fa;">Заказ #<?= (int)$pord['id'] ?> — <?= htmlspecialchars($pord['username'] ?: 'Клиент') ?></div>
-                                                <div style="color:#8a8a96;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
+                                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:#8a8a96;font-size:12px;">
+                                                    <span><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></span>
+                                                    <?php if (!empty($pord['cooperation'])): ?>
+                                                        <span style="background:rgba(251,146,60,.12);color:#fb923c;padding:4px 8px;border-radius:999px;font-size:11px;">Сотрудничество</span>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
                                             <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                                                 <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;">Открыть</a>
@@ -1189,6 +1196,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <td><span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
                                             <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
                                             <td style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                                <?php if (!empty($order['cooperation'])): ?>
+                                                    <span style="color:#fb923c;font-size:12px;padding:4px 8px;border:1px solid rgba(251,146,60,.2);border-radius:8px;">Сотрудничество</span>
+                                                <?php endif; ?>
                                                 <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;">Открыть</a>
                                                 <?php if ($order['status'] === 'pending'): ?>
                                                     <form method="POST" style="margin:0;">
@@ -1396,6 +1406,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <?php if (!empty($viewOrder)): ?>
                         <h2>📦 Заказ #<?= (int)$viewOrder['id'] ?> — <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></h2>
                         <div style="margin-bottom:12px;color:#8a8a96;font-size:13px;">Статус: <strong><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></strong> · <?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
+                        <?php if (!empty($viewOrder['cooperation'])): ?>
+                            <div style="margin-bottom:12px;color:#fb923c;font-size:13px;">💼 <strong>Сотрудничество</strong> — при принятии заказа стоимость будет 0 ₽ / 0 ₴.</div>
+                        <?php endif; ?>
                         <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($viewOrder['details'] ?? '') ?></div>
 
                         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-start;">

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS orders (
     screenshot VARCHAR(255) DEFAULT '',
     example_photo VARCHAR(255) DEFAULT '',
     status VARCHAR(50) DEFAULT 'pending',
+    cooperation BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     client_chat_id VARCHAR(100) DEFAULT ''
 );

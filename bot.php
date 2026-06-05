@@ -701,6 +701,11 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
         $svc_title   = $price['title'] ?? $order['service_key'];
         $p_rub       = $price['price_rub'] ?? 0;
         $p_uan       = $price['price_uan'] ?? 0;
+        $is_coop     = !empty($order['cooperation']);
+        if ($is_coop && in_array($order['status'], ['in_progress','urgent','ready'], true)) {
+            $p_rub = 0;
+            $p_uan = 0;
+        }
         $date        = date('d.m.Y H:i', strtotime($order['created_at']));
 
         // Дедлайн
@@ -712,6 +717,9 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
         $text  = "📦 *Заказ #{$order['id']}*\n";
         $text .= "━━━━━━━━━━━━━━━━━━\n";
         $text .= "🎨 *Услуга:* " . mdEscape($svc_title) . "\n";
+        if ($is_coop && in_array($order['status'], ['in_progress','urgent','ready'], true)) {
+            $text .= "💼 *Сотрудничество:* да\n";
+        }
         $text .= "💰 *Стоимость:* {$p_rub} ₽ / {$p_uan} ₴\n";
         $text .= "📝 *ТЗ:* " . mdEscape($order['details'] ?? '—') . "\n";
         $text .= "━━━━━━━━━━━━━━━━━━\n";

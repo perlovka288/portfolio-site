@@ -126,6 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username    = $_POST['username'] ?? '';
     $service_key = $_POST['service']  ?? '';
     $details     = $_POST['details']  ?? '';
+    $cooperation = !empty($_POST['cooperation']) ? 1 : 0;
 
     $pay_screenshot = '';
     $example_imgs   = [];
@@ -152,12 +153,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
     $stmt = $pdo->prepare("INSERT INTO orders
-     (username, telegram, service_key, details, screenshot, example_photo, status, client_ip, session_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW()) RETURNING id");
-     $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $user_ip, session_id()]);
+     (username, telegram, service_key, details, screenshot, example_photo, status, cooperation, client_ip, session_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NOW()) RETURNING id");
+     $stmt->execute([$username, $telegram_raw, $service_key, $details, $pay_screenshot, $example_img_json, $cooperation, $user_ip, session_id()]);
         $order_id = $pdo->lastInsertId();
 
-        $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}";
+        $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}. Для оплаты перейдите на DonationAlerts и в поле 'Сообщение' обязательно укажите номер заказа: #{$order_id}.";
 
         // Уведомить клиента в TG если аккаунт привязан
         $client_chat_id = null;
@@ -193,7 +194,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg_text .= "👤 Клиент: " . htmlspecialchars($username) . "\n";
             $msg_text .= "📞 Связь: "  . htmlspecialchars($telegram_raw) . "\n";
             $msg_text .= "🎨 Услуга: " . htmlspecialchars($service_title) . "\n";
-            $msg_text .= "💰 Стоимость: {$p_rub}₽ / {$p_uan}₴\n";
+            if ($cooperation) {
+                $msg_text .= "💼 Сотрудничество: да (при принятии цена 0₽ / 0₴)\n";
+                $msg_text .= "💰 Стоимость: 0₽ / 0₴\n";
+            } else {
+                $msg_text .= "💰 Стоимость: {$p_rub}₽ / {$p_uan}₴\n";
+            }
             $msg_text .= "📝 ТЗ: "     . htmlspecialchars($details) . "\n";
             $msg_text .= "🌐 IP: {$user_ip}";
 
@@ -663,6 +669,13 @@ body::before {
                 </option>
                 <?php endforeach; ?>
             </select>
+        </div>
+
+        <div class="mb16">
+            <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+                <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
+                <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
+            </label>
         </div>
 
         <div class="mb16">
