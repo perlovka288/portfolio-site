@@ -766,6 +766,7 @@ $orderStats = $pdo->query("
     SELECT COUNT(*) AS total,
         COUNT(*) FILTER (WHERE status='pending') AS pending,
         COUNT(*) FILTER (WHERE status='in_progress') AS in_progress,
+        COUNT(*) FILTER (WHERE status='urgent') AS urgent,
         COUNT(*) FILTER (WHERE status='ready') AS ready,
         COUNT(*) FILTER (WHERE status='declined') AS declined
     FROM orders
@@ -778,12 +779,14 @@ $revenue = $pdo->query("
 
 $activeValue = $pdo->query("
     SELECT COALESCE(SUM(p.price_rub),0) AS rub, COALESCE(SUM(p.price_uan),0) AS uan
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress')
+    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress','urgent')
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
 $ordersPerPage = 15;
 $orders_page = max(1, (int)($_GET['orders_page'] ?? 1));
 $orders_status = trim((string)($_GET['orders_status'] ?? ''));
+
+$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
 $where = '';
 $params = [];
@@ -817,7 +820,13 @@ foreach ($categories as $category) {
     $categoryLabels[$category['category_key']] = $category['title'] . $size;
 }
 
-$statusLabels = ['pending'=>'Ожидает','in_progress'=>'В процессе','ready'=>'Готов','declined'=>'Отклонен'];
+$statusLabels = [
+    'pending' => 'Новый',
+    'in_progress' => 'В процессе',
+    'urgent' => 'Срочный',
+    'ready' => 'Готов',
+    'declined' => 'Отклонён',
+];
 
 // ── Загрузка обращений ──────────────────────────────────────────
 $appeals = [];
@@ -980,6 +989,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; pointer-events: none; user-select: none; -webkit-user-drag: none; }
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
+.status.pending { background: rgba(249,115,22,.18); color: #fb923c; }
+.status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
+.status.urgent { background: rgba(234,88,12,.18); color: #fb923c; }
+.status.ready { background: rgba(34,197,94,.16); color: #86efac; }
+.status.declined { background: rgba(239,68,68,.15); color: #fca5a5; }
         .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
         .delete-link:hover { background: rgba(255,107,118,.12); border-color: #ff6b76; }
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
@@ -1047,7 +1061,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <div class="stat-card accent"><span>Заработано</span><strong><?= money($revenue['rub']??0) ?> ₽</strong><span><?= money($revenue['uan']??0) ?> ₴</span></div>
                 <div class="stat-card"><span>В активе</span><strong><?= money($activeValue['rub']??0) ?> ₽</strong><span><?= money($activeValue['uan']??0) ?> ₴</span></div>
                 <div class="stat-card"><span>Всего заказов</span><strong><?= (int)($orderStats['total']??0) ?></strong></div>
-                <div class="stat-card"><span>Ожидают</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
+                <div class="stat-card"><span>Новые</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
+                <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
                 <div class="stat-card"><span>В процессе</span><strong><?= (int)($orderStats['in_progress']??0) ?></strong></div>
                 <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
             </section>
@@ -1119,6 +1134,32 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <!-- Последние заказы -->
                     <section class="panel" data-panel="orders">
                         <h2>🧾 Заказы</h2>
+                        <?php if (!empty($pendingOrders)): ?>
+                            <div style="margin-bottom:14px;padding:14px;border:1px solid rgba(249,115,22,.25);background:rgba(249,115,22,.08);border-radius:12px;">
+                                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                                    <strong>Новые заказы:</strong>
+                                    <span style="background:#f97316;color:#111827;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:800;"><?= count($pendingOrders) ?></span>
+                                    <span style="color:#d8d8e8;font-size:13px;">Поступили на сайт и ждут принятия.</span>
+                                </div>
+                                <div style="margin-top:12px;display:grid;gap:10px;">
+                                    <?php foreach ($pendingOrders as $pord): ?>
+                                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:#0f0f14;">
+                                            <div style="min-width:0;overflow:hidden;">
+                                                <div style="font-size:13px;color:#f8f8fa;">Заказ #<?= (int)$pord['id'] ?> — <?= htmlspecialchars($pord['username'] ?: 'Клиент') ?></div>
+                                                <div style="color:#8a8a96;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
+                                            </div>
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+                                                <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;">Открыть</a>
+                                                <form method="POST" style="margin:0;">
+                                                    <input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>">
+                                                    <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;padding:8px 12px;">Принять</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
                             <form method="GET" style="display:flex;gap:8px;align-items:center;">
                                 <input type="hidden" name="view_order" value="">
@@ -1140,9 +1181,17 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <tr>
                                             <td>#<?= (int)$order['id'] ?></td>
                                             <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
-                                            <td><span class="status"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
+                                            <td><span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span></td>
                                             <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
-                                            <td><a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>">Открыть</a></td>
+                                            <td style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                                <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;">Открыть</a>
+                                                <?php if ($order['status'] === 'pending'): ?>
+                                                    <form method="POST" style="margin:0;">
+                                                        <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
+                                                        <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;">Принять</button>
+                                                    </form>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
