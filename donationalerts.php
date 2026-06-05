@@ -47,8 +47,28 @@ function daFetchJson(string $url, array $fields = [], array $headers = []): ?arr
     return is_array($decoded) ? $decoded : null;
 }
 
+function daEnsureTables(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS da_tokens (
+        id SERIAL PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS payouts (
+        id SERIAL PRIMARY KEY,
+        payout_id TEXT NOT NULL UNIQUE,
+        amount_gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+        amount_net NUMERIC(12,2) NOT NULL DEFAULT 0,
+        payout_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )");
+}
+
 function daStoreTokens(PDO $pdo, array $tokens): void
 {
+    daEnsureTables($pdo);
     $accessToken = trim((string)($tokens['access_token'] ?? ''));
     $refreshToken = trim((string)($tokens['refresh_token'] ?? ''));
     if ($accessToken === '' || $refreshToken === '') {
@@ -62,6 +82,7 @@ function daStoreTokens(PDO $pdo, array $tokens): void
 
 function daGetStoredTokens(PDO $pdo): ?array
 {
+    daEnsureTables($pdo);
     try {
         $stmt = $pdo->query("SELECT access_token, refresh_token, updated_at FROM da_tokens ORDER BY updated_at DESC LIMIT 1");
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -218,6 +239,7 @@ function daScanDonationsForPaidOrders(PDO $pdo, array $donations): int
 
 function daGetCurrentMonthPayoutStats(PDO $pdo): array
 {
+    daEnsureTables($pdo);
     try {
         $stmt = $pdo->prepare("SELECT amount_gross FROM payouts WHERE payout_date >= DATE_TRUNC('month', CURRENT_DATE)");
         $stmt->execute();

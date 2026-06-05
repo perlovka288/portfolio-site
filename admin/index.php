@@ -6,6 +6,12 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once 'auth.php';
 require_once '../config/db.php';
 
+try {
+    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
+} catch (PDOException $e) {
+    // ignore; column may already exist or database user may not have alter privileges
+}
+
 $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
