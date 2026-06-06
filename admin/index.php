@@ -137,11 +137,16 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) return;
 
+    // Приоритет: числовой chat_id из client_chat_id, потом username из telegram
     $chatId = trim((string)($row['client_chat_id'] ?? ''));
-    if ($chatId === '') {
+    if ($chatId === '' || !is_numeric($chatId)) {
+        // Пробуем распарсить telegram поле — может быть @username или ссылка
         $tg = trim((string)($row['telegram'] ?? ''));
-        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
-        $chatId = $tg;
+        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
+        $tg = trim($tg);
+        if ($tg !== '') {
+            $chatId = '@' . $tg; // username — Telegram принимает @username как chat_id
+        }
     }
     if ($chatId === '') return;
 
@@ -155,18 +160,23 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $text = $statusMessages[$newStatus] ?? null;
     if (!$text) return;
 
-    $profileUrl = PUBLIC_SITE_URL . 'includes/profile.php?order=' . $orderId;
+    $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
     $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
 
     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_TIMEOUT        => 15,
         CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
     ]);
-    curl_exec($ch);
+    $resp = curl_exec($ch);
+    $err  = curl_error($ch);
     curl_close($ch);
+
+    // Логируем результат для диагностики
+    $logLine = '[' . date('Y-m-d H:i:s') . "] notifyClient order={$orderId} status={$newStatus} chat={$chatId} err={$err} resp=" . substr((string)$resp, 0, 120) . PHP_EOL;
+    @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
 }
 
 // ── Установить дедлайн при взятии в работу ───────────────────────
@@ -222,15 +232,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $stmt->execute([$orderId]);
                 $row  = $stmt->fetch(PDO::FETCH_ASSOC);
                 $chat = trim((string)($row['client_chat_id'] ?? ''));
-                if ($chat === '') {
+                if ($chat === '' || !is_numeric($chat)) {
                     $tg = trim((string)($row['telegram'] ?? ''));
-                    $chat = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
+                    $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
+                    $chat = $tg !== '' ? '@' . $tg : '';
                 }
                 if (!empty($chat) && $text !== '') {
-                    sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
-                    $msgAdmin = "✉️ Сообщение отправлено клиенту (chat_id: {$chat}).";
+                    $res = sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
+                    if ($res && ($res['ok'] ?? false)) {
+                        $msgAdmin = "✉️ Сообщение отправлено клиенту (chat: {$chat}).";
+                    } else {
+                        global $telegramLastError;
+                        $msgAdmin = "⚠️ Не удалось отправить клиенту (chat: {$chat}): " . ($telegramLastError ?: 'неизвестная ошибка');
+                    }
                 } else {
-                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного чат_id или пустой текст.";
+                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного chat_id или пустой текст.";
                 }
             }
 
@@ -252,14 +268,23 @@ function sendTelegramRequest(string $method, array $params, array $files = []): 
     global $telegramLastError;
     $telegramLastError = '';
 
-    if (TELEGRAM_BOT_TOKEN === '' || PORTFOLIO_CHANNEL_CHAT === '') {
-        $telegramLastError = 'не задан токен бота или канал';
+    if (TELEGRAM_BOT_TOKEN === '') {
+        $telegramLastError = 'не задан токен бота';
         return null;
+    }
+
+    // Для публикации в канал — дополнительно проверяем наличие канала
+    if ($method === 'sendPhoto' && isset($params['chat_id']) && str_starts_with((string)$params['chat_id'], '@')) {
+        if (PORTFOLIO_CHANNEL_CHAT === '') {
+            $telegramLastError = 'не задан канал для публикации';
+            return null;
+        }
     }
 
     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/' . $method);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_POSTFIELDS, empty($files) ? http_build_query($params) : array_merge($params, $files));
     $response  = curl_exec($ch);
     $curlError = curl_error($ch);
@@ -933,7 +958,13 @@ if (isset($_POST['send_order_message'])) {
         $orow = $ost->fetch(PDO::FETCH_ASSOC);
         $sendTo = '';
         if ($orow) {
-            $sendTo = trim((string)($orow['client_chat_id'] ?? '')) ?: trim(ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', (string)($orow['telegram'] ?? '')), '@'));
+            $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
+            if ($clientChatId !== '' && is_numeric($clientChatId)) {
+                $sendTo = $clientChatId;
+            } else {
+                $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
+                $sendTo = $tg !== '' ? '@' . $tg : '';
+            }
         }
         try {
             $adminName = 'Администратор';

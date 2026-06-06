@@ -212,6 +212,18 @@ $displayName = $profile ? (
 $activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
 $finishedOrders = array_filter($orders, fn($o) => in_array($o['status'], ['ready','declined']));
 
+// Сортировка активных: срочные → в работе → ожидают
+$statusPriority = ['urgent' => 0, 'in_progress' => 1, 'pending' => 2];
+usort($activeOrders, function($a, $b) use ($statusPriority) {
+    $pa = $statusPriority[$a['status']] ?? 9;
+    $pb = $statusPriority[$b['status']] ?? 9;
+    if ($pa !== $pb) return $pa <=> $pb;
+    return (int)$b['id'] <=> (int)$a['id']; // внутри группы — новые первыми
+});
+
+// Выполненные — новые первыми
+usort($finishedOrders, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
+
 // Разворачиваемый заказ из GET
 $expandedOrderId = (int)($_GET['order'] ?? 0);
 $appealStatus    = $_GET['appeal'] ?? '';
@@ -274,6 +286,12 @@ body::before {
 /* Карточка заказа */
 .order-card { background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s; }
 .order-card:hover { border-color:var(--border-accent);box-shadow:0 0 20px rgba(249,115,22,0.1); }
+/* Цветовая маркировка по статусу */
+.order-card.status-urgent     { border-color:rgba(244,63,94,0.5);  box-shadow:0 0 18px rgba(244,63,94,0.12);  background:linear-gradient(135deg,rgba(244,63,94,0.06),var(--card)); }
+.order-card.status-in_progress{ border-color:rgba(96,165,250,0.35); box-shadow:0 0 14px rgba(96,165,250,0.08); }
+.order-card.status-pending    { border-color:rgba(249,115,22,0.25); }
+.order-card.status-ready      { border-color:rgba(74,222,128,0.35); background:linear-gradient(135deg,rgba(74,222,128,0.04),var(--card)); }
+.order-card.status-declined   { border-color:rgba(239,68,68,0.2); opacity:.65; }
 .order-card-header { padding:18px 20px;display:flex;align-items:flex-start;gap:16px;cursor:pointer;user-select:none; }
 .order-card-header:hover { background:rgba(255,255,255,0.02); }
 .order-card-emoji { font-size:22px;flex-shrink:0;margin-top:2px; }
@@ -284,6 +302,9 @@ body::before {
 .order-status-badge { display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:800;border:1px solid;white-space:nowrap;flex-shrink:0; }
 .order-expand-arrow { flex-shrink:0;color:var(--text2);transition:transform .25s;margin-top:4px; }
 .order-card-header[aria-expanded="true"] .order-expand-arrow { transform:rotate(180deg); }
+/* Кнопка скрыть историю */
+.btn-toggle-history { background:transparent;border:1px solid var(--border);border-radius:8px;padding:7px 14px;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s; }
+.btn-toggle-history:hover { border-color:var(--border-accent);color:var(--text); }
 
 /* Развёрнутое тело */
 .order-card-expanded { border-top:1px solid var(--border);padding:18px 20px;display:none; }
@@ -475,7 +496,7 @@ body::before {
             // Обращения по этому заказу
             $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
         ?>
-        <div class="order-card" id="order-<?= $oid ?>">
+        <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
             <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
                 <div class="order-card-emoji"><?= $emoji ?></div>
                 <div class="order-card-body">
@@ -560,8 +581,12 @@ body::before {
 
 <!-- ── ЗАВЕРШЁННЫЕ ЗАКАЗЫ ── -->
 <?php if (!empty($finishedOrders)): ?>
-<div class="orders-section">
-    <div class="orders-section-title"><span>📁 История</span></div>
+<div class="orders-section" id="history-section">
+    <div class="orders-section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <span>📁 История заказов (<?= count($finishedOrders) ?>)</span>
+        <button type="button" class="btn-toggle-history" id="btn-toggle-history" onclick="toggleHistory()">Скрыть историю</button>
+    </div>
+    <div id="history-list">
     <?php foreach ($finishedOrders as $order):
         $color = profileStatusColor($order['status']);
         $label = profileStatusLabel($order['status']);
@@ -571,7 +596,7 @@ body::before {
         $isExpanded = ($expandedOrderId === $oid);
         $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
     ?>
-    <div class="order-card" id="order-<?= $oid ?>" style="opacity:.7;">
+    <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
         <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
             <div class="order-card-emoji"><?= $emoji ?></div>
             <div class="order-card-body">
@@ -636,6 +661,7 @@ body::before {
         </div>
     </div>
     <?php endforeach; ?>
+    </div><!-- /history-list -->
 </div>
 <?php endif; ?>
 
@@ -664,6 +690,15 @@ function toggleOrder(id) {
 function toggleAppeal(id) {
     const form = document.getElementById('appeal-form-' + id);
     form.classList.toggle('open');
+}
+
+function toggleHistory() {
+    const list = document.getElementById('history-list');
+    const btn  = document.getElementById('btn-toggle-history');
+    if (!list || !btn) return;
+    const hidden = list.style.display === 'none';
+    list.style.display = hidden ? '' : 'none';
+    btn.textContent = hidden ? 'Скрыть историю' : 'Показать историю';
 }
 
 // Авто-раскрыть заказ если в URL есть ?order=ID

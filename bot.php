@@ -754,23 +754,46 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
  */
 function safeNotifyClient($pdo, $token, $order_id, $text) {
     try {
-        $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$order_id]);
-        $chat_id = $stmt->fetchColumn();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!empty($chat_id)) {
-            sendTelegram($token, 'sendMessage', [
+        $chat_id = trim((string)($row['client_chat_id'] ?? ''));
+
+        // Фолбэк: если числового chat_id нет — пробуем @username из поля telegram
+        if ($chat_id === '' || !is_numeric($chat_id)) {
+            $tg = trim((string)($row['telegram'] ?? ''));
+            $tg = str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg);
+            $tg = trim($tg);
+            if ($tg !== '') {
+                $chat_id = '@' . $tg;
+            }
+        }
+
+        if ($chat_id !== '') {
+            $res = sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $chat_id,
                 'text'       => $text,
                 'parse_mode' => 'Markdown',
             ]);
-            botLog("notifyClient order={$order_id} chat={$chat_id} ok");
+            $decoded = json_decode((string)$res, true);
+            if (!empty($decoded['ok'])) {
+                // Если дошли по @username — сохраняем реальный chat_id для будущих уведомлений
+                if (!is_numeric(str_replace('@', '', $chat_id)) && !empty($decoded['result']['chat']['id'])) {
+                    $real_id = (string)$decoded['result']['chat']['id'];
+                    $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ? AND (client_chat_id IS NULL OR client_chat_id = '')")
+                        ->execute([$real_id, $order_id]);
+                    botLog("notifyClient order={$order_id} saved real chat_id={$real_id}");
+                }
+                botLog("notifyClient order={$order_id} chat={$chat_id} ok");
+            } else {
+                botLog("notifyClient order={$order_id} chat={$chat_id} FAILED resp=" . substr((string)$res, 0, 150));
+            }
         } else {
-            botLog("notifyClient order={$order_id} — client_chat_id пустой, уведомление не отправлено");
+            botLog("notifyClient order={$order_id} no chat_id and no telegram field, skip");
         }
     } catch (Exception $e) {
         botLog("notifyClient error order={$order_id}: " . $e->getMessage());
-        // Не бросаем исключение дальше — не роняем весь скрипт
     }
 }
 
