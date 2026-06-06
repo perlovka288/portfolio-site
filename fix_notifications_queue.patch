@@ -1,0 +1,402 @@
+From 925583f6f4406f561188e5708ad8a31338d52ccf Mon Sep 17 00:00:00 2001
+From: Fix Bot <fix@fix.com>
+Date: Sat, 6 Jun 2026 14:55:58 +0000
+Subject: [PATCH] fix: notifications, queue sorting, order details, appeal
+ links
+
+---
+ admin/index.php | 94 +++++++++++++++++++++++++++++++++++++------------
+ bot.php         | 58 ++++++++++++++++++++++--------
+ profile.php     | 51 ++++++++++++++++++++++-----
+ 3 files changed, 158 insertions(+), 45 deletions(-)
+
+diff --git a/admin/index.php b/admin/index.php
+index f23686a..8e4219d 100644
+--- a/admin/index.php
++++ b/admin/index.php
+@@ -137,11 +137,16 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
+     $row = $stmt->fetch(PDO::FETCH_ASSOC);
+     if (!$row) return;
+ 
++    // Приоритет: числовой chat_id из client_chat_id, потом username из telegram
+     $chatId = trim((string)($row['client_chat_id'] ?? ''));
+-    if ($chatId === '') {
++    if ($chatId === '' || !is_numeric($chatId)) {
++        // Пробуем распарсить telegram поле — может быть @username или ссылка
+         $tg = trim((string)($row['telegram'] ?? ''));
+-        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
+-        $chatId = $tg;
++        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
++        $tg = trim($tg);
++        if ($tg !== '') {
++            $chatId = '@' . $tg; // username — Telegram принимает @username как chat_id
++        }
+     }
+     if ($chatId === '') return;
+ 
+@@ -155,18 +160,23 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
+     $text = $statusMessages[$newStatus] ?? null;
+     if (!$text) return;
+ 
+-    $profileUrl = PUBLIC_SITE_URL . 'includes/profile.php?order=' . $orderId;
++    $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
+     $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
+ 
+     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+     curl_setopt_array($ch, [
+         CURLOPT_POST           => true,
+         CURLOPT_RETURNTRANSFER => true,
+-        CURLOPT_TIMEOUT        => 10,
++        CURLOPT_TIMEOUT        => 15,
+         CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
+     ]);
+-    curl_exec($ch);
++    $resp = curl_exec($ch);
++    $err  = curl_error($ch);
+     curl_close($ch);
++
++    // Логируем результат для диагностики
++    $logLine = '[' . date('Y-m-d H:i:s') . "] notifyClient order={$orderId} status={$newStatus} chat={$chatId} err={$err} resp=" . substr((string)$resp, 0, 120) . PHP_EOL;
++    @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
+ }
+ 
+ // ── Установить дедлайн при взятии в работу ───────────────────────
+@@ -222,15 +232,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
+                 $stmt->execute([$orderId]);
+                 $row  = $stmt->fetch(PDO::FETCH_ASSOC);
+                 $chat = trim((string)($row['client_chat_id'] ?? ''));
+-                if ($chat === '') {
++                if ($chat === '' || !is_numeric($chat)) {
+                     $tg = trim((string)($row['telegram'] ?? ''));
+-                    $chat = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $tg), '@');
++                    $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
++                    $chat = $tg !== '' ? '@' . $tg : '';
+                 }
+                 if (!empty($chat) && $text !== '') {
+-                    sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
+-                    $msgAdmin = "✉️ Сообщение отправлено клиенту (chat_id: {$chat}).";
++                    $res = sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
++                    if ($res && ($res['ok'] ?? false)) {
++                        $msgAdmin = "✉️ Сообщение отправлено клиенту (chat: {$chat}).";
++                    } else {
++                        global $telegramLastError;
++                        $msgAdmin = "⚠️ Не удалось отправить клиенту (chat: {$chat}): " . ($telegramLastError ?: 'неизвестная ошибка');
++                    }
+                 } else {
+-                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного чат_id или пустой текст.";
++                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного chat_id или пустой текст.";
+                 }
+             }
+ 
+@@ -252,14 +268,23 @@ function sendTelegramRequest(string $method, array $params, array $files = []):
+     global $telegramLastError;
+     $telegramLastError = '';
+ 
+-    if (TELEGRAM_BOT_TOKEN === '' || PORTFOLIO_CHANNEL_CHAT === '') {
+-        $telegramLastError = 'не задан токен бота или канал';
++    if (TELEGRAM_BOT_TOKEN === '') {
++        $telegramLastError = 'не задан токен бота';
+         return null;
+     }
+ 
++    // Для публикации в канал — дополнительно проверяем наличие канала
++    if ($method === 'sendPhoto' && isset($params['chat_id']) && str_starts_with((string)$params['chat_id'], '@')) {
++        if (PORTFOLIO_CHANNEL_CHAT === '') {
++            $telegramLastError = 'не задан канал для публикации';
++            return null;
++        }
++    }
++
+     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/' . $method);
+     curl_setopt($ch, CURLOPT_POST, true);
+     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
++    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+     curl_setopt($ch, CURLOPT_POSTFIELDS, empty($files) ? http_build_query($params) : array_merge($params, $files));
+     $response  = curl_exec($ch);
+     $curlError = curl_error($ch);
+@@ -709,15 +734,32 @@ if (isset($_POST['reply_appeal'])) {
+         $ap->execute([$appealId]);
+         $ap = $ap->fetch(PDO::FETCH_ASSOC);
+ 
+-        if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
+-            $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
+-            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
+-                  . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
+-                  . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
+-            $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+-                CURLOPT_POSTFIELDS => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML']]);
+-            curl_exec($ch); curl_close($ch);
++        if ($ap && TELEGRAM_BOT_TOKEN !== '') {
++            // Определяем chat_id клиента: числовой tg_id > @username из telegram поля заказа
++            $clientChatId = trim((string)($ap['client_telegram'] ?? ''));
++            // client_telegram = tg_id из tg_links (числовой) или telegram из orders
++            if ($clientChatId === '') {
++                // Пробуем client_chat_id из заказа напрямую
++                $ochat = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
++                $ochat->execute([(int)$ap['order_id']]);
++                $orow = $ochat->fetch(PDO::FETCH_ASSOC);
++                $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
++                if ($clientChatId === '' || !is_numeric($clientChatId)) {
++                    $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
++                    $clientChatId = $tg !== '' ? '@' . $tg : '';
++                }
++            }
++
++            if ($clientChatId !== '') {
++                $link = PUBLIC_SITE_URL . 'profile.php?order=' . (int)$ap['order_id'];
++                $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришёл ответ!\n\n"
++                      . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
++                      . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
++                $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
++                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
++                    CURLOPT_POSTFIELDS => ['chat_id' => $clientChatId, 'text' => $text, 'parse_mode' => 'HTML']]);
++                curl_exec($ch); curl_close($ch);
++            }
+         }
+         $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
+     }
+@@ -933,7 +975,13 @@ if (isset($_POST['send_order_message'])) {
+         $orow = $ost->fetch(PDO::FETCH_ASSOC);
+         $sendTo = '';
+         if ($orow) {
+-            $sendTo = trim((string)($orow['client_chat_id'] ?? '')) ?: trim(ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', (string)($orow['telegram'] ?? '')), '@'));
++            $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
++            if ($clientChatId !== '' && is_numeric($clientChatId)) {
++                $sendTo = $clientChatId;
++            } else {
++                $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
++                $sendTo = $tg !== '' ? '@' . $tg : '';
++            }
+         }
+         try {
+             $adminName = 'Администратор';
+diff --git a/bot.php b/bot.php
+index 05bce54..dbf6c2e 100644
+--- a/bot.php
++++ b/bot.php
+@@ -754,23 +754,46 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
+  */
+ function safeNotifyClient($pdo, $token, $order_id, $text) {
+     try {
+-        $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
++        $stmt = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
+         $stmt->execute([$order_id]);
+-        $chat_id = $stmt->fetchColumn();
++        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+ 
+-        if (!empty($chat_id)) {
+-            sendTelegram($token, 'sendMessage', [
++        $chat_id = trim((string)($row['client_chat_id'] ?? ''));
++
++        // Фолбэк: если числового chat_id нет — пробуем @username из поля telegram
++        if ($chat_id === '' || !is_numeric($chat_id)) {
++            $tg = trim((string)($row['telegram'] ?? ''));
++            $tg = str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg);
++            $tg = trim($tg);
++            if ($tg !== '') {
++                $chat_id = '@' . $tg;
++            }
++        }
++
++        if ($chat_id !== '') {
++            $res = sendTelegram($token, 'sendMessage', [
+                 'chat_id'    => $chat_id,
+                 'text'       => $text,
+                 'parse_mode' => 'Markdown',
+             ]);
+-            botLog("notifyClient order={$order_id} chat={$chat_id} ok");
++            $decoded = json_decode((string)$res, true);
++            if (!empty($decoded['ok'])) {
++                // Если дошли по @username — сохраняем реальный chat_id для будущих уведомлений
++                if (!is_numeric(str_replace('@', '', $chat_id)) && !empty($decoded['result']['chat']['id'])) {
++                    $real_id = (string)$decoded['result']['chat']['id'];
++                    $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ? AND (client_chat_id IS NULL OR client_chat_id = '')")
++                        ->execute([$real_id, $order_id]);
++                    botLog("notifyClient order={$order_id} saved real chat_id={$real_id}");
++                }
++                botLog("notifyClient order={$order_id} chat={$chat_id} ok");
++            } else {
++                botLog("notifyClient order={$order_id} chat={$chat_id} FAILED resp=" . substr((string)$res, 0, 150));
++            }
+         } else {
+-            botLog("notifyClient order={$order_id} — client_chat_id пустой, уведомление не отправлено");
++            botLog("notifyClient order={$order_id} no chat_id and no telegram field, skip");
+         }
+     } catch (Exception $e) {
+         botLog("notifyClient error order={$order_id}: " . $e->getMessage());
+-        // Не бросаем исключение дальше — не роняем весь скрипт
+     }
+ }
+ 
+@@ -911,7 +934,9 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
+         SELECT id, username, telegram, service_key, status, created_at
+         FROM orders
+         WHERE status IN ('pending','in_progress','urgent')
+-        ORDER BY created_at ASC, id ASC
++        ORDER BY
++            CASE status WHEN 'urgent' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END ASC,
++            created_at ASC
+     ");
+     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
+ 
+@@ -924,11 +949,16 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
+     $keyboard = ['inline_keyboard' => []];
+ 
+     foreach ($queue as $item) {
+-        $deadline     = getDeadlineInfo($item['created_at']);
+-        $emoji        = statusEmoji($item['status']);
+-        $message     .= "{$emoji} *Заказ #{$item['id']}* — {$deadline['text']}\n";
++        $deadline = getDeadlineInfo($item['created_at']);
++        $emoji    = statusEmoji($item['status']);
++        $label    = [
++            'pending'     => 'Новый',
++            'in_progress' => 'В работе',
++            'urgent'      => '⚡ СРОЧНЫЙ',
++        ][$item['status']] ?? $item['status'];
++        $message .= "{$emoji} *Заказ #{$item['id']}* — {$label} — {$deadline['text']}\n";
+         $keyboard['inline_keyboard'][] = [[
+-            'text'          => "{$emoji} Заказ #{$item['id']} • {$deadline['button']}",
++            'text'          => "{$emoji} #{$item['id']} {$label} • {$deadline['button']}",
+             'callback_data' => "adm_view_{$item['id']}",
+         ]];
+     }
+@@ -944,13 +974,13 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
+ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
+     $o_stmt = $pdo->prepare("
+         SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, deadline
+-        FROM orders WHERE id = ? AND status IN ('pending','in_progress','urgent') LIMIT 1
++        FROM orders WHERE id = ? LIMIT 1
+     ");
+     $o_stmt->execute([$order_id]);
+     $item = $o_stmt->fetch(PDO::FETCH_ASSOC);
+ 
+     if (!$item) {
+-        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "Заказ #{$order_id} не найден в активной очереди."]);
++        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "Заказ #{$order_id} не найден."]);
+         return;
+     }
+ 
+diff --git a/profile.php b/profile.php
+index 7a62317..1ed9192 100644
+--- a/profile.php
++++ b/profile.php
+@@ -84,13 +84,13 @@ if (isset($_POST['send_appeal'])) {
+ // ── Уведомление админу о новом обращении ──────────────────
+ $_tgToken  = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+ $_adminId  = getenv('ADMIN_ID') ?: '1710365896';
+-$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php?order=' . $appealOrderId;
+-$_tgText   = "📩 <b>Новое обращение!</b>\n\n"
++$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
++$_tgText   = "📩 <b>Новое обращение по заказу!</b>\n\n"
+     . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
+-    . "📋 Заказ: <b><a href=\"" . $_siteUrl . "\">#" . $appealOrderId . "</a></b>\n"
++    . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
+     . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
+     . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
+-    . "🔗 <a href=\"" . $_siteUrl . "\">Открыть админ-панель → Обращения</a>";
++    . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>";
+ $_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
+ curl_setopt_array($_ch, [
+     CURLOPT_POST           => true,
+@@ -212,6 +212,18 @@ $displayName = $profile ? (
+ $activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
+ $finishedOrders = array_filter($orders, fn($o) => in_array($o['status'], ['ready','declined']));
+ 
++// Сортировка активных: срочные → в работе → ожидают
++$statusPriority = ['urgent' => 0, 'in_progress' => 1, 'pending' => 2];
++usort($activeOrders, function($a, $b) use ($statusPriority) {
++    $pa = $statusPriority[$a['status']] ?? 9;
++    $pb = $statusPriority[$b['status']] ?? 9;
++    if ($pa !== $pb) return $pa <=> $pb;
++    return (int)$b['id'] <=> (int)$a['id']; // внутри группы — новые первыми
++});
++
++// Выполненные — новые первыми
++usort($finishedOrders, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
++
+ // Разворачиваемый заказ из GET
+ $expandedOrderId = (int)($_GET['order'] ?? 0);
+ $appealStatus    = $_GET['appeal'] ?? '';
+@@ -274,6 +286,12 @@ body::before {
+ /* Карточка заказа */
+ .order-card { background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s; }
+ .order-card:hover { border-color:var(--border-accent);box-shadow:0 0 20px rgba(249,115,22,0.1); }
++/* Цветовая маркировка по статусу */
++.order-card.status-urgent     { border-color:rgba(244,63,94,0.5);  box-shadow:0 0 18px rgba(244,63,94,0.12);  background:linear-gradient(135deg,rgba(244,63,94,0.06),var(--card)); }
++.order-card.status-in_progress{ border-color:rgba(96,165,250,0.35); box-shadow:0 0 14px rgba(96,165,250,0.08); }
++.order-card.status-pending    { border-color:rgba(249,115,22,0.25); }
++.order-card.status-ready      { border-color:rgba(74,222,128,0.35); background:linear-gradient(135deg,rgba(74,222,128,0.04),var(--card)); }
++.order-card.status-declined   { border-color:rgba(239,68,68,0.2); opacity:.65; }
+ .order-card-header { padding:18px 20px;display:flex;align-items:flex-start;gap:16px;cursor:pointer;user-select:none; }
+ .order-card-header:hover { background:rgba(255,255,255,0.02); }
+ .order-card-emoji { font-size:22px;flex-shrink:0;margin-top:2px; }
+@@ -284,6 +302,9 @@ body::before {
+ .order-status-badge { display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:800;border:1px solid;white-space:nowrap;flex-shrink:0; }
+ .order-expand-arrow { flex-shrink:0;color:var(--text2);transition:transform .25s;margin-top:4px; }
+ .order-card-header[aria-expanded="true"] .order-expand-arrow { transform:rotate(180deg); }
++/* Кнопка скрыть историю */
++.btn-toggle-history { background:transparent;border:1px solid var(--border);border-radius:8px;padding:7px 14px;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s; }
++.btn-toggle-history:hover { border-color:var(--border-accent);color:var(--text); }
+ 
+ /* Развёрнутое тело */
+ .order-card-expanded { border-top:1px solid var(--border);padding:18px 20px;display:none; }
+@@ -475,7 +496,7 @@ body::before {
+             // Обращения по этому заказу
+             $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
+         ?>
+-        <div class="order-card" id="order-<?= $oid ?>">
++        <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
+             <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
+                 <div class="order-card-emoji"><?= $emoji ?></div>
+                 <div class="order-card-body">
+@@ -560,8 +581,12 @@ body::before {
+ 
+ <!-- ── ЗАВЕРШЁННЫЕ ЗАКАЗЫ ── -->
+ <?php if (!empty($finishedOrders)): ?>
+-<div class="orders-section">
+-    <div class="orders-section-title"><span>📁 История</span></div>
++<div class="orders-section" id="history-section">
++    <div class="orders-section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
++        <span>📁 История заказов (<?= count($finishedOrders) ?>)</span>
++        <button type="button" class="btn-toggle-history" id="btn-toggle-history" onclick="toggleHistory()">Скрыть историю</button>
++    </div>
++    <div id="history-list">
+     <?php foreach ($finishedOrders as $order):
+         $color = profileStatusColor($order['status']);
+         $label = profileStatusLabel($order['status']);
+@@ -571,7 +596,7 @@ body::before {
+         $isExpanded = ($expandedOrderId === $oid);
+         $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
+     ?>
+-    <div class="order-card" id="order-<?= $oid ?>" style="opacity:.7;">
++    <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
+         <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
+             <div class="order-card-emoji"><?= $emoji ?></div>
+             <div class="order-card-body">
+@@ -636,6 +661,7 @@ body::before {
+         </div>
+     </div>
+     <?php endforeach; ?>
++    </div><!-- /history-list -->
+ </div>
+ <?php endif; ?>
+ 
+@@ -666,6 +692,15 @@ function toggleAppeal(id) {
+     form.classList.toggle('open');
+ }
+ 
++function toggleHistory() {
++    const list = document.getElementById('history-list');
++    const btn  = document.getElementById('btn-toggle-history');
++    if (!list || !btn) return;
++    const hidden = list.style.display === 'none';
++    list.style.display = hidden ? '' : 'none';
++    btn.textContent = hidden ? 'Скрыть историю' : 'Показать историю';
++}
++
+ // Авто-раскрыть заказ если в URL есть ?order=ID
+ (function() {
+     const params = new URLSearchParams(location.search);
+-- 
+2.43.0
