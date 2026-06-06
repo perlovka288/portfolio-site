@@ -161,17 +161,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $order_id = (int)$pdo->lastInsertId();
         }
 
-        $success_msg = "🚀 ВНИМАНИЕ ДЛЯ ОТСЛЕЖИВАНИЯ - /status_{$order_id} В БОТА, ИНАЧЕ СООБЩЕНИЯ С ИЗМЕНЕНИЕМ СТАТУСА ВАМ ПРИХОДИТЬ НЕ БУДУТ. Заказ #{$order_id} отправлен!;
+    // Добавлена закрывающая кавычка перед ;
+$success_msg = "🚀 ВНИМАНИЕ ДЛЯ ОТСЛЕЖИВАНИЯ - /status_{$order_id} В БОТА, ИНАЧЕ СООБЩЕНИЯ С ИЗМЕНЕНИЕМ СТАТУСА ВАМ ПРИХОДИТЬ НЕ БУДУТ - Заказ #{$order_id} отправлен!";
 
-        // Уведомить клиента в TG если аккаунт привязан
-        $client_chat_id = null;
-        try {
-            $lnk = $pdo->prepare("
-                SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
-                FROM tg_links
-                WHERE session_id = ? AND linked = TRUE
-                ORDER BY id DESC LIMIT 1
-            ");
+// Уведомить клиента в TG если аккаунт привязан
+$client_chat_id = null;
+try {
+    $lnk = $pdo->prepare("
+        SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+        FROM tg_links
+        WHERE session_id = ? AND linked = TRUE
+        ORDER BY id DESC LIMIT 1
+    "); // Не забудь закрыть здесь prepare, если он обрывался
+
             $lnk->execute([session_id()]);
             $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
             if ($lnk_row && !empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
