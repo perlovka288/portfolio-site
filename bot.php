@@ -934,7 +934,9 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
         SELECT id, username, telegram, service_key, status, created_at
         FROM orders
         WHERE status IN ('pending','in_progress','urgent')
-        ORDER BY created_at ASC, id ASC
+        ORDER BY
+            CASE status WHEN 'urgent' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END ASC,
+            created_at ASC
     ");
     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -947,11 +949,16 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
     $keyboard = ['inline_keyboard' => []];
 
     foreach ($queue as $item) {
-        $deadline     = getDeadlineInfo($item['created_at']);
-        $emoji        = statusEmoji($item['status']);
-        $message     .= "{$emoji} *Заказ #{$item['id']}* — {$deadline['text']}\n";
+        $deadline = getDeadlineInfo($item['created_at']);
+        $emoji    = statusEmoji($item['status']);
+        $label    = [
+            'pending'     => 'Новый',
+            'in_progress' => 'В работе',
+            'urgent'      => '⚡ СРОЧНЫЙ',
+        ][$item['status']] ?? $item['status'];
+        $message .= "{$emoji} *Заказ #{$item['id']}* — {$label} — {$deadline['text']}\n";
         $keyboard['inline_keyboard'][] = [[
-            'text'          => "{$emoji} Заказ #{$item['id']} • {$deadline['button']}",
+            'text'          => "{$emoji} #{$item['id']} {$label} • {$deadline['button']}",
             'callback_data' => "adm_view_{$item['id']}",
         ]];
     }
@@ -967,13 +974,13 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
         SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, deadline
-        FROM orders WHERE id = ? AND status IN ('pending','in_progress','urgent') LIMIT 1
+        FROM orders WHERE id = ? LIMIT 1
     ");
     $o_stmt->execute([$order_id]);
     $item = $o_stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$item) {
-        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "Заказ #{$order_id} не найден в активной очереди."]);
+        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "Заказ #{$order_id} не найден."]);
         return;
     }
 

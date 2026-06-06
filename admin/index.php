@@ -734,15 +734,32 @@ if (isset($_POST['reply_appeal'])) {
         $ap->execute([$appealId]);
         $ap = $ap->fetch(PDO::FETCH_ASSOC);
 
-        if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
-            $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
-            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
-                  . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
-                  . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
-            $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-                CURLOPT_POSTFIELDS => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML']]);
-            curl_exec($ch); curl_close($ch);
+        if ($ap && TELEGRAM_BOT_TOKEN !== '') {
+            // Определяем chat_id клиента: числовой tg_id > @username из telegram поля заказа
+            $clientChatId = trim((string)($ap['client_telegram'] ?? ''));
+            // client_telegram = tg_id из tg_links (числовой) или telegram из orders
+            if ($clientChatId === '') {
+                // Пробуем client_chat_id из заказа напрямую
+                $ochat = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
+                $ochat->execute([(int)$ap['order_id']]);
+                $orow = $ochat->fetch(PDO::FETCH_ASSOC);
+                $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
+                if ($clientChatId === '' || !is_numeric($clientChatId)) {
+                    $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
+                    $clientChatId = $tg !== '' ? '@' . $tg : '';
+                }
+            }
+
+            if ($clientChatId !== '') {
+                $link = PUBLIC_SITE_URL . 'profile.php?order=' . (int)$ap['order_id'];
+                $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришёл ответ!\n\n"
+                      . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
+                      . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
+                $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                    CURLOPT_POSTFIELDS => ['chat_id' => $clientChatId, 'text' => $text, 'parse_mode' => 'HTML']]);
+                curl_exec($ch); curl_close($ch);
+            }
         }
         $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
     }
