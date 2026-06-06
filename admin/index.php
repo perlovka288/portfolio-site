@@ -23,8 +23,12 @@ define('ADMIN_TELEGRAM_ID', '1710365896');
 $telegramLastError = '';
 
 // ══════════════════════════════════════════════════════════════════
-// DonationAlerts — заглушки (если нет отдельного файла da.php)
+// DonationAlerts
 // ══════════════════════════════════════════════════════════════════
+$_da_path = __DIR__ . '/../donationalerts.php';
+if (file_exists($_da_path)) {
+    require_once $_da_path;
+}
 if (!function_exists('daEnsureAccessToken')) {
     function daEnsureAccessToken(PDO $pdo): ?string { return null; }
 }
@@ -132,23 +136,32 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
 // ── Уведомление клиенту о смене статуса ──────────────────────────
 function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): void
 {
-    $stmt = $pdo->prepare("SELECT client_chat_id, telegram, username FROM orders WHERE id = ? LIMIT 1");
+    $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
     $stmt->execute([$orderId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) return;
 
-    // Приоритет: числовой chat_id из client_chat_id, потом username из telegram
     $chatId = trim((string)($row['client_chat_id'] ?? ''));
-    if ($chatId === '' || !is_numeric($chatId)) {
-        // Пробуем распарсить telegram поле — может быть @username или ссылка
-        $tg = trim((string)($row['telegram'] ?? ''));
-        $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
-        $tg = trim($tg);
-        if ($tg !== '') {
-            $chatId = '@' . $tg; // username — Telegram принимает @username как chat_id
-        }
+
+    // Фолбэк: ищем числовой tg_id через tg_links по session_id
+    if (($chatId === '' || !is_numeric($chatId)) && !empty($row['session_id'])) {
+        try {
+            $lnk = $pdo->prepare("
+                SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1
+            ");
+            $lnk->execute([$row['session_id']]);
+            $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
+            if (!empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
+                $chatId = $lnk_row['chat_id'];
+                $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")
+                    ->execute([$chatId, $orderId]);
+            }
+        } catch (Throwable $e) {}
     }
-    if ($chatId === '') return;
+
+    // Только числовой chat_id — @username не работает без начала диалога
+    if ($chatId === '' || !is_numeric($chatId)) return;
 
     $statusMessages = [
         'in_progress' => "🎨 Ваш заказ #<b>{$orderId}</b> взят в работу! Дизайнер уже начал выполнение.",
@@ -174,7 +187,6 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $err  = curl_error($ch);
     curl_close($ch);
 
-    // Логируем результат для диагностики
     $logLine = '[' . date('Y-m-d H:i:s') . "] notifyClient order={$orderId} status={$newStatus} chat={$chatId} err={$err} resp=" . substr((string)$resp, 0, 120) . PHP_EOL;
     @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
 }
@@ -232,21 +244,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $stmt->execute([$orderId]);
                 $row  = $stmt->fetch(PDO::FETCH_ASSOC);
                 $chat = trim((string)($row['client_chat_id'] ?? ''));
+                // Фолбэк через session_id
                 if ($chat === '' || !is_numeric($chat)) {
-                    $tg = trim((string)($row['telegram'] ?? ''));
-                    $tg = ltrim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg), '');
-                    $chat = $tg !== '' ? '@' . $tg : '';
+                    try {
+                        $sess = $pdo->prepare("SELECT session_id FROM orders WHERE id = ? LIMIT 1");
+                        $sess->execute([$orderId]);
+                        $sessRow = $sess->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($sessRow['session_id'])) {
+                            $lnkQ = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+                            $lnkQ->execute([$sessRow['session_id']]);
+                            $lnkR = $lnkQ->fetch(PDO::FETCH_ASSOC);
+                            if (!empty($lnkR['chat_id']) && is_numeric($lnkR['chat_id'])) {
+                                $chat = $lnkR['chat_id'];
+                            }
+                        }
+                    } catch (Throwable $e) {}
                 }
-                if (!empty($chat) && $text !== '') {
+                if (!empty($chat) && is_numeric($chat) && $text !== '') {
                     $res = sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
-                    if ($res && ($res['ok'] ?? false)) {
-                        $msgAdmin = "✉️ Сообщение отправлено клиенту (chat: {$chat}).";
-                    } else {
-                        global $telegramLastError;
-                        $msgAdmin = "⚠️ Не удалось отправить клиенту (chat: {$chat}): " . ($telegramLastError ?: 'неизвестная ошибка');
-                    }
+                    $msgAdmin = ($res && ($res['ok'] ?? false))
+                        ? "✉️ Сообщение отправлено клиенту (chat: {$chat})."
+                        : "⚠️ Не удалось отправить (chat: {$chat}). Клиент не писал боту.";
                 } else {
-                    $msgAdmin = "⚠️ Невозможно отправить: нет привязанного chat_id или пустой текст.";
+                    $msgAdmin = "⚠️ Невозможно отправить: клиент не привязал Telegram к боту.";
                 }
             }
 
@@ -273,18 +293,9 @@ function sendTelegramRequest(string $method, array $params, array $files = []): 
         return null;
     }
 
-    // Для публикации в канал — дополнительно проверяем наличие канала
-    if ($method === 'sendPhoto' && isset($params['chat_id']) && str_starts_with((string)$params['chat_id'], '@')) {
-        if (PORTFOLIO_CHANNEL_CHAT === '') {
-            $telegramLastError = 'не задан канал для публикации';
-            return null;
-        }
-    }
-
     $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/' . $method);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_POSTFIELDS, empty($files) ? http_build_query($params) : array_merge($params, $files));
     $response  = curl_exec($ch);
     $curlError = curl_error($ch);
@@ -734,32 +745,15 @@ if (isset($_POST['reply_appeal'])) {
         $ap->execute([$appealId]);
         $ap = $ap->fetch(PDO::FETCH_ASSOC);
 
-        if ($ap && TELEGRAM_BOT_TOKEN !== '') {
-            // Определяем chat_id клиента: числовой tg_id > @username из telegram поля заказа
-            $clientChatId = trim((string)($ap['client_telegram'] ?? ''));
-            // client_telegram = tg_id из tg_links (числовой) или telegram из orders
-            if ($clientChatId === '') {
-                // Пробуем client_chat_id из заказа напрямую
-                $ochat = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
-                $ochat->execute([(int)$ap['order_id']]);
-                $orow = $ochat->fetch(PDO::FETCH_ASSOC);
-                $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
-                if ($clientChatId === '' || !is_numeric($clientChatId)) {
-                    $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
-                    $clientChatId = $tg !== '' ? '@' . $tg : '';
-                }
-            }
-
-            if ($clientChatId !== '') {
-                $link = PUBLIC_SITE_URL . 'profile.php?order=' . (int)$ap['order_id'];
-                $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришёл ответ!\n\n"
-                      . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
-                      . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
-                $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-                    CURLOPT_POSTFIELDS => ['chat_id' => $clientChatId, 'text' => $text, 'parse_mode' => 'HTML']]);
-                curl_exec($ch); curl_close($ch);
-            }
+        if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
+            $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
+            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
+                  . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
+                  . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
+            $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                CURLOPT_POSTFIELDS => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML']]);
+            curl_exec($ch); curl_close($ch);
         }
         $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
     }
@@ -970,17 +964,25 @@ if (isset($_POST['send_order_message'])) {
     $subj = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
     $body = trim($_POST['msg_text'] ?? '');
     if ($oid > 0 && $body !== '') {
-        $ost = $pdo->prepare("SELECT id, username, telegram, client_chat_id FROM orders WHERE id = ? LIMIT 1");
+        $ost = $pdo->prepare("SELECT id, username, telegram, client_chat_id, session_id FROM orders WHERE id = ? LIMIT 1");
         $ost->execute([$oid]);
         $orow = $ost->fetch(PDO::FETCH_ASSOC);
         $sendTo = '';
         if ($orow) {
-            $clientChatId = trim((string)($orow['client_chat_id'] ?? ''));
-            if ($clientChatId !== '' && is_numeric($clientChatId)) {
-                $sendTo = $clientChatId;
-            } else {
-                $tg = trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', (string)($orow['telegram'] ?? '')));
-                $sendTo = $tg !== '' ? '@' . $tg : '';
+            $sendTo = trim((string)($orow['client_chat_id'] ?? ''));
+            // Фолбэк через session_id -> tg_links
+            if ($sendTo === '' || !is_numeric($sendTo)) {
+                if (!empty($orow['session_id'])) {
+                    try {
+                        $lq = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+                        $lq->execute([$orow['session_id']]);
+                        $lr = $lq->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($lr['chat_id']) && is_numeric($lr['chat_id'])) {
+                            $sendTo = $lr['chat_id'];
+                            $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$sendTo, $oid]);
+                        }
+                    } catch (Throwable $e) {}
+                }
             }
         }
         try {

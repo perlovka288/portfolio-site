@@ -457,7 +457,56 @@ if (isset($update['message'])) {
             ]);
             exit;
         }
-    }
+
+        // ── Очистка всех заказов ────────────────────────────────────
+        if ($text === '🗑 Очистить все заказы') {
+            // Генерируем капчу — 4-значный код
+            $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
+            // Сохраняем код в БД (bot_states или просто в файл)
+            file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно\\.\n\n📊 Статистика дохода также будет обнулена\\.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_(код действителен 2 минуты)_",
+                'parse_mode' => 'MarkdownV2',
+                'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Проверяем — может пользователь ввёл код подтверждения очистки
+        $captchaFile = sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt';
+        if (file_exists($captchaFile)) {
+            $parts   = explode('|', file_get_contents($captchaFile));
+            $stored  = trim($parts[0] ?? '');
+            $expires = (int)($parts[1] ?? 0);
+            if ($expires > time() && strtoupper(trim($text)) === $stored) {
+                // Код верный — чистим БД
+                unlink($captchaFile);
+                try {
+                    $pdo->exec("TRUNCATE TABLE appeals_messages RESTART IDENTITY CASCADE");
+                    $pdo->exec("TRUNCATE TABLE appeals RESTART IDENTITY CASCADE");
+                    $pdo->exec("TRUNCATE TABLE orders RESTART IDENTITY CASCADE");
+                    $count = 0;
+                    sendTelegram($token, 'sendMessage', [
+                        'chat_id'      => $admin_id,
+                        'text'         => "✅ *База данных очищена\!*\n\nВсе заказы, обращения и история удалены\.\nСтатистика обнулена\.",
+                        'parse_mode'   => 'MarkdownV2',
+                        'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                    ]);
+                } catch (Throwable $e) {
+                    sendTelegram($token, 'sendMessage', [
+                        'chat_id'    => $admin_id,
+                        'text'       => "❌ Ошибка очистки: " . $e->getMessage(),
+                        'parse_mode' => 'Markdown',
+                        'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                    ]);
+                }
+                exit;
+            } elseif ($expires <= time()) {
+                unlink($captchaFile);
+            }
+        }
+    } // end if admin
 
     // /status_X — клиент проверяет статус и привязывает chat_id
     if (strpos($text, '/status_') === 0) {
@@ -761,7 +810,7 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
 
         $chat_id = trim((string)($row['client_chat_id'] ?? ''));
 
-        // Фолбэк 1: tg_id из tg_links по session_id заказа
+        // Фолбэк: ищем числовой tg_id через tg_links по session_id заказа
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['session_id'])) {
             try {
                 $lnk = $pdo->prepare("
@@ -770,9 +819,8 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
                 ");
                 $lnk->execute([$row['session_id']]);
                 $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-                if (!empty($lnk_row['chat_id'])) {
+                if (!empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
                     $chat_id = $lnk_row['chat_id'];
-                    // Сохраняем найденный chat_id в заказ
                     $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")
                         ->execute([$chat_id, $order_id]);
                     botLog("safeNotifyClient order={$order_id} found chat via session: {$chat_id}");
@@ -780,17 +828,8 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
             } catch (Throwable $e) {}
         }
 
-        // Фолбэк 2: @username из поля telegram
-        if ($chat_id === '' || !is_numeric($chat_id)) {
-            $tg = trim((string)($row['telegram'] ?? ''));
-            $tg = str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg);
-            $tg = trim($tg);
-            if ($tg !== '') {
-                $chat_id = '@' . $tg;
-            }
-        }
-
-        if ($chat_id !== '') {
+        // Только числовой chat_id — @username не работает если пользователь не писал боту первым
+        if ($chat_id !== '' && is_numeric($chat_id)) {
             $res = sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $chat_id,
                 'text'       => $text,
@@ -800,10 +839,10 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
             if (!empty($decoded['ok'])) {
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} OK");
             } else {
-                botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 150));
+                botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 200));
             }
         } else {
-            botLog("safeNotifyClient order={$order_id} — нет chat_id, пропуск");
+            botLog("safeNotifyClient order={$order_id} — нет числового chat_id (клиент не написал боту). telegram=" . ($row['telegram'] ?? ''));
         }
     } catch (Exception $e) {
         botLog("safeNotifyClient error order={$order_id}: " . $e->getMessage());
@@ -830,6 +869,7 @@ function adminReplyKeyboard() {
             [['text' => '🗂 Очередь заказов'],  ['text' => '📊 Статистика']],
             [['text' => '💾 Бэкап БД'],         ['text' => '🔗 Привязки TG']],
             [['text' => '🐛 Диагностика БД'],    ['text' => '🔧 Починить БД']],
+            [['text' => '🗑 Очистить все заказы']],
             [['text' => '◀️ Главное меню']],
         ],
         'resize_keyboard'   => true,
@@ -986,8 +1026,12 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
-        SELECT id, username, telegram, service_key, details, screenshot, example_photo, status, created_at, deadline
-        FROM orders WHERE id = ? LIMIT 1
+        SELECT o.id, o.username, o.telegram, o.service_key, o.details, o.screenshot,
+               o.example_photo, o.status, o.created_at, o.deadline, o.client_chat_id,
+               tl.tg_username
+        FROM orders o
+        LEFT JOIN tg_links tl ON tl.session_id = o.session_id AND tl.linked = TRUE
+        WHERE o.id = ? LIMIT 1
     ");
     $o_stmt->execute([$order_id]);
     $item = $o_stmt->fetch(PDO::FETCH_ASSOC);
@@ -1043,6 +1087,17 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "━━━━━━━━━━━━━━━━━━\n";
     $msg .= "👤 *Имя:* "    . mdEscape($item['username'] ?? '') . "\n";
     $msg .= "📞 *Связь:* "  . mdEscape($item['telegram']  ?? '') . "\n";
+    // TG username из привязки (если отличается от telegram поля)
+    $tgUser = trim((string)($item['tg_username'] ?? ''));
+    if ($tgUser !== '' && '@' . $tgUser !== $item['telegram'] && $tgUser !== ltrim((string)$item['telegram'], '@')) {
+        $msg .= "🔗 *TG аккаунт:* @" . mdEscape($tgUser) . "\n";
+    } elseif ($tgUser !== '') {
+        $msg .= "🔗 *TG:* @" . mdEscape($tgUser) . "\n";
+    }
+    $chatId = trim((string)($item['client_chat_id'] ?? ''));
+    if ($chatId !== '') {
+        $msg .= "🆔 *Chat ID:* `" . mdEscape($chatId) . "`\n";
+    }
     $msg .= "🎨 *Услуга:* " . mdEscape($service_title) . "\n";
     $msg .= "💰 *Цена:* "   . mdEscape((string)$p_rub) . " ₽ / " . mdEscape((string)$p_uan) . " ₴\n";
     $msg .= "📝 *ТЗ:* "     . mdEscape($item['details'] ?? '') . "\n";

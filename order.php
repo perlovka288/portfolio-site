@@ -166,7 +166,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Уведомить клиента в TG если аккаунт привязан
         $client_chat_id = null;
         try {
-            // Ищем chat_id сначала по tg_chat_id, потом по tg_id (новая схема)
             $lnk = $pdo->prepare("
                 SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
                 FROM tg_links
@@ -175,8 +174,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $lnk->execute([session_id()]);
             $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-            if ($lnk_row && !empty($lnk_row['chat_id'])) {
-                $client_chat_id = $lnk_row['chat_id'];
+            if ($lnk_row && !empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
+                $client_chat_id = (int)$lnk_row['chat_id'];
                 $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$client_chat_id, $order_id]);
             }
         } catch (Throwable $e) {}
@@ -186,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pr->execute([$service_key]);
             $srv_title = (string)($pr->fetchColumn() ?: $service_key);
             tgEscapeSend($bot_token, $client_chat_id,
-                "⏳ *Ваш заказ \#{$order_id} создан\!*\n\nУслуга: " . tgEsc($srv_title) . "\nСтатус: ожидает рассмотрения \\(\\~5 мин\\)\\.\n\nКак только дизайнер примет — придёт уведомление\\."
+                "✅ *Заказ \#{$order_id} принят\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nКак только дизайнер примет заказ в работу — придёт уведомление прямо сюда\."
             );
         }
 

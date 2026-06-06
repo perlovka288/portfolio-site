@@ -14,23 +14,28 @@ $cancelMsg = '';
 if (isset($_POST['cancel_order'])) {
     $cancelId = (int)($_POST['order_id'] ?? 0);
     try {
-        // Проверяем что заказ принадлежит этому пользователю и его можно отменить
-        $stmt = $pdo->prepare("
-            SELECT id, client_chat_id, telegram, status FROM orders WHERE id = ? LIMIT 1
-        ");
+        $stmt = $pdo->prepare("SELECT id, client_chat_id, telegram, status, session_id FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$cancelId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && in_array($row['status'], ['pending', 'in_progress'])) {
-            // Проверяем привязку сессии
-            $linkStmt = $pdo->prepare("SELECT tg_id, tg_username FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+        // Срочные тоже можно отменить (добавляем 'urgent')
+        if ($row && in_array($row['status'], ['pending', 'in_progress', 'urgent'])) {
+            $linkStmt = $pdo->prepare("SELECT tg_id, tg_username FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
             $linkStmt->execute([$sid]);
             $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
             $canCancel = false;
             if ($linkRow) {
-                $tgId = (string)($linkRow['tg_id'] ?? '');
-                $tgUser = ltrim($linkRow['tg_username'] ?? '', '@');
-                if (($tgId !== '' && (string)$row['client_chat_id'] === $tgId) ||
-                    (!empty($tgUser) && (rtrim($row['telegram'],'@') === $tgUser || '@'.$tgUser === $row['telegram']))) {
+                $tgId   = (string)($linkRow['tg_id'] ?? '');
+                $tgUser = ltrim((string)($linkRow['tg_username'] ?? ''), '@');
+                // Проверяем по tg_id, telegram полю или session_id заказа
+                if ($tgId !== '' && (string)$row['client_chat_id'] === $tgId) {
+                    $canCancel = true;
+                } elseif (!empty($tgUser) && (
+                    ltrim((string)$row['telegram'], '@') === $tgUser ||
+                    '@' . $tgUser === (string)$row['telegram']
+                )) {
+                    $canCancel = true;
+                } elseif (!empty($row['session_id']) && $row['session_id'] === $sid) {
+                    // Заказ создан в этой же сессии — точно его заказ
                     $canCancel = true;
                 }
             }
@@ -148,7 +153,7 @@ try {
         }
 
         if (!empty($clauses)) {
-            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id
+            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id, deadline
                     FROM orders
                     WHERE " . implode(' OR ', $clauses) . "
                     ORDER BY created_at DESC
@@ -189,6 +194,41 @@ $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
 $themeDensity = $settings['theme_density'] ?? 'normal';
 $themeEffects = $settings['theme_effects'] ?? 'glow';
+
+function profileDeadlineBadge(?string $deadline, string $status): string
+{
+    if (in_array($status, ['ready', 'declined'], true)) return '';
+    if (empty($deadline)) return '';
+    try {
+        $dl  = new DateTime($deadline);
+        $now = new DateTime();
+    } catch (Throwable $e) { return ''; }
+
+    $overdue  = $dl < $now;
+    $isUrgent = $status === 'urgent';
+    $diff     = $dl->getTimestamp() - time();
+    $dateStr  = $dl->format('d.m.Y в H:i');
+
+    if ($overdue) {
+        $icon  = '🔴';
+        $label = "Просрочен ({$dateStr})";
+        $cls   = 'deadline-overdue';
+    } elseif ($diff < 86400) {
+        $h    = max(1, (int)ceil($diff / 3600));
+        $icon  = '🟠';
+        $label = "Осталось ~{$h} ч.";
+        $cls   = 'deadline-urgent';
+    } elseif ($isUrgent) {
+        $icon  = '⚡';
+        $label = "Срочно: {$dateStr}";
+        $cls   = 'deadline-urgent';
+    } else {
+        $icon  = '📅';
+        $label = "Сдать: {$dateStr}";
+        $cls   = 'deadline-normal';
+    }
+    return "<span class=\"order-deadline-badge {$cls}\">{$icon} {$label}</span>";
+}
 
 function profileStatusLabel(string $s): string {
     return match($s) {
@@ -299,6 +339,13 @@ body::before {
 .orders-section { margin-bottom:28px; }
 .orders-section-title { font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text2);margin:0 0 14px;display:flex;align-items:center;gap:8px; }
 .orders-section-title::after { content:'';flex:1;height:1px;background:var(--border); }
+
+.order-deadline-badge { display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;border:1px solid;white-space:nowrap;margin-top:4px; }
+.order-deadline-badge.deadline-normal  { background:rgba(96,165,250,.12); color:#60a5fa; border-color:rgba(96,165,250,.3); }
+.order-deadline-badge.deadline-urgent  { background:rgba(249,115,22,.15); color:#fb923c; border-color:rgba(249,115,22,.35); animation:pulse-orange 1.8s ease-in-out infinite; }
+.order-deadline-badge.deadline-overdue { background:rgba(239,68,68,.18);  color:#ef4444; border-color:rgba(239,68,68,.4);  animation:pulse-red 1.5s ease-in-out infinite; }
+@keyframes pulse-orange { 0%,100%{ box-shadow:0 0 0 0 rgba(249,115,22,0); } 50%{ box-shadow:0 0 0 3px rgba(249,115,22,.3); } }
+@keyframes pulse-red    { 0%,100%{ box-shadow:0 0 0 0 rgba(239,68,68,0);  } 50%{ box-shadow:0 0 0 3px rgba(239,68,68,.35); } }
 
 /* Карточка заказа */
 .order-card { background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s; }
@@ -519,6 +566,11 @@ body::before {
                 <div class="order-card-body">
                     <div class="order-card-title">Заказ #<?= $oid ?> — <?= htmlspecialchars($order['service_key']) ?></div>
                     <div class="order-card-meta"><?= $date ?></div>
+                    <?php
+                        $dlBadge = profileDeadlineBadge($order['deadline'] ?? null, $order['status']);
+                        if ($dlBadge): ?>
+                    <div><?= $dlBadge ?></div>
+                    <?php endif; ?>
                     <?php if (!empty($order['details'])): ?>
                     <div class="order-card-details" id="preview-<?= $oid ?>"><?= htmlspecialchars($order['details']) ?></div>
                     <?php endif; ?>
@@ -530,6 +582,9 @@ body::before {
             </div>
 
             <div class="order-card-expanded <?= $isExpanded ? 'open' : '' ?>" id="exp-<?= $oid ?>">
+                <?php if ($dlBadge): ?>
+                <div style="margin-bottom:12px;"><?= $dlBadge ?></div>
+                <?php endif; ?>
                 <?php if (!empty($order['details'])): ?>
                 <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
                 <?php endif; ?>
@@ -619,6 +674,11 @@ body::before {
             <div class="order-card-body">
                 <div class="order-card-title">Заказ #<?= $oid ?> — <?= htmlspecialchars($order['service_key']) ?></div>
                 <div class="order-card-meta"><?= $date ?></div>
+                <?php
+                    $dlBadgeH = profileDeadlineBadge($order['deadline'] ?? null, $order['status']);
+                    if ($dlBadgeH): ?>
+                <div><?= $dlBadgeH ?></div>
+                <?php endif; ?>
                 <?php if (!empty($order['details'])): ?>
                 <div class="order-card-details"><?= htmlspecialchars(mb_substr($order['details'], 0, 100)) ?></div>
                 <?php endif; ?>
