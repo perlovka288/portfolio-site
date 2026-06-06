@@ -459,39 +459,40 @@ if (isset($update['message'])) {
         }
 
         // ── Очистка всех заказов ────────────────────────────────────
-       if ($text === '🗑 Очистить все заказы') {
-    // Генерируем капчу — 5-значный код
-    $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
-    // Сохраняем код во временный файл
-    file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
-    
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $admin_id,
-        'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно.\n\n📊 Статистика дохода также будет обнулена.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_ (код действителен 2 минуты) _",
-        'parse_mode' => 'Markdown', // Изменили на обычный Markdown
-        'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
-    ]);
-    exit;
-}
+     // ── Очистка всех заказов ────────────────────────────────────
+        if ($text === '🗑 Очистить все заказы') {
+            // Генерируем капчу — 5-значный код
+            $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
+            // Сохраняем код во временный файл
+            file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
+            
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно.\n\n📊 Статистика дохода также будет обнулена.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_(код действителен 2 минуты)_",
+                'parse_mode' => 'Markdown', // Переключили на Markdown, чтобы не мучиться со слэшами
+                'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
 
-        // Проверяем — может пользователь ввёл код подтверждения очистки
+        // ПРОВЕРКА КАПЧИ ТЕПЕРЬ СТРОГО ВНУТРИ БЛОКА АДМИНА!
         $captchaFile = sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt';
         if (file_exists($captchaFile)) {
             $parts   = explode('|', file_get_contents($captchaFile));
             $stored  = trim($parts[0] ?? '');
             $expires = (int)($parts[1] ?? 0);
+            
             if ($expires > time() && strtoupper(trim($text)) === $stored) {
-                // Код верный — чистим БД
                 unlink($captchaFile);
                 try {
                     $pdo->exec("TRUNCATE TABLE appeals_messages RESTART IDENTITY CASCADE");
                     $pdo->exec("TRUNCATE TABLE appeals RESTART IDENTITY CASCADE");
                     $pdo->exec("TRUNCATE TABLE orders RESTART IDENTITY CASCADE");
-                    $count = 0;
+                    
                     sendTelegram($token, 'sendMessage', [
                         'chat_id'      => $admin_id,
-                        'text'         => "✅ *База данных очищена\!*\n\nВсе заказы, обращения и история удалены\.\nСтатистика обнулена\.",
-                        'parse_mode'   => 'MarkdownV2',
+                        'text'         => "✅ *База данных успешно очищена!*\n\nВсе заказы, обращения и история удалены безвозвратно.",
+                        'parse_mode'   => 'Markdown', // Исправлен parse_mode
                         'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
                     ]);
                 } catch (Throwable $e) {
