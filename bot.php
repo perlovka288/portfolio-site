@@ -459,19 +459,20 @@ if (isset($update['message'])) {
         }
 
         // ── Очистка всех заказов ────────────────────────────────────
-        if ($text === 'Очистить все заказы') {
-            // Генерируем капчу — 4-значный код
-            $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
-            // Сохраняем код в БД (bot_states или просто в файл)
-            file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
-            sendTelegram($token, 'sendMessage', [
-                'chat_id'    => $admin_id,
-                'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно\\.\n\n📊 Статистика дохода также будет обнулена\\.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_(код действителен 2 минуты)_",
-                'parse_mode' => 'MarkdownV2',
-                'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
-            ]);
-            exit;
-        }
+       if ($text === '🗑 Очистить все заказы') {
+    // Генерируем капчу — 5-значный код
+    $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
+    // Сохраняем код во временный файл
+    file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
+    
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'    => $admin_id,
+        'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно.\n\n📊 Статистика дохода также будет обнулена.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_ (код действителен 2 минуты) _",
+        'parse_mode' => 'Markdown', // Изменили на обычный Markdown
+        'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
+    ]);
+    exit;
+}
 
         // Проверяем — может пользователь ввёл код подтверждения очистки
         $captchaFile = sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt';
