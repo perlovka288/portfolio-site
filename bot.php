@@ -754,13 +754,33 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
  */
 function safeNotifyClient($pdo, $token, $order_id, $text) {
     try {
-        $stmt = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$order_id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return;
 
         $chat_id = trim((string)($row['client_chat_id'] ?? ''));
 
-        // Фолбэк: если числового chat_id нет — пробуем @username из поля telegram
+        // Фолбэк 1: tg_id из tg_links по session_id заказа
+        if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['session_id'])) {
+            try {
+                $lnk = $pdo->prepare("
+                    SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                    FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1
+                ");
+                $lnk->execute([$row['session_id']]);
+                $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
+                if (!empty($lnk_row['chat_id'])) {
+                    $chat_id = $lnk_row['chat_id'];
+                    // Сохраняем найденный chat_id в заказ
+                    $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")
+                        ->execute([$chat_id, $order_id]);
+                    botLog("safeNotifyClient order={$order_id} found chat via session: {$chat_id}");
+                }
+            } catch (Throwable $e) {}
+        }
+
+        // Фолбэк 2: @username из поля telegram
         if ($chat_id === '' || !is_numeric($chat_id)) {
             $tg = trim((string)($row['telegram'] ?? ''));
             $tg = str_replace(['https://t.me/', 'http://t.me/', 't.me/', '@'], '', $tg);
@@ -778,22 +798,15 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
             ]);
             $decoded = json_decode((string)$res, true);
             if (!empty($decoded['ok'])) {
-                // Если дошли по @username — сохраняем реальный chat_id для будущих уведомлений
-                if (!is_numeric(str_replace('@', '', $chat_id)) && !empty($decoded['result']['chat']['id'])) {
-                    $real_id = (string)$decoded['result']['chat']['id'];
-                    $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ? AND (client_chat_id IS NULL OR client_chat_id = '')")
-                        ->execute([$real_id, $order_id]);
-                    botLog("notifyClient order={$order_id} saved real chat_id={$real_id}");
-                }
-                botLog("notifyClient order={$order_id} chat={$chat_id} ok");
+                botLog("safeNotifyClient order={$order_id} chat={$chat_id} OK");
             } else {
-                botLog("notifyClient order={$order_id} chat={$chat_id} FAILED resp=" . substr((string)$res, 0, 150));
+                botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 150));
             }
         } else {
-            botLog("notifyClient order={$order_id} no chat_id and no telegram field, skip");
+            botLog("safeNotifyClient order={$order_id} — нет chat_id, пропуск");
         }
     } catch (Exception $e) {
-        botLog("notifyClient error order={$order_id}: " . $e->getMessage());
+        botLog("safeNotifyClient error order={$order_id}: " . $e->getMessage());
     }
 }
 

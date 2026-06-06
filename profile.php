@@ -141,9 +141,14 @@ try {
             $clauses[] = 'telegram = ?';
             $params[]  = ltrim($tg_username, '@');
         }
+        // Поиск по session_id — главный фикс: client_chat_id часто пустой
+        if ($sid !== '') {
+            $clauses[] = 'session_id = ?';
+            $params[]  = $sid;
+        }
 
         if (!empty($clauses)) {
-            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo
+            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id
                     FROM orders
                     WHERE " . implode(' OR ', $clauses) . "
                     ORDER BY created_at DESC
@@ -151,6 +156,18 @@ try {
             $ostmt = $pdo->prepare($sql);
             $ostmt->execute($params);
             $orders = $ostmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Попутно записываем tg_id в client_chat_id у всех найденных заказов где он пустой
+            if ($tg_id !== '' && !empty($orders)) {
+                foreach ($orders as $o) {
+                    if (empty($o['client_chat_id'])) {
+                        try {
+                            $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ? AND (client_chat_id IS NULL OR client_chat_id = '')")
+                                ->execute([$tg_id, (int)$o['id']]);
+                        } catch (Throwable $e) {}
+                    }
+                }
+            }
         }
 
         // Загружаем обращения пользователя (ответы на них)

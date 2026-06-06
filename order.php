@@ -166,11 +166,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Уведомить клиента в TG если аккаунт привязан
         $client_chat_id = null;
         try {
-            $lnk = $pdo->prepare("SELECT tg_chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE LIMIT 1");
+            // Ищем chat_id сначала по tg_chat_id, потом по tg_id (новая схема)
+            $lnk = $pdo->prepare("
+                SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                FROM tg_links
+                WHERE session_id = ? AND linked = TRUE
+                ORDER BY id DESC LIMIT 1
+            ");
             $lnk->execute([session_id()]);
             $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-            if ($lnk_row && $lnk_row['tg_chat_id']) {
-                $client_chat_id = (int)$lnk_row['tg_chat_id'];
+            if ($lnk_row && !empty($lnk_row['chat_id'])) {
+                $client_chat_id = $lnk_row['chat_id'];
                 $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$client_chat_id, $order_id]);
             }
         } catch (Throwable $e) {}
