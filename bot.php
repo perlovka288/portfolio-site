@@ -174,14 +174,14 @@ if (isset($update['message'])) {
     botLog("message chat={$chat_id} text={$text}");
 
     // Автоматически привязываем chat_id к заказам по username при каждом сообщении
-    $msg_username = $update['message']['from']['username'] ?? '';
-    if ($msg_username !== '') {
-        try {
-            $pdo->prepare("
-                UPDATE orders SET client_chat_id = ?
-                WHERE (client_chat_id IS NULL OR client_chat_id = '')
-                  AND (telegram = ? OR telegram = ? OR telegram = ? OR telegram = ?)
-            ")->execute([
+$msg_username = $update['message']['from']['username'] ?? '';
+if ($msg_username !== '') {
+    $pdo->prepare("UPDATE orders SET client_chat_id = ? 
+        WHERE (client_chat_id IS NULL OR client_chat_id = '')
+        AND (telegram = ? OR telegram = ? OR telegram = ? OR telegram = ?)")
+    ->execute([$chat_id, '@'.$msg_username, $msg_username, 
+               'https://t.me/'.$msg_username, 't.me/'.$msg_username]);
+}
                 (string)$chat_id,
                 '@' . $msg_username,
                 $msg_username,
