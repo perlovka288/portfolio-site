@@ -161,23 +161,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $order_id = (int)$pdo->lastInsertId();
         }
 
-    // Добавлена закрывающая кавычка перед ;
-$success_msg = "🚀 ВНИМАНИЕ ДЛЯ ОТСЛЕЖИВАНИЯ - /status_{$order_id} В БОТА, ИНАЧЕ СООБЩЕНИЯ С ИЗМЕНЕНИЕМ СТАТУСА ВАМ ПРИХОДИТЬ НЕ БУДУТ - Заказ #{$order_id} отправлен!";
+        $success_msg = "🚀 Заказ #{$order_id} отправлен! Чтобы отслеживать его статус, перейдите в нашего бота и отправьте команду: /status_{$order_id}. Для оплаты перейдите на DonationAlerts и в поле 'Сообщение' обязательно укажите номер заказа: #{$order_id}.";
 
-// Уведомить клиента в TG если аккаунт привязан
-$client_chat_id = null;
-try {
-    $lnk = $pdo->prepare("
-        SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
-        FROM tg_links
-        WHERE session_id = ? AND linked = TRUE
-        ORDER BY id DESC LIMIT 1
-    "); // Не забудь закрыть здесь prepare, если он обрывался
+        // Уведомить клиента в TG — ищем chat_id тремя способами
+        $client_chat_id = null;
+        try {
+            $sid_now = session_id();
 
-            $lnk->execute([session_id()]);
-            $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-            if ($lnk_row && !empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
-                $client_chat_id = (int)$lnk_row['chat_id'];
+            // Метод 1: по session_id текущей сессии
+            if ($sid_now !== '') {
+                $lnk = $pdo->prepare("
+                    SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                    FROM tg_links WHERE session_id = ? AND linked = TRUE
+                    ORDER BY id DESC LIMIT 1
+                ");
+                $lnk->execute([$sid_now]);
+                $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
+                if (!empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
+                    $client_chat_id = (int)$lnk_row['chat_id'];
+                }
+            }
+
+            // Метод 2: по telegram username из формы
+            if (!$client_chat_id && !empty($telegram_raw)) {
+                $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $telegram_raw)), '@');
+                if ($tg_clean !== '') {
+                    $lnk2 = $pdo->prepare("
+                        SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                        FROM tg_links WHERE (tg_username = ? OR tg_username = ?) AND linked = TRUE
+                        ORDER BY id DESC LIMIT 1
+                    ");
+                    $lnk2->execute([$tg_clean, '@' . $tg_clean]);
+                    $lnk2_row = $lnk2->fetch(PDO::FETCH_ASSOC);
+                    if (!empty($lnk2_row['chat_id']) && is_numeric($lnk2_row['chat_id'])) {
+                        $client_chat_id = (int)$lnk2_row['chat_id'];
+                    }
+                }
+            }
+
+            // Метод 3: telegram поле выглядит как числовой ID
+            if (!$client_chat_id && !empty($telegram_raw) && is_numeric(trim($telegram_raw))) {
+                $client_chat_id = (int)trim($telegram_raw);
+            }
+
+            // Метод 4: getChat через Telegram API (работает если пользователь писал боту)
+            if (!$client_chat_id && !empty($telegram_raw)) {
+                $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $telegram_raw)), '@');
+                if ($tg_clean !== '') {
+                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/getChat");
+                    curl_setopt_array($ch, [
+                        CURLOPT_POST => true,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_TIMEOUT => 5,
+                        CURLOPT_POSTFIELDS => ['chat_id' => '@' . $tg_clean],
+                    ]);
+                    $resp = curl_exec($ch);
+                    curl_close($ch);
+                    $data = json_decode((string)$resp, true);
+                    if (!empty($data['ok']) && !empty($data['result']['id'])) {
+                        $client_chat_id = (int)$data['result']['id'];
+                        // Сохраняем в tg_links для будущих заказов
+                        try {
+                            $pdo->prepare("
+                                UPDATE tg_links SET tg_id = CAST(? AS VARCHAR)
+                                WHERE tg_username = ? AND (tg_id IS NULL OR tg_id = '')
+                            ")->execute([$client_chat_id, $tg_clean]);
+                        } catch (Throwable $e) {}
+                    }
+                }
+            }
+
+            if ($client_chat_id) {
                 $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$client_chat_id, $order_id]);
             }
         } catch (Throwable $e) {}
@@ -187,7 +241,7 @@ try {
             $pr->execute([$service_key]);
             $srv_title = (string)($pr->fetchColumn() ?: $service_key);
             tgEscapeSend($bot_token, $client_chat_id,
-                "✅ *Заказ \#{$order_id} принят\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nКак только дизайнер примет заказ в работу — придёт уведомление прямо сюда\."
+                "✅ *Заказ \#{$order_id} создан\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nКак только дизайнер примет заказ — придёт уведомление сюда\."
             );
         }
 

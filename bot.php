@@ -459,47 +459,41 @@ if (isset($update['message'])) {
         }
 
         // ── Очистка всех заказов ────────────────────────────────────
-     // ── Очистка всех заказов ────────────────────────────────────
         if ($text === '🗑 Очистить все заказы') {
-            // Генерируем капчу — 5-значный код
             $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
-            // Сохраняем код во временный файл
             file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
-            
             sendTelegram($token, 'sendMessage', [
-                'chat_id'    => $admin_id,
-                'text'       => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* из базы данных безвозвратно.\n\n📊 Статистика дохода также будет обнулена.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_(код действителен 2 минуты)_",
-                'parse_mode' => 'Markdown', // Переключили на Markdown, чтобы не мучиться со слэшами
+                'chat_id'      => $admin_id,
+                'text'         => "⚠️ *ВНИМАНИЕ! Опасная операция!*\n\n🗑 Это удалит *ВСЕ заказы, обращения и историю* безвозвратно.\n\n📊 Статистика дохода также обнулится.\n\nДля подтверждения введи этот код:\n\n`{$captcha}`\n\n_Код действителен 2 минуты._",
+                'parse_mode'   => 'Markdown',
                 'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Главное меню']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
 
-        // ПРОВЕРКА КАПЧИ ТЕПЕРЬ СТРОГО ВНУТРИ БЛОКА АДМИНА!
+        // Проверяем — может пользователь ввёл код подтверждения очистки
         $captchaFile = sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt';
         if (file_exists($captchaFile)) {
             $parts   = explode('|', file_get_contents($captchaFile));
             $stored  = trim($parts[0] ?? '');
             $expires = (int)($parts[1] ?? 0);
-            
             if ($expires > time() && strtoupper(trim($text)) === $stored) {
                 unlink($captchaFile);
                 try {
                     $pdo->exec("TRUNCATE TABLE appeals_messages RESTART IDENTITY CASCADE");
                     $pdo->exec("TRUNCATE TABLE appeals RESTART IDENTITY CASCADE");
                     $pdo->exec("TRUNCATE TABLE orders RESTART IDENTITY CASCADE");
-                    
                     sendTelegram($token, 'sendMessage', [
                         'chat_id'      => $admin_id,
-                        'text'         => "✅ *База данных успешно очищена!*\n\nВсе заказы, обращения и история удалены безвозвратно.",
-                        'parse_mode'   => 'Markdown', // Исправлен parse_mode
+                        'text'         => "✅ *База данных очищена!*\n\nВсе заказы, обращения и история удалены.\nСтатистика обнулена.",
+                        'parse_mode'   => 'Markdown',
                         'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
                     ]);
                 } catch (Throwable $e) {
                     sendTelegram($token, 'sendMessage', [
-                        'chat_id'    => $admin_id,
-                        'text'       => "❌ Ошибка очистки: " . $e->getMessage(),
-                        'parse_mode' => 'Markdown',
+                        'chat_id'      => $admin_id,
+                        'text'         => "❌ Ошибка очистки: " . $e->getMessage(),
+                        'parse_mode'   => 'Markdown',
                         'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
                     ]);
                 }
@@ -812,7 +806,7 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
 
         $chat_id = trim((string)($row['client_chat_id'] ?? ''));
 
-        // Фолбэк: ищем числовой tg_id через tg_links по session_id заказа
+        // Метод 2: по session_id через tg_links
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['session_id'])) {
             try {
                 $lnk = $pdo->prepare("
@@ -820,18 +814,52 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
                     FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1
                 ");
                 $lnk->execute([$row['session_id']]);
-                $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-                if (!empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
-                    $chat_id = $lnk_row['chat_id'];
-                    $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")
-                        ->execute([$chat_id, $order_id]);
-                    botLog("safeNotifyClient order={$order_id} found chat via session: {$chat_id}");
+                $r = $lnk->fetch(PDO::FETCH_ASSOC);
+                if (!empty($r['chat_id']) && is_numeric($r['chat_id'])) {
+                    $chat_id = $r['chat_id'];
                 }
             } catch (Throwable $e) {}
         }
 
-        // Только числовой chat_id — @username не работает если пользователь не писал боту первым
+        // Метод 3: по tg_username из поля telegram заказа
+        if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
+            $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $row['telegram'])), '@');
+            if ($tg_clean !== '') {
+                try {
+                    $lnk2 = $pdo->prepare("
+                        SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                        FROM tg_links WHERE (tg_username = ? OR tg_username = ?) AND linked = TRUE
+                        ORDER BY id DESC LIMIT 1
+                    ");
+                    $lnk2->execute([$tg_clean, '@' . $tg_clean]);
+                    $r2 = $lnk2->fetch(PDO::FETCH_ASSOC);
+                    if (!empty($r2['chat_id']) && is_numeric($r2['chat_id'])) {
+                        $chat_id = $r2['chat_id'];
+                    }
+                } catch (Throwable $e) {}
+            }
+        }
+
+        // Метод 4: getChat через Telegram API
+        if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
+            $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $row['telegram'])), '@');
+            if ($tg_clean !== '') {
+                $ch = curl_init("https://api.telegram.org/bot{$token}/getChat");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
+                    CURLOPT_POSTFIELDS => ['chat_id' => '@' . $tg_clean]]);
+                $resp = curl_exec($ch); curl_close($ch);
+                $data = json_decode((string)$resp, true);
+                if (!empty($data['ok']) && !empty($data['result']['id'])) {
+                    $chat_id = (string)$data['result']['id'];
+                    botLog("safeNotifyClient order={$order_id} found via getChat: {$chat_id}");
+                }
+            }
+        }
+
         if ($chat_id !== '' && is_numeric($chat_id)) {
+            if (empty($row['client_chat_id'])) {
+                $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
+            }
             $res = sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $chat_id,
                 'text'       => $text,
@@ -844,7 +872,7 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 200));
             }
         } else {
-            botLog("safeNotifyClient order={$order_id} — нет числового chat_id (клиент не написал боту). telegram=" . ($row['telegram'] ?? ''));
+            botLog("safeNotifyClient order={$order_id} no chat_id. telegram=" . ($row['telegram'] ?? ''));
         }
     } catch (Exception $e) {
         botLog("safeNotifyClient error order={$order_id}: " . $e->getMessage());
