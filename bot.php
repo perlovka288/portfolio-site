@@ -173,6 +173,24 @@ if (isset($update['message'])) {
 
     botLog("message chat={$chat_id} text={$text}");
 
+    // Автоматически привязываем chat_id к заказам по username при каждом сообщении
+    $msg_username = $update['message']['from']['username'] ?? '';
+    if ($msg_username !== '') {
+        try {
+            $pdo->prepare("
+                UPDATE orders SET client_chat_id = ?
+                WHERE (client_chat_id IS NULL OR client_chat_id = '')
+                  AND (telegram = ? OR telegram = ? OR telegram = ? OR telegram = ?)
+            ")->execute([
+                (string)$chat_id,
+                '@' . $msg_username,
+                $msg_username,
+                'https://t.me/' . $msg_username,
+                't.me/' . $msg_username,
+            ]);
+        } catch (Throwable $e) {}
+    }
+
     // Если первое сообщение от админа и клавиатура слетела — восстанавливаем нужную
     // (определяется по /start — бот только запущен или переоткрыт)
     if ((string)$chat_id === $admin_id && $text === '/start') {
@@ -218,7 +236,26 @@ if (isset($update['message'])) {
             exit;
         }
 
-        // Обычный /start
+        // Обычный /start — привязываем chat_id к заказам по username
+        $user_from    = $update['message']['from'] ?? [];
+        $start_uname  = $user_from['username'] ?? '';
+        if ($start_uname !== '') {
+            try {
+                $pdo->prepare("
+                    UPDATE orders SET client_chat_id = ?
+                    WHERE (client_chat_id IS NULL OR client_chat_id = '')
+                      AND (telegram = ? OR telegram = ? OR telegram = ? OR telegram = ?)
+                ")->execute([
+                    (string)$chat_id,
+                    '@' . $start_uname,
+                    $start_uname,
+                    'https://t.me/' . $start_uname,
+                    't.me/' . $start_uname,
+                ]);
+                botLog("/start auto-linked chat_id={$chat_id} username={$start_uname}");
+            } catch (Throwable $e) {}
+        }
+
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nЗдесь можно посмотреть портфолио, узнать актуальный прайс, отправить ТЗ и проверить статус заказа.",
