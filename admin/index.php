@@ -16,7 +16,7 @@ try {
 $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
-define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@gfasasdasasd');
+define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
 define('PUBLIC_SITE_URL', 'https://portfolio-site-boo5.onrender.com/');
 define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
 define('ADMIN_TELEGRAM_ID', '1710365896');
