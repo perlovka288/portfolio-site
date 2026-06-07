@@ -597,12 +597,24 @@ body::before {
 
 <?php if (!empty($success_msg)): ?>
 <div class="msg-success">
-    <?= htmlspecialchars($success_msg) ?>
-    <div style="margin-top:10px;">
-        <a href="<?= htmlspecialchars($bot_link) ?>" target="_blank"
-           style="display:inline-block;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:9px 20px;border-radius:8px;text-decoration:none;font-weight:800;font-size:12px;">
-            🤖 Открыть бота
+    <div style="font-size:32px;margin-bottom:10px;">🎉</div>
+    <div style="font-size:16px;font-weight:900;margin-bottom:6px;">Заказ #<?= (int)$order_id ?> успешно отправлен!</div>
+    <div style="font-size:13px;opacity:.85;margin-bottom:18px;">Дизайнер получил уведомление и скоро приступит к работе.</div>
+
+    <div style="background:rgba(0,0,0,.25);border-radius:14px;padding:18px;margin-bottom:16px;text-align:left;">
+        <div style="font-size:12px;font-weight:800;color:#fb923c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📲 Получать уведомления о статусе</div>
+        <div style="font-size:13px;color:#d8d8e8;margin-bottom:14px;line-height:1.6;">
+            Нажми кнопку ниже — бот автоматически подпишет тебя на обновления по заказу. Ты узнаешь когда дизайнер возьмёт его в работу и когда он будет готов.
+        </div>
+        <a href="https://t.me/kostlimdznbot?start=order_<?= (int)$order_id ?>" target="_blank"
+           style="display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(135deg,#229ED9,#1a7fc1);color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:900;font-size:14px;box-shadow:0 8px 24px rgba(34,158,217,.35);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.04 9.61c-.152.678-.554.843-1.122.524l-3.1-2.284-1.496 1.44c-.165.165-.304.304-.624.304l.223-3.164 5.754-5.196c.25-.222-.054-.345-.387-.123L7.06 14.4l-3.056-.955c-.664-.207-.677-.664.138-.983l11.927-4.598c.553-.2 1.037.135.493 2.384z"/></svg>
+            🔔 Получать уведомления в Telegram
         </a>
+    </div>
+
+    <div style="font-size:11px;color:#8a8a96;margin-top:8px;">
+        💰 Для оплаты укажи номер заказа <strong>#<?= (int)$order_id ?></strong> в сообщении на DonationAlerts
     </div>
 </div>
 <?php endif; ?>
