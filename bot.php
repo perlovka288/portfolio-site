@@ -636,20 +636,65 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         botLog("linkTgAccount: profile columns missing (run migration!) " . $e->getMessage());
     }
 
-    // Привязываем заказы по username
-    if ($username !== '') {
-        try {
-            $pdo->prepare("
-                UPDATE orders SET client_chat_id = ?
-                WHERE (telegram = ? OR telegram = ?)
-                  AND (client_chat_id IS NULL OR client_chat_id = '')
-            ")->execute([$tg_id, '@' . $username, $username]);
-        } catch (Throwable $e) {
-            botLog("linkTgAccount: orders update error: " . $e->getMessage());
+    // Привязываем заказы по username и session_id — все форматы
+    try {
+        // Ищем session_id из tg_links для этого site_code
+        $sess_stmt = $pdo->prepare("SELECT session_id FROM tg_links WHERE site_code = ? LIMIT 1");
+        $sess_stmt->execute([$site_code]);
+        $sess_row = $sess_stmt->fetch(PDO::FETCH_ASSOC);
+        $link_session = $sess_row['session_id'] ?? '';
+
+        $conditions = ["(client_chat_id IS NULL OR client_chat_id = '')"];
+        $params_upd  = [$tg_id];
+        $where_parts = [];
+
+        // По session_id
+        if ($link_session !== '') {
+            $where_parts[] = 'session_id = ?';
+            $params_upd[]  = $link_session;
         }
+        // По telegram полю — все варианты написания
+        if ($username !== '') {
+            $where_parts[] = 'telegram = ?';
+            $params_upd[]  = '@' . $username;
+            $where_parts[] = 'telegram = ?';
+            $params_upd[]  = $username;
+            $where_parts[] = 'telegram = ?';
+            $params_upd[]  = 'https://t.me/' . $username;
+            $where_parts[] = 'telegram = ?';
+            $params_upd[]  = 't.me/' . $username;
+        }
+
+        if (!empty($where_parts)) {
+            $sql_upd = "UPDATE orders SET client_chat_id = ? WHERE (client_chat_id IS NULL OR client_chat_id = '') AND (" . implode(' OR ', $where_parts) . ")";
+            $rows_updated = $pdo->prepare($sql_upd)->execute($params_upd);
+            botLog("linkTgAccount: updated orders client_chat_id={$tg_id} by username/session");
+        }
+    } catch (Throwable $e) {
+        botLog("linkTgAccount: orders update error: " . $e->getMessage());
     }
 
     $name_display = $first_name ?: ($username ? '@' . $username : 'пользователь');
+
+    // Проверяем есть ли активные заказы — уведомляем о них
+    try {
+        $active_stmt = $pdo->prepare("SELECT id, status FROM orders WHERE client_chat_id = ? AND status IN ('pending','in_progress','urgent') ORDER BY id DESC LIMIT 5");
+        $active_stmt->execute([$tg_id]);
+        $active_orders = $active_stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!empty($active_orders)) {
+            $statusLabel = ['pending' => '⏳ Ожидает', 'in_progress' => '🎨 В работе', 'urgent' => '⚡ Срочный'];
+            $msg = "📦 *Твои активные заказы:*\n\n";
+            foreach ($active_orders as $ao) {
+                $msg .= ($statusLabel[$ao['status']] ?? '📦') . " Заказ *#{$ao['id']}*\n";
+            }
+            $msg .= "\nТеперь ты будешь получать уведомления об их изменении автоматически.";
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => $msg,
+                'parse_mode' => 'Markdown',
+            ]);
+        }
+    } catch (Throwable $e) {}
 
     sendTelegram($token, 'sendMessage', [
         'chat_id'    => $chat_id,
