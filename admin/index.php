@@ -13,30 +13,6 @@ try {
     // ignore
 }
 
-// ── Таблицы обращений ──
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS appeals (
-        id SERIAL PRIMARY KEY,
-        order_id INT NOT NULL,
-        username VARCHAR(255),
-        telegram VARCHAR(255),
-        subject VARCHAR(255),
-        message TEXT,
-        reply TEXT,
-        status VARCHAR(20) DEFAULT 'open',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        replied_at TIMESTAMP
-    )");
-    try { $pdo->exec("ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reply TEXT"); } catch(Throwable $e) {}
-    $pdo->exec("CREATE TABLE IF NOT EXISTS appeals_messages (
-        id SERIAL PRIMARY KEY,
-        appeal_id INT NOT NULL,
-        author VARCHAR(20),
-        message TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
-} catch (Throwable $e) {}
-
 $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');

@@ -127,3 +127,27 @@ CREATE TABLE IF NOT EXISTS tg_links (
     created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_tg_links_session ON tg_links (session_id);
+
+-- ── appeals: обращения клиентов ──────────────────
+CREATE TABLE IF NOT EXISTS appeals (
+    id SERIAL PRIMARY KEY,
+    order_id INT NOT NULL,
+    username VARCHAR(255),
+    telegram VARCHAR(255),
+    subject VARCHAR(255),
+    message TEXT,
+    reply TEXT,
+    status VARCHAR(20) DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    replied_at TIMESTAMP
+);
+
+-- ── appeals_messages: история переписки по обращениям ──────────────────
+CREATE TABLE IF NOT EXISTS appeals_messages (
+    id SERIAL PRIMARY KEY,
+    appeal_id INT NOT NULL,
+    author VARCHAR(20),
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_tg_links_session ON tg_links (session_id);
