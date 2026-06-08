@@ -57,6 +57,20 @@ if (isset($_POST['send_appeal'])) {
     $appealTelegram = '';
 
     try {
+        // Validate inputs
+        if ($appealOrderId <= 0) {
+            $appealMsg = 'err_order_id';
+            throw new Exception("Invalid Order ID: " . $appealOrderId);
+        }
+        if (mb_strlen($appealSubject) < 3) { // Minimum length for subject
+            $appealMsg = 'err_subject_short';
+            throw new Exception("Subject too short");
+        }
+        if (mb_strlen($appealText) < 10) { // Minimum length for message
+            $appealMsg = 'err_message_short';
+            throw new Exception("Message too short");
+        }
+
         $linkStmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
         $linkStmt->execute([$sid]);
         $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
@@ -73,46 +87,43 @@ if (isset($_POST['send_appeal'])) {
             }
         }
 
-        if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
-            // Сохраняем обращение
-            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW()) RETURNING id");
-            $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
-            
-            // Получаем ID созданного обращения (PostgreSQL way)
-            $aid = (int)($ins->fetchColumn() ?: 0);
+        // Сохраняем обращение
+        $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW()) RETURNING id");
+        $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
+        
+        // Получаем ID созданного обращения (PostgreSQL way)
+        $aid = (int)($ins->fetchColumn() ?: 0);
 
-            if ($aid > 0) {
-                $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
-                $m->execute([$aid, $appealText]);
-            }
-
-            $appealMsg = 'ok';
-
-            // ── Уведомление админу в Telegram ──
-            $_tgToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
-            $_adminId = getenv('ADMIN_ID') ?: '1710365896';
-            $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
-            $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"
-                . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
-                . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
-                . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
-                . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
-                . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>\n"
-                . "💡 <i>Ответить можно во вкладке «Обращения»</i>";
-            $_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
-            curl_setopt_array($_ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 8,
-                CURLOPT_POSTFIELDS     => ['chat_id' => $_adminId, 'text' => $_tgText, 'parse_mode' => 'HTML'],
-            ]);
-            curl_exec($_ch);
-            curl_close($_ch);
-        } else {
-            $appealMsg = 'err';
+        if ($aid > 0) {
+            $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
+            $m->execute([$aid, $appealText]);
         }
+
+        $appealMsg = 'ok';
+
+        // ── Уведомление админу в Telegram ──
+        $_tgToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_adminId = getenv('ADMIN_ID') ?: '1710365896';
+        $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
+        $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"
+            . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
+            . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
+            . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
+            . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
+            . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>\n"
+            . "💡 <i>Ответить можно во вкладке «Обращения»</i>";
+        $_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
+        curl_setopt_array($_ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_POSTFIELDS     => ['chat_id' => $_adminId, 'text' => $_tgText, 'parse_mode' => 'HTML'],
+        ]);
+        curl_exec($_ch);
+        curl_close($_ch);
     } catch (Throwable $e) {
-        $appealMsg = 'err';
+        error_log("Appeal submission error: " . $e->getMessage());
+        if ($appealMsg === '') $appealMsg = 'err'; // Fallback generic error
     }
     header('Location: ' . $_SERVER['PHP_SELF'] . '?order=' . $appealOrderId . '&appeal=' . $appealMsg);
     exit;
@@ -523,7 +534,13 @@ body::before {
 <?php if ($cancelledId > 0): ?>
 <div class="profile-notice info">✅ Заказ #<?= $cancelledId ?> отменён и убран из очереди.</div>
 <?php endif; ?>
-<?php if ($appealStatus === 'ok'): ?>
+<?php if ($appealStatus === 'err_order_id'): ?>
+<div class="profile-notice err">❌ Не удалось отправить обращение. Неверный ID заказа.</div>
+<?php elseif ($appealStatus === 'err_subject_short'): ?>
+<div class="profile-notice err">❌ Не удалось отправить обращение. Тема должна быть не менее 3 символов.</div>
+<?php elseif ($appealStatus === 'err_message_short'): ?>
+<div class="profile-notice err">❌ Не удалось отправить обращение. Сообщение должно быть не менее 10 символов.</div>
+<?php elseif ($appealStatus === 'ok'): ?>
 <div class="profile-notice ok">✅ Обращение отправлено дизайнеру! Ответ появится в разделе ниже.</div>
 <?php elseif ($appealStatus === 'err'): ?>
 <div class="profile-notice err">❌ Не удалось отправить обращение. Заполни все поля.</div>
@@ -641,9 +658,9 @@ body::before {
                     <form method="POST">
                         <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
                         <label>Тема обращения</label>
-                        <input type="text" name="appeal_subject" required placeholder="Например: уточнение по заказу" maxlength="200">
+                        <input type="text" name="appeal_subject" required placeholder="Например: уточнение по заказу" minlength="3" maxlength="200">
                         <label>Сообщение</label>
-                        <textarea name="appeal_message" required rows="4" placeholder="Опиши вопрос или пожелание подробно..."></textarea>
+                        <textarea name="appeal_message" required rows="4" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                         <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить обращение</button>
                     </form>
                 </div>
@@ -730,10 +747,10 @@ body::before {
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
                 <form method="POST">
                     <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
-                    <label>Тема</label>
-                    <input type="text" name="appeal_subject" required placeholder="Тема обращения" maxlength="200">
+                    <label>Тема обращения</label>
+                    <input type="text" name="appeal_subject" required placeholder="Например: уточнение по заказу" minlength="3" maxlength="200">
                     <label>Сообщение</label>
-                    <textarea name="appeal_message" required rows="3" placeholder="Твой вопрос..."></textarea>
+                    <textarea name="appeal_message" required rows="3" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                     <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить</button>
                 </form>
             </div>
