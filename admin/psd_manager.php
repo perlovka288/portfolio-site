@@ -128,10 +128,10 @@ function publishPortfolioToPrivatePack(
     }
 
     $siteUrl = rtrim(getenv('SITE_URL') ?: 'https://kostlimdzn.kesug.com/', '/') . '/';
-    $caption = "🎨 *{$title}*\n\n"
+    $caption = "🎨 *Псд к превью \"{$title}\"*\n\n"
         . "💰 {$priceRub} ₽ / {$priceUan} ₴\n"
         . "📁 Исходники для приват-пака\n"
-        . "🔗 [Заказать]({$siteUrl})";
+        . "🚀 [Заказать дизайн]({$siteUrl})";
 
     $photoSent = false;
 
@@ -152,16 +152,31 @@ function publishPortfolioToPrivatePack(
         $resp = json_decode((string)curl_exec($ch), true);
         curl_close($ch);
         $photoSent = (bool)($resp['ok'] ?? false);
+        if (!$photoSent) {
+            error_log('[PSD Pack] Photo send failed: ' . json_encode($resp));
+        }
     }
 
     if (!$photoSent && !empty($psdFiles)) {
         sendTelegramPlain($token, $chatId, $caption);
     }
 
-    // 2) PSD файлы
+    // 2) Подготовка клавиатуры
     $keyboard = ['inline_keyboard' => []];
     $needLinks = false;
 
+    // Проверяем внешнюю ссылку (Google Диск и т.д.)
+    $stmt = $pdo->prepare("SELECT psd_external_link FROM portfolio WHERE id = ? LIMIT 1");
+    $stmt->execute([$portfolio_id]);
+    $extLink = $stmt->fetchColumn();
+
+    if (!empty($extLink)) {
+        $keyboard['inline_keyboard'][] = [
+            ['text' => '☁️ Скачать из Cloud (Google Drive / MEGA)', 'url' => $extLink]
+        ];
+    }
+
+    // 3) PSD файлы, загруженные на сервер
     foreach ($psdFiles as $idx => $psd) {
         $filePath = __DIR__ . '/../uploads/psd/' . basename((string)$psd['psd_file']);
         $origName = $psd['original_name'] ?: basename((string)$psd['psd_file']);
@@ -174,9 +189,9 @@ function publishPortfolioToPrivatePack(
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT => 300,
                 CURLOPT_POSTFIELDS => [
-                    'chat_id' => $chatId,
-                    'document' => new CURLFile($filePath),
-                    'caption' => $idx === 0 && !$photoSent ? $caption : "📄 {$origName}",
+                    'chat_id'  => $chatId,
+                    'document' => new CURLFile($filePath, null, $origName),
+                    'caption'  => ($idx === 0 && !$photoSent) ? $caption : "📄 " . mdEscape($origName),
                     'parse_mode' => 'Markdown',
                 ],
             ]);

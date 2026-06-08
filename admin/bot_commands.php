@@ -578,6 +578,7 @@ function ensureBotCommandTables(PDO $pdo): void
         try {
             $pdo->exec("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS psd_dir TEXT DEFAULT NULL");
             $pdo->exec("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'published'");
+            $pdo->exec("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS psd_external_link TEXT DEFAULT NULL");
         } catch (Exception $e) {}
 
         $count = (int)$pdo->query("SELECT COUNT(*) FROM bot_commands")->fetchColumn();

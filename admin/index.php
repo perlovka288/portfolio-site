@@ -96,6 +96,7 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
     $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
     $publish_tg   = !empty($_POST['publish_tg']);
+    $psd_link     = trim($_POST['psd_external_link'] ?? '');
 
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
@@ -111,8 +112,8 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
+    $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image, psd_external_link) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar, $psd_link]);
     $portfolioId = (int)$pdo->lastInsertId();
 
     $psdResult = savePortfolioPsdFiles($pdo, $portfolioId);
@@ -1339,6 +1340,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <label>📁 PSD для приват-пака (до 3 файлов, &lt;32 МБ через форму)</label>
                             <input type="file" name="psd_files[]" multiple accept=".psd,.psb,.zip,.rar,.7z">
                             <div class="avatar-hint">Файлы &gt;32 МБ: в боте <code>/upload ID</code> после сохранения. Приват-пак: <?= htmlspecialchars(PRIVATE_PACK_CHAT_ID) ?></div>
+                            <label>🔗 Или ссылка на Cloud (Google Диск/Mega)</label>
+                            <input type="url" name="psd_external_link" placeholder="https://drive.google.com/...">
+
                             <div id="avatar_upload_block" style="display:none;">
                                 <label>Аватарка к оформлению</label>
                                 <input type="file" name="avatar_image" accept="image/*">
@@ -1865,6 +1869,20 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
     e.preventDefault();
     const btn  = document.getElementById('portfolio-submit-btn');
     const form = this;
+
+    // Проверка размера PSD файлов перед отправкой (> 32 MB)
+    const psdInput = form.querySelector('input[name="psd_files[]"]');
+    if (psdInput && psdInput.files.length > 0) {
+        let totalSize = 0;
+        for (let file of psdInput.files) { totalSize += file.size; }
+        if (totalSize > 32 * 1024 * 1024) {
+            showToast('⚠️ Файлы слишком тяжелые для сайта. Сохрани кейс без PSD, а затем загрузи их через бота: /upload', 'error', 10000);
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            return;
+        }
+    }
+
     btn.disabled = true;
     btn.classList.add('loading');
     showToast('⏳ Загружаем на ImgBB... Это может занять 10–30 сек.', 'loading', 60000);
