@@ -2,7 +2,6 @@
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/admin/bot_commands.php';
-require_once __DIR__ . '/admin/upload_token.php';
 
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
@@ -383,11 +382,6 @@ if (isset($update['message'])) {
             exit;
         }
 
-        if ($text === '📜 Опубликованные') {
-            cmdListPublished($pdo, $token, (int)$chat_id);
-            exit;
-        }
-
         if ($text === '📊 Статистика') {
             $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
             $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
@@ -633,22 +627,6 @@ if (isset($update['message'])) {
         } else {
             sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => "Заказ #{$order_id} не найден."]);
         }
-        exit;
-    }
-
-    // ── Админ прислал документ > 45 МБ — выдаём одноразовую ссылку ──
-    if (isBotAdmin($update) && !empty($update['message']['document'])) {
-        $docSize = (int)($update['message']['document']['file_size'] ?? 0);
-        if ($docSize > 45 * 1024 * 1024) {
-            $replyChat = getBotReplyChatId($update) ?: (int)$chat_id;
-            cmdUploadLink($pdo, $token, $replyChat, getBotAdminId(), 'psd_upload', '');
-            exit;
-        }
-        sendTelegram($token, 'sendMessage', [
-            'chat_id' => $chat_id,
-            'text' => "📤 Файл до 50 МБ можно отправить напрямую.\n\nДля PSD/исходников до *300 МБ* используй:\n`/upload` — одноразовая ссылка\n`/portfolio` — справка",
-            'parse_mode' => 'Markdown',
-        ]);
         exit;
     }
 
@@ -1077,8 +1055,8 @@ function mainKeyboard($isAdmin) {
 function adminReplyKeyboard() {
     return [
         'keyboard' => [
-            [['text' => '🗂 Очередь заказов'],   ['text' => '📜 Опубликованные']],
-            [['text' => '📊 Статистика'],        ['text' => '🔗 Привязки TG']],
+            [['text' => '🗂 Очередь заказов'],   ['text' => '📊 Статистика']],
+            [['text' => '🔗 Привязки TG'],       ['text' => '💾 Бэкап БД']],
             [['text' => '💾 Бэкап БД'],          ['text' => '🐛 Диагностика БД']],
             [['text' => '🔧 Починить БД'],       ['text' => '📣 Рассылка клиентам']],
             [['text' => '🗑 Очистить все заказы']],

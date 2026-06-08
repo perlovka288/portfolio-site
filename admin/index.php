@@ -96,7 +96,6 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
     $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
     $publish_tg   = !empty($_POST['publish_tg']);
-    $psd_link     = trim($_POST['psd_external_link'] ?? '');
 
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
@@ -112,12 +111,9 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image, psd_external_link) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar, $psd_link]);
+    $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
     $portfolioId = (int)$pdo->lastInsertId();
-
-    $psdResult = savePortfolioPsdFiles($pdo, $portfolioId);
-    $hasPsd = !empty($psdResult['has_files']);
 
     $postedToChannel = false;
     $watermarkedPath = null;
@@ -147,21 +143,6 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     }
 
     $postedToPrivate = false;
-    if ($publish_tg && $hasPsd) {
-        $packPhoto = $watermarkedPath;
-        if (!$packPhoto || !is_file($packPhoto)) {
-            $packPhoto = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
-                'title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan,
-                'image' => $filename_main, 'avatar_image' => $filename_avatar,
-            ]);
-        }
-        $pack = publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $packPhoto);
-        $postedToPrivate = (bool)($pack['success'] ?? false);
-        if ($packPhoto && $packPhoto !== $watermarkedPath && str_contains($packPhoto, sys_get_temp_dir()) && is_file($packPhoto)) {
-            @unlink($packPhoto);
-        }
-    }
-
     if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
         @unlink($watermarkedPath);
     }
@@ -172,14 +153,8 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
         $msg .= $postedToChannel
             ? ' Пост отправлен в Telegram-канал.'
             : ' (Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки бота') . ')';
-        if ($hasPsd) {
-            $msg .= $postedToPrivate ? ' PSD + превью в приват-пак.' : ' PSD не отправлены в приват-пак.';
-        }
     } else {
         $msg .= ' Без публикации в Telegram.';
-    }
-    if (!empty($psdResult['messages'])) {
-        $msg .= ' ' . implode(' ', $psdResult['messages']);
     }
     echo json_encode(['ok' => true, 'msg' => $msg, 'portfolio_id' => $portfolioId]);
     exit;
@@ -1337,12 +1312,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <label>Главное изображение / шапка</label>
                             <input type="file" name="image" accept="image/*" required>
                             <label class="tg-checkbox"><input type="checkbox" name="publish_tg" value="1" checked> Публиковать в Telegram-канал</label>
-                            <label>📁 PSD для приват-пака (до 3 файлов, &lt;32 МБ через форму)</label>
-                            <input type="file" name="psd_files[]" multiple accept=".psd,.psb,.zip,.rar,.7z">
-                            <div class="avatar-hint">Файлы &gt;32 МБ: в боте <code>/upload ID</code> после сохранения. Приват-пак: <?= htmlspecialchars(PRIVATE_PACK_CHAT_ID) ?></div>
-                            <label>🔗 Или ссылка на Cloud (Google Диск/Mega)</label>
-                            <input type="url" name="psd_external_link" placeholder="https://drive.google.com/...">
-
                             <div id="avatar_upload_block" style="display:none;">
                                 <label>Аватарка к оформлению</label>
                                 <input type="file" name="avatar_image" accept="image/*">
@@ -1869,13 +1838,6 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
     e.preventDefault();
     const btn  = document.getElementById('portfolio-submit-btn');
     const form = this;
-
-    // Проверка размера PSD файлов перед отправкой (> 32 MB)
-    const psdInput = form.querySelector('input[name="psd_files[]"]');
-    if (psdInput && psdInput.files.length > 0) {
-        let totalSize = 0;
-        for (let file of psdInput.files) { totalSize += file.size; }
-    }
 
     btn.disabled = true;
     btn.classList.add('loading');
