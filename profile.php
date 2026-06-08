@@ -13,10 +13,12 @@ try {
         telegram VARCHAR(255),
         subject VARCHAR(255),
         message TEXT,
+        reply TEXT,
         status VARCHAR(20) DEFAULT 'open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         replied_at TIMESTAMP
     )");
+    try { $pdo->exec("ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reply TEXT"); } catch(Throwable $e) {}
     $pdo->exec("CREATE TABLE IF NOT EXISTS appeals_messages (
         id SERIAL PRIMARY KEY,
         appeal_id INT NOT NULL,
@@ -97,16 +99,11 @@ if (isset($_POST['send_appeal'])) {
 
         if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
             // Сохраняем обращение
-            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW())");
+            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW()) RETURNING id");
             $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
-            $aid = (int)$pdo->lastInsertId();
-
-            // Если RETURNING не поддерживается — ищем последний id
-            if ($aid === 0) {
-                $last = $pdo->prepare("SELECT id FROM appeals WHERE order_id=? AND telegram=? ORDER BY id DESC LIMIT 1");
-                $last->execute([$appealOrderId, $appealTelegram]);
-                $aid = (int)($last->fetchColumn() ?: 0);
-            }
+            
+            // Получаем ID созданного обращения (PostgreSQL way)
+            $aid = (int)($ins->fetchColumn() ?: 0);
 
             if ($aid > 0) {
                 $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
@@ -116,7 +113,7 @@ if (isset($_POST['send_appeal'])) {
             $appealMsg = 'ok';
 
             // ── Уведомление админу в Telegram ──
-            $_tgToken = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+            $_tgToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
             $_adminId = getenv('ADMIN_ID') ?: '1710365896';
             $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
             $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"
@@ -124,7 +121,8 @@ if (isset($_POST['send_appeal'])) {
                 . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
                 . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
                 . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
-                . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>";
+                . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>\n"
+                . "💡 <i>Ответить можно во вкладке «Обращения»</i>";
             $_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
             curl_setopt_array($_ch, [
                 CURLOPT_POST           => true,

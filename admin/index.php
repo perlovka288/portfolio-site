@@ -22,10 +22,12 @@ try {
         telegram VARCHAR(255),
         subject VARCHAR(255),
         message TEXT,
+        reply TEXT,
         status VARCHAR(20) DEFAULT 'open',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         replied_at TIMESTAMP
     )");
+    try { $pdo->exec("ALTER TABLE appeals ADD COLUMN IF NOT EXISTS reply TEXT"); } catch(Throwable $e) {}
     $pdo->exec("CREATE TABLE IF NOT EXISTS appeals_messages (
         id SERIAL PRIMARY KEY,
         appeal_id INT NOT NULL,
