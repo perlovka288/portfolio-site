@@ -390,6 +390,11 @@ if (isset($update['message'])) {
             exit;
         }
 
+        if ($text === '📜 Опубликованные') {
+            cmdListPublished($pdo, $token, (int)$chat_id);
+            exit;
+        }
+
         if ($text === '📊 Статистика') {
             $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
             $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
@@ -1081,7 +1086,8 @@ function mainKeyboard($isAdmin) {
 function adminReplyKeyboard() {
     return [
         'keyboard' => [
-            [['text' => '🗂 Очередь заказов'],  ['text' => '📊 Статистика']],
+            [['text' => '🗂 Очередь заказов'],  ['text' => '📜 Опубликованные']],
+            [['text' => '📊 Статистика'],       ['text' => '🔗 Привязки TG']],
             [['text' => '💾 Бэкап БД'],         ['text' => '🔗 Привязки TG']],
             [['text' => '🐛 Диагностика БД'],    ['text' => '🔧 Починить БД']],
             [['text' => '📣 Рассылка клиентам']],

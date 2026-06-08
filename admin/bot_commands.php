@@ -44,6 +44,12 @@ function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text
     $replyChatId = getBotReplyChatId($update) ?: $chat_id;
     $adminId = getBotAdminId();
 
+    // Исправление обработки /upload [ID] и /upload_[ID] с использованием preg_match
+    if (preg_match('/^\/upload(?:_|\s+)(\d+)$/i', $text, $matches)) {
+        $portfolioId = (int)$matches[1];
+        return cmdHandleUploadAndPublish($pdo, $token, $replyChatId, $portfolioId);
+    }
+
     $parts = explode(' ', $text, 3);
     $command = strtolower(trim($parts[0] ?? ''));
     $arg1 = trim($parts[1] ?? '');
@@ -66,6 +72,8 @@ function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text
             return cmdStats($pdo, $token, $replyChatId);
         case '/help':
             return cmdHelp($pdo, $token, $replyChatId);
+        case '/list_published':
+            return cmdListPublished($pdo, $token, $replyChatId);
         case '/upload':
         case '/upload_psd':
             return cmdUploadLink($pdo, $token, $replyChatId, $adminId, 'psd_upload', $arg1);
@@ -111,6 +119,97 @@ function cmdUploadLink(PDO $pdo, string $token, int $chatId, int $adminId, strin
         'text' => $text,
         'parse_mode' => 'Markdown',
         'disable_web_page_preview' => false,
+    ]);
+    return true;
+}
+
+/**
+ * Обработка /upload [ID]: обновляет статус в БД и публикует пост с PSD в приватный канал
+ */
+function cmdHandleUploadAndPublish(PDO $pdo, string $token, int $chatId, int $portfolioId): bool
+{
+    require_once __DIR__ . '/psd_manager.php';
+
+    // 1. Обновляем статус кейса в базе данных (колонку status добавим через миграцию ниже)
+    try {
+        $pdo->prepare("UPDATE portfolio SET status = 'published' WHERE id = ?")->execute([$portfolioId]);
+    } catch (Throwable $e) {
+        // Если колонка еще не создана, она будет добавлена при следующем запуске бота
+    }
+
+    // 2. Получаем актуальные данные работы
+    $stmt = $pdo->prepare("SELECT * FROM portfolio WHERE id = ? LIMIT 1");
+    $stmt->execute([$portfolioId]);
+    $work = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$work) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chatId,
+            'text'    => "❌ Кейс #{$portfolioId} не найден в базе данных.",
+        ]);
+        return true;
+    }
+
+    // 3. Автоматически публикуем пост с PSD-файлами в приватный канал -1003781426510
+    $uploadDir = __DIR__ . '/../uploads/';
+    $photoPath = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, $work);
+
+    $result = publishPortfolioToPrivatePack(
+        $pdo,
+        $token,
+        $portfolioId,
+        (string)$work['title'],
+        (int)$work['price_rub'],
+        (int)$work['price_uan'],
+        $photoPath
+    );
+
+    if ($photoPath && str_contains($photoPath, sys_get_temp_dir()) && is_file($photoPath)) {
+        @unlink($photoPath);
+    }
+
+    $msg = ($result['success'] ?? false)
+        ? "✅ Кейс #{$portfolioId} («{$work['title']}») обновлен и опубликован в приватный канал!"
+        : "⚠️ Статус обновлен, но возникла ошибка при публикации: " . ($result['message'] ?? 'неизвестно');
+
+    sendTelegram($token, 'sendMessage', [
+        'chat_id' => $chatId,
+        'text'    => $msg,
+    ]);
+    return true;
+}
+
+/**
+ * Команда /list_published: выводит список всех кейсов со статусом 'published'
+ */
+function cmdListPublished(PDO $pdo, string $token, int $chatId): bool
+{
+    try {
+        $stmt = $pdo->query("SELECT id, title FROM portfolio WHERE status = 'published' ORDER BY id DESC");
+        $works = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        sendTelegram($token, 'sendMessage', ['chat_id' => $chatId, 'text' => '❌ Ошибка БД: ' . $e->getMessage()]);
+        return true;
+    }
+
+    if (empty($works)) {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chatId,
+            'text'    => "📭 Опубликованных кейсов пока нет.",
+        ]);
+        return true;
+    }
+
+    $text = "📜 *Опубликованные кейсы:*\n\n";
+    foreach ($works as $w) {
+        $text .= "• #{$w['id']} — {$w['title']}\n";
+    }
+    $text .= "\n_Всего: " . count($works) . "_";
+
+    sendTelegram($token, 'sendMessage', [
+        'chat_id'    => $chatId,
+        'text'       => $text,
+        'parse_mode' => 'Markdown',
     ]);
     return true;
 }
@@ -413,6 +512,7 @@ function cmdHelp(PDO $pdo, string $token, int $chatId): bool
     $text .= "• `/upload ID` — PSD для работы #ID\n";
     $text .= "• `/upload_preview` — ссылка для превью\n";
     $text .= "• `/publish_psd ID` — в приват-пак\n\n";
+    $text .= "• `/list_published` — список опубликованных\n\n";
     $text .= "⚙️ *Админ:* `/admin` `/stats` `/help`\n";
     $text .= "🛡 *Модерация:* `/mute` `/warn` `/ban` `/unban`\n\n";
     $text .= "_Работают в ЛС и в приват-паке._";
@@ -477,6 +577,7 @@ function ensureBotCommandTables(PDO $pdo): void
 
         try {
             $pdo->exec("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS psd_dir TEXT DEFAULT NULL");
+            $pdo->exec("ALTER TABLE portfolio ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'published'");
         } catch (Exception $e) {}
 
         $count = (int)$pdo->query("SELECT COUNT(*) FROM bot_commands")->fetchColumn();
@@ -495,6 +596,7 @@ function ensureBotCommandTables(PDO $pdo): void
                 ['admin', '⚙️ /admin — админ-панель'],
                 ['stats', '📊 /stats — статистика'],
                 ['help', '📖 /help — список команд'],
+                ['list_published', '📜 /list_published — список опубликованных кейсов'],
             ];
             foreach ($defaultCommands as $cmd) {
                 $insert->execute($cmd);
@@ -506,6 +608,7 @@ function ensureBotCommandTables(PDO $pdo): void
                 ['upload', '📤 /upload [ID] — одноразовая ссылка для PSD до 300 МБ'],
                 ['upload_preview', '🖼 /upload_preview — ссылка для превью'],
                 ['publish_psd', '📦 /publish_psd ID — отправить PSD в приват-пак'],
+                ['list_published', '📜 /list_published — список опубликованных кейсов'],
             ] as $cmd) {
                 $extra->execute($cmd);
             }
