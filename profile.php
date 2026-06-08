@@ -88,8 +88,8 @@ if (isset($_POST['send_appeal'])) {
         }
 
         // Сохраняем обращение
-        $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW()) RETURNING id");
-        $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
+        $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
+        $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject]);
         
         // Получаем ID созданного обращения (PostgreSQL way)
         $aid = (int)($ins->fetchColumn() ?: 0);
