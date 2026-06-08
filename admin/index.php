@@ -13,6 +13,28 @@ try {
     // ignore
 }
 
+// ── Таблицы обращений ──
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS appeals (
+        id SERIAL PRIMARY KEY,
+        order_id INT NOT NULL,
+        username VARCHAR(255),
+        telegram VARCHAR(255),
+        subject VARCHAR(255),
+        message TEXT,
+        status VARCHAR(20) DEFAULT 'open',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        replied_at TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS appeals_messages (
+        id SERIAL PRIMARY KEY,
+        appeal_id INT NOT NULL,
+        author VARCHAR(20),
+        message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+} catch (Throwable $e) {}
+
 $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
@@ -281,6 +303,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
     }
 
     header('Location: ' . $_SERVER['REQUEST_URI']); exit;
+}
+
+// ── Обработка массовой рассылки ──
+if (isset($_POST['mass_broadcast'])) {
+    $text   = trim($_POST['broadcast_text'] ?? '');
+    $photos = [];
+    
+    // Загружаем до 5 фото на ImgBB
+    if (!empty($_FILES['broadcast_photos']['name'][0])) {
+        foreach ($_FILES['broadcast_photos']['tmp_name'] as $i => $tmp) {
+            if ($i >= 5) break;
+            if (!empty($tmp)) {
+                $url = uploadToImgBB($tmp, 'promo_' . $i);
+                if ($url) $photos[] = $url;
+            }
+        }
+    }
+
+    if (($text !== '' || !empty($photos)) && TELEGRAM_BOT_TOKEN !== '') {
+        $chatIds = $pdo->query("SELECT DISTINCT client_chat_id FROM orders WHERE client_chat_id IS NOT NULL AND client_chat_id != ''")->fetchAll(PDO::FETCH_COLUMN);
+        $sent = 0;
+        foreach (array_unique($chatIds) as $cid) {
+            if (!is_numeric($cid)) continue;
+            
+            if (!empty($photos)) {
+                if (count($photos) === 1) {
+                    sendTelegramRequest('sendPhoto', ['chat_id' => $cid, 'photo' => $photos[0], 'caption' => $text, 'parse_mode' => 'HTML']);
+                } else {
+                    $media = [];
+                    foreach ($photos as $idx => $url) {
+                        $item = ['type' => 'photo', 'media' => $url];
+                        if ($idx === 0) { $item['caption'] = $text; $item['parse_mode'] = 'HTML'; }
+                        $media[] = $item;
+                    }
+                    sendTelegramRequest('sendMediaGroup', ['chat_id' => $cid, 'media' => json_encode($media)]);
+                }
+            } else {
+                sendTelegramRequest('sendMessage', ['chat_id' => $cid, 'text' => $text, 'parse_mode' => 'HTML']);
+            }
+            $sent++;
+            usleep(50000); // защита от флуда
+        }
+        $message = "✅ Рассылка завершена. Доставлено: {$sent} чел.";
+    }
 }
 
 function sendTelegramRequest(string $method, array $params, array $files = []): ?array
@@ -1465,6 +1531,19 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <!-- ════ ПАНЕЛЬ ОБРАЩЕНИЙ ════ -->
             <div id="appeals-panel" style="display:none;">
                 <div class="panel" data-panel="appeals" style="max-width:960px;margin:0 auto;">
+                    <!-- Блок рассылки -->
+                    <div style="background:rgba(249,115,22,0.1); border:1px solid rgba(249,115,22,0.3); border-radius:14px; padding:20px; margin-bottom:24px;">
+                        <h3 style="margin-top:0; color:#fb923c; font-size:14px; text-transform:uppercase;">📣 Массовая рассылка всем клиентам</h3>
+                        <form action="" method="POST" enctype="multipart/form-data">
+                            <textarea name="broadcast_text" placeholder="Текст акции или новости... (HTML поддерживается)" style="margin-bottom:10px; min-height:80px;"></textarea>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <input type="file" name="broadcast_photos[]" multiple accept="image/*" style="flex:1;">
+                                <button type="submit" name="mass_broadcast" class="btn-panel" style="width:auto; margin:0; padding:10px 25px;">🚀 Разослать всем</button>
+                            </div>
+                            <p style="font-size:10px; color:#8a8a96; margin-top:8px;">* Можно прикрепить до 5 фото. Сообщение уйдет всем, кто привязывал бот или делал заказ.</p>
+                        </form>
+                    </div>
+
                     <h2>📩 Обращения клиентов
                         <?php if ($openAppealsCount > 0): ?>
                             <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
