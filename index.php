@@ -1,4 +1,11 @@
 <?php
+// Скрываем ошибки от пользователей
+error_reporting(E_ALL);     // Собирать все типы ошибок
+ini_set('display_errors', 0); // Не выводить их в браузер
+ini_set('log_errors', 1);     // Записывать ошибки в лог-файл сервера
+// Если вы хотите сохранять ошибки в конкретный файл в папке проекта:
+// ini_set('error_log', __DIR__ . '/php_errors.log');
+
 session_start();
 require_once 'config/db.php';
 require_once 'donationalerts.php';
