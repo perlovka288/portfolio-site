@@ -60,7 +60,7 @@ $success_msg = '';
 $error_msg   = '';
 
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
-$rules_accepted = $skip_rules || (($_GET['accepted'] ?? '') === '1') || (($_POST['rules_accepted'] ?? '') === '1');
+$rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
 
 if (isset($_POST['accept_rules'])) {
     if (!empty($_POST['dont_ask'])) {
@@ -68,11 +68,6 @@ if (isset($_POST['accept_rules'])) {
     }
     $rules_accepted = true;
 }
-
-$accept_params = [];
-if ($selected_service !== '') $accept_params['service'] = $selected_service;
-$accept_params['accepted'] = '1';
-$accept_url = 'order.php?' . http_build_query($accept_params);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules']) && !$rules_accepted) {
     header('Location: index.php');
@@ -484,6 +479,13 @@ body::before {
 .rules-card { background: #111116; border: 1px solid #1f1f2a; padding: 32px; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .rules-agree-btn { display: block; background: linear-gradient(135deg, var(--or2), var(--or)); color: #fff; text-align: center; text-decoration: none; padding: 14px 16px; border-radius: 9px; font-weight: 900; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; box-shadow: var(--or-glow); transition: opacity .2s, transform .2s; }
 .rules-agree-btn:hover { opacity: .9; transform: translateY(-1px); }
+.rules-agree-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+    filter: grayscale(0.5);
+    transform: none;
+}
 .msg-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: 700; font-size: 13px; }
 .msg-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-size: 13px; }
 .mb16 { margin-bottom: 16px; }
@@ -716,14 +718,17 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             На главную к портфолио
         </a>
         <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
-        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, ознакомьтесь с условиями перед оформлением заказа.</p>
+        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
     </div>
-    <ul style="display:grid; gap:12px; color:#e0e0ec; padding-left:20px; line-height:1.6; margin:0 0 26px; font-size:13px;">
-        <li>Стандартный срок сдачи работы — <b>5 дней</b>.</li>
-        <li>При оплате <b>50%</b> от цены заказа — срок выполнения <b>24 часа</b> после создания заказа.</li>
-        <li>По всем вопросам пишите дизайнеру в Telegram: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
-        <li>Деньги не возвращаются.</li>
-    </ul>
+    <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin;">
+        <ul style="display:grid; gap:12px; color:#e0e0ec; padding-left:20px; line-height:1.6; margin:0 0 20px; font-size:13px;">
+            <li>Стандартный срок сдачи работы — <b>5 дней</b>.</li>
+            <li>При оплате <b>50%</b> от цены заказа — срок выполнения <b>24 часа</b> после создания заказа.</li>
+            <li>ТЗ должно быть <b>максимально подробным</b> — это ускорит работу и уменьшит количество правок.</li>
+            <li>По всем вопросам пишите дизайнеру в Telegram: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
+            <li>Деньги не возвращаются.</li>
+        </ul>
+    </div>
     <div style="margin-bottom: 20px;">
         <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
             <input type="checkbox" name="dont_ask" value="1" style="width:auto; margin:0; accent-color:var(--or);">
@@ -731,7 +736,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         </label>
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-        <button type="submit" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;">Согласиться</button>
+        <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;" disabled>Согласиться</button>
         <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
 </form>
@@ -892,6 +897,24 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 </div>
 
 <script>
+document.addEventListener('DOMContentLoaded', function() {
+    const rulesScroll = document.getElementById('rules-scroll');
+    const agreeBtn = document.getElementById('agree-btn');
+    
+    if (rulesScroll && agreeBtn) {
+        const checkScroll = () => {
+            // Если контент влезает без прокрутки или прокручен до конца (с погрешностью 10px)
+            if (rulesScroll.scrollHeight <= rulesScroll.clientHeight || 
+                Math.abs(rulesScroll.scrollHeight - rulesScroll.clientHeight - rulesScroll.scrollTop) < 10) {
+                agreeBtn.disabled = false;
+            }
+        };
+
+        rulesScroll.addEventListener('scroll', checkScroll);
+        checkScroll(); // Проверка при загрузке (на случай если текста мало)
+    }
+});
+
 document.getElementById('file_screenshot')?.addEventListener('change', function() {
     const el = document.getElementById('name_screenshot');
     if (this.files[0]) { el.textContent = '✅ ' + this.files[0].name; el.classList.add('has-file'); }

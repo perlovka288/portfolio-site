@@ -18,51 +18,55 @@ try {
     )");
 } catch (Throwable $e) {}
 
+// ── Инициализация профиля и прав (перенесено вверх для работы удаления) ──
+$linkCode = null;
+$isLinked = false;
+$tgProfile = [];
+$sid = session_id();
+try {
+    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$sid]);
+    $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
+        $isLinked  = true;
+        $tgProfile = $linkRow;
+    } elseif ($linkRow) {
+        $linkCode = $linkRow['site_code'];
+    }
+} catch (Throwable $e) {}
+
 define('ADMIN_TG_ID', '1710365896');
-if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
-    $_SESSION['admin_logged'] = true;
-}
+$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
+
+if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) $_SESSION['admin_logged'] = true;
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
-// Удаление отзыва (только для админа)
-if (isset($_GET['delete_review']) && $isAdmin) {
-    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
-    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#reviews'); exit;
-}
-if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
+// Проверка прав через Telegram-линк
+if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
+    $isAdmin = true;
     $_SESSION['admin_logged'] = true;
 }
-// $isAdmin уже объявлен выше
 
-// Если пользователь привязал TG и его tg_id = ADMIN_ID — тоже admin
-$adminTgId = getenv('ADMIN_ID') ?: '1710365896';
-if (!$isAdmin && !empty($tgProfile['tg_id'] ?? '') && (string)$tgProfile['tg_id'] === $adminTgId) {
-    $isAdmin = true;
+// Удаление отзыва (теперь $isAdmin определен корректно)
+if (isset($_GET['delete_review']) && $isAdmin) {
+    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
+    header('Location: index.php#reviews'); exit;
 }
-// Примечание: $tgProfile заполняется ниже в блоке работы с tg_links,
-// поэтому повторно проверяем после его заполнения (см. ниже)
 
 // ── AJAX: проверить статус привязки (polling) ──────────────────
 if (isset($_GET['check_linked'])) {
     header('Content-Type: application/json');
-    $sid  = session_id();
     try {
         $stmt = $pdo->prepare("SELECT linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
         $stmt->execute([$sid]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!empty($row['linked']) && $row['linked'] !== 'f' && $row['linked'] !== false) {
-            echo json_encode([
-                'linked'     => true,
-                'username'   => $row['tg_username'] ?? '',
-                'first_name' => $row['tg_first_name'] ?? '',
-                'photo_url'  => $row['tg_photo_url'] ?? '',
-            ]);
-        } else {
-            echo json_encode(['linked' => false]);
-        }
-    } catch (Throwable $e) {
-        echo json_encode(['linked' => false]);
-    }
+        echo json_encode([
+            'linked'     => (!empty($row['linked']) && $row['linked'] !== 'f'),
+            'username'   => $row['tg_username'] ?? '',
+            'first_name' => $row['tg_first_name'] ?? '',
+            'photo_url'  => $row['tg_photo_url'] ?? ''
+        ]);
+    } catch (Throwable $e) { echo json_encode(['linked' => false]); }
     exit;
 }
 
@@ -82,48 +86,18 @@ if ($isAdmin && isset($_POST['inline_edit_price'])) {
     exit;
 }
 
-// ── Генерация/обновление кода привязки для текущей сессии ──────
-$linkCode = null;
-$isLinked = false;
-$tgProfile = [];
-try {
-    $sid  = session_id();
-    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
-        $isLinked  = true;
-        $tgProfile = [
-            'tg_id'      => $linkRow['tg_id'] ?? '',
-            'username'   => $linkRow['tg_username'] ?? '',
-            'first_name' => $linkRow['tg_first_name'] ?? '',
-            'photo_url'  => $linkRow['tg_photo_url'] ?? '',
-        ];
-        // Проверяем — вдруг это админ по TG ID
-        if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgId) {
-            $isAdmin = true;
-        }
-    } elseif ($linkRow) {
-        $linkCode = $linkRow['site_code'];
-    } else {
-        // Генерируем уникальный код, повторяя при коллизии
-        $attempts = 0;
-        do {
-            $code = strtoupper(substr(md5(uniqid($sid . $attempts, true)), 0, 6));
-            $attempts++;
-            try {
-                $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
-                $linkCode = $code;
-                break;
-            } catch (Throwable $ins_e) {
-                // UNIQUE conflict — попробуем ещё раз
-            }
-        } while ($attempts < 5);
-    }
-} catch (Throwable $e) {
-    // Если таблица не существует — генерируем код на клиентской стороне из session_id
-    $linkCode = strtoupper(substr(md5(session_id()), 0, 6));
+// Генерация кода, если его еще нет (перенесено из середины файла)
+if (!$isLinked && !$linkCode) {
+    $attempts = 0;
+    do {
+        $code = strtoupper(substr(md5(uniqid($sid . $attempts, true)), 0, 6));
+        $attempts++;
+        try {
+            $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
+            $linkCode = $code;
+            break;
+        } catch (Throwable $ins_e) {}
+    } while ($attempts < 5);
 }
 
 if (isset($_GET['code']) && trim((string)$_GET['code']) !== '') {
@@ -760,7 +734,7 @@ body::after {
             ?>
             <?php if ($totalReviews > 0): ?>
             <div style="display:flex;align-items:center;gap:8px;color:#8a8a96;font-size:14px;">
-                <span style="color:#f97316;font-size:16px;text-shadow:0 0 10px rgba(249,115,22,0.35);"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
+                <span style="color:#f97316;font-size:18px;text-shadow:0 0 12px rgba(249,115,22,0.6);letter-spacing:2px;font-weight:bold;"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
                 <strong style="color:#fff;"><?= $avgRating ?></strong>
                 <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
             </div>
@@ -804,7 +778,7 @@ body::after {
                     <!-- Звёзды -->
                     <div style="margin-left:auto;flex-shrink:0;">
                         <?php for($s=1;$s<=5;$s++): ?>
-                            <span style="font-size:16px;color:<?= $s <= $rv['rating'] ? '#f97316' : '#2a2a38' ?>;<?= $s <= $rv['rating'] ? 'text-shadow:0 0 8px rgba(249,115,22,0.3);' : '' ?>">★</span>
+                            <span style="font-size:18px;color:<?= $s <= $rv['rating'] ? '#f97316' : '#2a2a38' ?>;<?= $s <= $rv['rating'] ? 'text-shadow:0 0 12px rgba(249,115,22,0.6);font-weight:bold;' : '' ?>">★</span>
                         <?php endfor; ?>
                     </div>
                 </div>
@@ -1014,7 +988,7 @@ function openTgModal() {
 // ── Нажатие «ЗАКАЗАТЬ» — всегда идём на order.php, TG не блокирует ──
 function handleOrder(serviceKey) {
     pendingOrderService = serviceKey;
-    window.location.href = 'order.php?service=' + encodeURIComponent(serviceKey) + '&accepted=1';
+    window.location.href = 'order.php?service=' + encodeURIComponent(serviceKey);
 }
 
 // ── Закрыть модалку ──
