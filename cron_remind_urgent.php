@@ -98,11 +98,11 @@ foreach ($sorted_orders as $item) {
     
     if (isset($item['hours_overdue'])) {
         // Просроченный
-        $message .= "🔴 *Заказ #{$o['id']}* — {$o['username']}\n";
+        $message .= "🔴 *Заказ #{$o['id']} (ПРОСРОЧЕН)* — {$o['username']}\n";
         $message .= "   ⚠️ ПРОСРОЧЕНО на {$item['hours_overdue']} ч!\n";
     } else {
-        // Срочный
-        $message .= "{$status_emoji} *Заказ #{$o['id']}* — {$o['username']}\n";
+        // Срочный или 4-й день в работе
+        $message .= "{$status_emoji} *Заказ #{$o['id']} (Остались сутки)* — {$o['username']}\n";
         $message .= "   ⏰ Осталось: ~{$item['hours_left']} ч.\n";
     }
     
@@ -134,13 +134,5 @@ curl_close($ch);
 
 $result = json_decode($res, true);
 $status = ($result['ok'] ?? false) ? 'OK' : 'FAIL';
-echo "[" . date('Y-m-d H:i:s') . "] Отправлено напоминание о " . count($sorted_orders) . " заказах. Status: {$status}\n";
 
-    // Обновляем время последнего напоминания
-    $pdo->prepare("UPDATE orders SET last_reminded_at = NOW() WHERE id = ?")->execute([$o['id']]);
-    $reminded++;
-
-    echo "[" . date('Y-m-d H:i:s') . "] Напомнил о заказе #{$o['id']} ({$o['username']}), осталось: {$left_str}\n";
-}
-
-echo "[" . date('Y-m-d H:i:s') . "] Готово. Напомнил: {$reminded} заказов из " . count($orders) . " срочных.\n";
+echo "[" . date('Y-m-d H:i:s') . "] Отправлено напоминание о " . count($sorted_orders) . " заказах (включая те, что в работе 4 дня). Status: {$status}\n";

@@ -138,7 +138,7 @@ if (isset($update['callback_query'])) {
         ]);
         // Уведомляем клиента
         safeNotifyClient($pdo, $token, $order_id,
-            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio\\-site\\-boo5\\.onrender\\.com/review\\.php?order={$order_id}"
+            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}"
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ выполнен']);
         exit;
