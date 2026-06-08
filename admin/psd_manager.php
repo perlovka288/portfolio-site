@@ -4,7 +4,8 @@
  */
 
 define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
-define('TELEGRAM_DOC_MAX_BYTES', 45 * 1024 * 1024);
+define('TELEGRAM_DOC_MAX_BYTES', 45 * 1024 * 1024); // Максимальный размер документа для Telegram
+require_once __DIR__ . '/google_drive_helper.php';
 
 /**
  * Сохранить загруженные PSD файлы и записать в БД
