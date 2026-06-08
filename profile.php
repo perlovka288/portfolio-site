@@ -2,6 +2,17 @@
 session_start();
 require_once 'config/db.php';
 
+$adminQuery = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+$siteAvatar = (!empty($adminQuery['avatar'])) ? $adminQuery['avatar'] : '';
+
+if (!function_exists('imgSrc')) {
+    function imgSrc(string $val, string $base = 'uploads/'): string {
+        if ($val === '') return '';
+        if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+        return $base . $val;
+    }
+}
+
 $adminTgId = getenv('ADMIN_ID') ?: '1710365896';
 
 $isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
@@ -494,10 +505,23 @@ body::before {
 
 <header>
     <div class="header-left" style="display:flex;align-items:center;gap:10px;">
-        <img src="https://i.imgur.com/w9NThbA.png" class="avatar-mini" alt="Kostlim" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
+        <a href="index.php" style="display:flex;align-items:center;" title="На главную">
+            <?php if ($siteAvatar !== ''): ?>
+                <img src="<?= htmlspecialchars(imgSrc($siteAvatar)) ?>" class="avatar-mini" alt="Kostlim">
+            <?php else: ?>
+                <img src="https://i.imgur.com/w9NThbA.png" class="avatar-mini" alt="Kostlim" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
+            <?php endif; ?>
+        </a>
+
         <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </a>
+
+        <?php if ($isAdmin): ?>
+        <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <?php endif; ?>
     </div>
     <div class="brand-title"><a href="index.php" style="text-decoration:none;color:inherit;"><h1>KOSTLIM</h1><span>DESIGN</span></a></div>
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
@@ -585,6 +609,10 @@ body::before {
         <a href="https://t.me/kostlimdznbot" target="_blank" class="profile-action-btn btn-bot">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             Открыть бот
+        </a>
+        <a href="https://t.me/Perlo_ovka" target="_blank" class="profile-action-btn" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text2);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Поддержка
         </a>
     </div>
 </div>
