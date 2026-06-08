@@ -643,8 +643,8 @@ body::after {
         <?php if ($isLinked && !empty($tgProfile)): ?>
         <!-- ── TG ПРОФИЛЬ (привязан) ── -->
         <a href="profile.php" class="tg-user-chip" title="Личный профиль">
-            <?php if (!empty($tgProfile['photo_url'])): ?>
-                <img src="<?= htmlspecialchars($tgProfile['photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <?php if (!empty($tgProfile['tg_photo_url'])): ?>
+                <img src="<?= htmlspecialchars($tgProfile['tg_photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;">
                     <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
                 </span>
