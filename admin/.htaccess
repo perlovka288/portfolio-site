@@ -1,0 +1,7 @@
+# Лимиты только для страницы больших загрузок
+<Files "large_upload.php">
+    php_value upload_max_filesize 320M
+    php_value post_max_size 330M
+    php_value memory_limit 512M
+    php_value max_execution_time 600
+</Files>

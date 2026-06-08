@@ -1,6 +1,11 @@
 <?php
 
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/admin/bot_commands.php';
+require_once __DIR__ . '/admin/upload_token.php';
+
+// Автоматическая миграция таблиц для новых функций
+ensureBotCommandTables($pdo);
 
 $token    = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
@@ -355,9 +360,16 @@ if (isset($update['message'])) {
         exit;
     }
 
+    // ── Админ: загрузка больших файлов ───────────────────────────
+    if (isBotAdmin($update) && ($text_key === 'загрузить psd' || $text === '📤 Загрузить PSD')) {
+        $replyChat = getBotReplyChatId($update) ?: (int)$chat_id;
+        cmdUploadLink($pdo, $token, $replyChat, getBotAdminId(), 'psd_upload', '');
+        exit;
+    }
+
     // ── Открыть админ-панель ──────────────────────────────────────
     if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель' || $text === '⚙️ Админ-панель') {
-        if ((string)$chat_id !== $admin_id) {
+        if (!isBotAdmin($update)) {
             sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => '⛔ Доступ закрыт.']);
             exit;
         }
@@ -370,8 +382,8 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // ── Обработка кнопок AdminReplyKeyboard (только для админа) ──
-    if ((string)$chat_id === $admin_id) {
+    // ── Обработка кнопок AdminReplyKeyboard (только для админа в ЛС) ──
+    if (isBotAdmin($update) && (string)$chat_id === $admin_id) {
 
         if ($text === '🗂 Очередь заказов') {
             showAdminQueue($pdo, $token, $admin_id, $site_url);
@@ -623,6 +635,36 @@ if (isset($update['message'])) {
         } else {
             sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => "Заказ #{$order_id} не найден."]);
         }
+        exit;
+    }
+
+    // ── Админ прислал документ > 45 МБ — выдаём одноразовую ссылку ──
+    if (isBotAdmin($update) && !empty($update['message']['document'])) {
+        $docSize = (int)($update['message']['document']['file_size'] ?? 0);
+        if ($docSize > 45 * 1024 * 1024) {
+            $replyChat = getBotReplyChatId($update) ?: (int)$chat_id;
+            cmdUploadLink($pdo, $token, $replyChat, getBotAdminId(), 'psd_upload', '');
+            exit;
+        }
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $chat_id,
+            'text' => "📤 Файл до 50 МБ можно отправить напрямую.\n\nДля PSD/исходников до *300 МБ* используй:\n`/upload` — одноразовая ссылка\n`/portfolio` — справка",
+            'parse_mode' => 'Markdown',
+        ]);
+        exit;
+    }
+
+    // ── Админ-команды: ЛС, приват-пак и группы (если отправитель — админ) ──
+    if ($text !== '' && $text[0] === '/') {
+        $processed = processAdminCommand($pdo, $token, (int)$chat_id, $text, $update);
+        if ($processed) {
+            exit;
+        }
+    }
+
+    // В ЛС бот реагирует только на команды — игнорируем обычные сообщения
+    $chat_type = $update['message']['chat']['type'] ?? 'private';
+    if ($chat_type === 'private' && !isBotAdmin($update)) {
         exit;
     }
 
@@ -1030,7 +1072,7 @@ function mainKeyboard($isAdmin) {
         [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
     ];
     if ($isAdmin) {
-        $buttons[] = [['text' => '⚙️ Админ-панель']];
+        $buttons[] = [['text' => '⚙️ Админ-панель'], ['text' => '📤 Загрузить PSD']];
     }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }

@@ -1,4 +1,4 @@
-# Увеличиваем лимит загрузки файлов
+# Лимит для обычных форм (заказы, превью). Большие PSD — admin/large_upload.php (320M)
 php_value upload_max_filesize 32M
 php_value post_max_size 34M
 php_value memory_limit 128M

@@ -5,6 +5,9 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require_once 'auth.php';
 require_once '../config/db.php';
+require_once __DIR__ . '/psd_manager.php';
+require_once __DIR__ . '/bot_commands.php';
+ensureBotCommandTables($pdo);
 
 try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
@@ -17,7 +20,8 @@ $message = '';
 $uploadDir = '../uploads/';
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
 define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
-define('PUBLIC_SITE_URL', 'https://portfolio-site-boo5.onrender.com/');
+define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
+define('PUBLIC_SITE_URL', rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/');
 define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
 define('ADMIN_TELEGRAM_ID', '1710365896');
 $telegramLastError = '';
@@ -107,10 +111,15 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
 
     $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
+    $portfolioId = (int)$pdo->lastInsertId();
+
+    $psdResult = savePortfolioPsdFiles($pdo, $portfolioId);
+    $hasPsd = !empty($psdResult['has_files']);
 
     $postedToChannel = false;
+    $watermarkedPath = null;
     if ($publish_tg) {
-        $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
+        $watermarkedPath = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
             'title'        => $title,
             'category_key' => $category_key,
             'price_rub'    => $price_rub,
@@ -118,18 +127,58 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
             'image'        => $filename_main,
             'avatar_image' => $filename_avatar,
         ]);
+        if ($watermarkedPath && is_file($watermarkedPath)) {
+            $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+            $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
+            $postedToChannel = (bool)($result['ok'] ?? false);
+        } else {
+            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
+                'title'        => $title,
+                'category_key' => $category_key,
+                'price_rub'    => $price_rub,
+                'price_uan'    => $price_uan,
+                'image'        => $filename_main,
+                'avatar_image' => $filename_avatar,
+            ]);
+        }
+    }
+
+    $postedToPrivate = false;
+    if ($publish_tg && $hasPsd) {
+        $packPhoto = $watermarkedPath;
+        if (!$packPhoto || !is_file($packPhoto)) {
+            $packPhoto = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
+                'title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan,
+                'image' => $filename_main, 'avatar_image' => $filename_avatar,
+            ]);
+        }
+        $pack = publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $packPhoto);
+        $postedToPrivate = (bool)($pack['success'] ?? false);
+        if ($packPhoto && $packPhoto !== $watermarkedPath && str_contains($packPhoto, sys_get_temp_dir()) && is_file($packPhoto)) {
+            @unlink($packPhoto);
+        }
+    }
+
+    if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
+        @unlink($watermarkedPath);
     }
 
     ob_end_clean();
-    $msg = '✅ Портфолио сохранено!';
+    $msg = '✅ Портфолио сохранено! ID #' . $portfolioId;
     if ($publish_tg) {
         $msg .= $postedToChannel
             ? ' Пост отправлен в Telegram-канал.'
             : ' (Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки бота') . ')';
+        if ($hasPsd) {
+            $msg .= $postedToPrivate ? ' PSD + превью в приват-пак.' : ' PSD не отправлены в приват-пак.';
+        }
     } else {
         $msg .= ' Без публикации в Telegram.';
     }
-    echo json_encode(['ok' => true, 'msg' => $msg]);
+    if (!empty($psdResult['messages'])) {
+        $msg .= ' ' . implode(' ', $psdResult['messages']);
+    }
+    echo json_encode(['ok' => true, 'msg' => $msg, 'portfolio_id' => $portfolioId]);
     exit;
 }
 
@@ -766,11 +815,33 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
     else {
         $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
+        $portfolioId = (int)$pdo->lastInsertId();
+        $psdResult = savePortfolioPsdFiles($pdo, $portfolioId);
         $postedToChannel = false;
+        $watermarkedPath = null;
         if ($publish_tg) {
-            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, ['title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan, 'image' => $filename_main, 'avatar_image' => $filename_avatar]);
+            $watermarkedPath = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
+                'title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan,
+                'image' => $filename_main, 'avatar_image' => $filename_avatar,
+            ]);
+            if ($watermarkedPath && is_file($watermarkedPath)) {
+                $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+                $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
+                $postedToChannel = (bool)($result['ok'] ?? false);
+            } else {
+                $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, ['title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan, 'image' => $filename_main, 'avatar_image' => $filename_avatar]);
+            }
         }
-        $message = '✅ Портфолио сохранено!' . ($publish_tg ? ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram: ' . ($telegramLastError ?: 'проверь настройки.')) : ' Без публикации в Telegram.');
+        if ($publish_tg && !empty($psdResult['has_files'])) {
+            publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $watermarkedPath);
+        }
+        if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
+            @unlink($watermarkedPath);
+        }
+        $message = '✅ Портфолио сохранено! ID #' . $portfolioId . ($publish_tg ? ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram: ' . ($telegramLastError ?: 'проверь настройки.')) : ' Без публикации в Telegram.');
+        if (!empty($psdResult['messages'])) {
+            $message .= ' ' . implode(' ', $psdResult['messages']);
+        }
     }
 }
 
@@ -1210,6 +1281,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?>
             </button>
+            <button type="button" class="admin-tab"        data-tab="bot_commands" onclick="activateAdminTab('bot_commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Команды бота</button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
         </nav>
 
@@ -1262,6 +1334,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <label>Главное изображение / шапка</label>
                             <input type="file" name="image" accept="image/*" required>
                             <label class="tg-checkbox"><input type="checkbox" name="publish_tg" value="1" checked> Публиковать в Telegram-канал</label>
+                            <label>📁 PSD для приват-пака (до 3 файлов, &lt;32 МБ через форму)</label>
+                            <input type="file" name="psd_files[]" multiple accept=".psd,.psb,.zip,.rar,.7z">
+                            <div class="avatar-hint">Файлы &gt;32 МБ: в боте <code>/upload ID</code> после сохранения. Приват-пак: <?= htmlspecialchars(PRIVATE_PACK_CHAT_ID) ?></div>
                             <div id="avatar_upload_block" style="display:none;">
                                 <label>Аватарка к оформлению</label>
                                 <input type="file" name="avatar_image" accept="image/*">

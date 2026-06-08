@@ -7,17 +7,19 @@
 
 session_start();
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/psd_manager.php';
 
 // ── Настройки ────────────────────────────────────────────────────
-$bot_token  = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
-$channel_id = getenv('CHANNEL_ID')   ?: "@designkostlim";
-$admin_id   = getenv('ADMIN_ID')     ?: "1710365896";
-$imgbb_key  = getenv('IMGBB_KEY')    ?: "";
-$site_url   = "https://portfolio-site-boo5.onrender.com/";
-$avatar_url = getenv('AVATAR_URL')   ?: "https://i.ibb.co/twWTVGHn/avatar-1780311261.jpg";
+$bot_token     = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$channel_id    = getenv('CHANNEL_ID')   ?: "@designkostlim";
+$private_chat  = getenv('PRIVATE_CHAT_ID') ?: "-1003781426510";
+$admin_id      = getenv('ADMIN_ID')     ?: "1710365896";
+$imgbb_key     = getenv('IMGBB_KEY')    ?: "";
+$site_url      = "https://portfolio-site-boo5.onrender.com/";
+$avatar_url    = getenv('AVATAR_URL')   ?: "https://i.ibb.co/twWTVGHn/avatar-1780311261.jpg";
 
-// Защита
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+// Защита (совместимо с auth.php)
+if (empty($_SESSION['admin_logged']) && empty($_SESSION['admin_logged_in'])) {
     if (($_GET['key'] ?? '') !== $admin_id) {
         http_response_code(403);
         echo '<p style="color:red;font-family:monospace;">403 Доступ закрыт.</p>';
@@ -34,7 +36,7 @@ $portfolio_categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title     = trim($_POST['title']     ?? '');
     $price_rub = (int)($_POST['price_rub'] ?? 0);
-    $price_uah = (int)($_POST['price_uah'] ?? 0);
+    $price_uan = (int)($_POST['price_uah'] ?? $_POST['price_uan'] ?? 0);
     $category  = trim($_POST['category']  ?? 'preview');
     $category_frame = getPortfolioCategoryFrame($pdo, $category);
     $image_url = '';
@@ -65,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ── Накладываем водяной знак ───────────────────────────────────
-    $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uah, $category_frame);
+    $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uan, $category_frame);
     $final_data  = $watermarked ?: $img_data; // если GD не сработал — оригинал
 
     // ── Загружаем на ImgBB ─────────────────────────────────────────
@@ -91,20 +93,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Сохраняем в БД ─────────────────────────────────────────────
     try {
-        $stmt = $pdo->prepare("\
-            INSERT INTO portfolio (title, price_rub, price_uah, category, image_url, created_at)\
-            VALUES (?, ?, ?, ?, ?, NOW())\
+        $stmt = $pdo->prepare("
+            INSERT INTO portfolio (title, price_rub, price_uan, category_key, image)
+            VALUES (?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$title, $price_rub, $price_uah, $category, $image_url]);
-        $portfolio_id = $pdo->lastInsertId();
+        $stmt->execute([$title, $price_rub, $price_uan, $category, $image_url]);
+        $portfolio_id = (int)$pdo->lastInsertId();
 
-        // ── Публикуем в Telegram-канал ─────────────────────────────
-        $channel_result = postToChannel($bot_token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url);
+        $psd_result = savePortfolioPsdFiles($pdo, $portfolio_id);
+        $psd_messages = $psd_result['messages'] ?? [];
+        $hasPsd = !empty($psd_result['has_files']);
+
+        $channel_result = postToChannel($bot_token, $channel_id, $title, $price_rub, $price_uan, $image_url, $site_url);
 
         $success_msg = "✅ Работа «{$title}» добавлена (ID #{$portfolio_id})!";
         $success_msg .= !empty($channel_result['ok'])
             ? " 🚀 Пост опубликован в канале!"
             : " ⚠️ Пост в канал не отправился (проверь CHANNEL_ID и права бота).";
+
+        if ($hasPsd || !empty($psd_messages)) {
+            $wmPath = null;
+            $tmpFile = sys_get_temp_dir() . '/pf_' . $portfolio_id . '_' . time() . '.jpg';
+            if ($watermarked && file_put_contents($tmpFile, $watermarked)) {
+                $wmPath = $tmpFile;
+            }
+            $packResult = publishPortfolioToPrivatePack(
+                $pdo,
+                $bot_token,
+                $portfolio_id,
+                $title,
+                $price_rub,
+                $price_uan,
+                $wmPath
+            );
+            if ($wmPath && is_file($wmPath)) {
+                @unlink($wmPath);
+            }
+            $success_msg .= ' ' . ($packResult['message'] ?? '');
+        }
+
+        if (!empty($psd_messages)) {
+            $success_msg .= ' ' . implode(' ', $psd_messages);
+        }
 
     } catch (PDOException $e) {
         $error_msg = '❌ Ошибка БД: ' . $e->getMessage();
@@ -207,6 +237,17 @@ render:
             <label>Прямая ссылка на картинку</label>
             <input type="url" name="image_url" placeholder="https://i.ibb.co/example.jpg"
                    value="<?= htmlspecialchars($_POST['image_url'] ?? '') ?>">
+
+            <div style="border-top:1px solid #262633; margin: 16px 0;"></div>
+            
+            <label>📁 PSD файлы (до 3 шт)</label>
+            <div style="background: #0d0d14; border: 2px dashed #2a2a3a; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 18px;">
+                <div style="font-size: 32px; margin-bottom: 8px;">📂</div>
+                <div style="color: #8a8a93; font-size: 12px; margin-bottom: 8px;">До 32 МБ через форму · до 300 МБ через бота: <code>/upload</code></div>
+                <div style="color: #5a5a63; font-size: 11px;">При публикации превью + PSD уйдут в приват-пак <?= htmlspecialchars($private_chat) ?></div>
+                <input type="file" name="psd_files[]" multiple accept=".psd,application/octet-stream" 
+                       style="margin-top: 10px; color: #8a8a93; font-size: 13px; cursor: pointer;">
+            </div>
 
             <button type="submit" class="btn-submit">
                 💾 Сохранить и опубликовать в канал
@@ -548,5 +589,6 @@ function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $ima
         return null;
     }
 }
+
 
 
