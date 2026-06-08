@@ -639,15 +639,15 @@ body::after {
             <?php if (!empty($tgProfile['photo_url'])): ?>
                 <img src="<?= htmlspecialchars($tgProfile['photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;">
-                    <?= mb_substr($tgProfile['first_name'] ?: ($tgProfile['username'] ?: '?'), 0, 1) ?>
+                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
                 </span>
             <?php else: ?>
                 <span class="tg-user-ava-fallback">
-                    <?= mb_substr($tgProfile['first_name'] ?: ($tgProfile['username'] ?: '?'), 0, 1) ?>
+                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
                 </span>
             <?php endif; ?>
             <span class="tg-user-name">
-                <?= htmlspecialchars($tgProfile['first_name'] ?: ('@' . $tgProfile['username'])) ?>
+                <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
             </span>
             <?php if ($isAdmin): ?>
                 <span class="tg-admin-tag">admin</span>
