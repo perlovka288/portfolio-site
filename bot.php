@@ -487,17 +487,29 @@ if (isset($update['message'])) {
 
         if ($text === '📣 Рассылка клиентам') {
             file_put_contents(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt', '1');
+            $state = ['text' => '', 'photos' => []];
+            file_put_contents(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.json', json_encode($state));
+            
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $admin_id,
                 'text'       => "📣 *Режим рассылки*\n\nНапиши следующим сообщением текст рассылки — бот отправит его всем клиентам у которых есть привязанный chat\\_id.\n\n_Поддерживается Markdown: *жирный*, _курсив_, ссылки._",
+                'text'       => "📣 *Режим подготовки рассылки*\n\n1️⃣ Отправь текст сообщения\n2️⃣ Прикрепи до 5 фото (по одному или пачкой)\n\nКогда закончишь, нажми кнопку «🚀 Начать рассылку» ниже.",
                 'parse_mode' => 'Markdown',
                 'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Отмена рассылки']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode([
+                    'keyboard' => [
+                        [['text' => '🚀 Начать рассылку']],
+                        [['text' => '◀️ Отмена рассылки']]
+                    ], 
+                    'resize_keyboard' => true
+                ], JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
 
         if ($text === '◀️ Отмена рассылки') {
             @unlink(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt');
+            @unlink(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.json');
             sendTelegram($token, 'sendMessage', [
                 'chat_id'      => $admin_id,
                 'text'         => "❌ Рассылка отменена.",

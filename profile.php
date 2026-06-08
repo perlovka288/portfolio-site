@@ -17,7 +17,6 @@ if (isset($_POST['cancel_order'])) {
         $stmt = $pdo->prepare("SELECT id, client_chat_id, telegram, status, session_id FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$cancelId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        // Срочные тоже можно отменить (добавляем 'urgent')
         if ($row && in_array($row['status'], ['pending', 'in_progress', 'urgent'])) {
             $linkStmt = $pdo->prepare("SELECT tg_id, tg_username FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
             $linkStmt->execute([$sid]);
@@ -26,7 +25,6 @@ if (isset($_POST['cancel_order'])) {
             if ($linkRow) {
                 $tgId   = (string)($linkRow['tg_id'] ?? '');
                 $tgUser = ltrim((string)($linkRow['tg_username'] ?? ''), '@');
-                // Проверяем по tg_id, telegram полю или session_id заказа
                 if ($tgId !== '' && (string)$row['client_chat_id'] === $tgId) {
                     $canCancel = true;
                 } elseif (!empty($tgUser) && (
@@ -35,7 +33,6 @@ if (isset($_POST['cancel_order'])) {
                 )) {
                     $canCancel = true;
                 } elseif (!empty($row['session_id']) && $row['session_id'] === $sid) {
-                    // Заказ создан в этой же сессии — точно его заказ
                     $canCancel = true;
                 }
             }
@@ -52,19 +49,20 @@ if (isset($_POST['cancel_order'])) {
 // ── Обработка отправки обращения ─────────────────────────────
 $appealMsg = '';
 if (isset($_POST['send_appeal'])) {
-    $appealOrderId = (int)($_POST['appeal_order_id'] ?? 0);
-    $appealSubject = trim($_POST['appeal_subject'] ?? '');
-    $appealText    = trim($_POST['appeal_message'] ?? '');
+    $appealOrderId  = (int)($_POST['appeal_order_id'] ?? 0);
+    $appealSubject  = trim($_POST['appeal_subject'] ?? '');
+    $appealText     = trim($_POST['appeal_message'] ?? '');
     $appealUsername = '';
     $appealTelegram = '';
+
     try {
         $linkStmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
         $linkStmt->execute([$sid]);
         $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
         if ($linkRow) {
-            $appealTelegram = $linkRow['tg_id'] ?? '';
-            $tgFirstName  = trim((string)($linkRow['tg_first_name'] ?? ''));
-            $tgUsername   = trim((string)($linkRow['tg_username'] ?? ''));
+            $appealTelegram = (string)($linkRow['tg_id'] ?? '');
+            $tgFirstName    = trim((string)($linkRow['tg_first_name'] ?? ''));
+            $tgUsername     = trim((string)($linkRow['tg_username'] ?? ''));
             if ($tgFirstName !== '' && $tgUsername !== '') {
                 $appealUsername = $tgFirstName . ' (@' . ltrim($tgUsername, '@') . ')';
             } elseif ($tgFirstName !== '') {
@@ -73,44 +71,52 @@ if (isset($_POST['send_appeal'])) {
                 $appealUsername = '@' . ltrim($tgUsername, '@');
             }
         }
-        if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
-            // создаём запись-обращение (поток) и сохраняем первое сообщение как сообщение клиента
-            try {
-                $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
-                $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject]);
-                $aid = (int)$ins->fetchColumn();
-                if ($aid > 0) {
-                    $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
-                    $m->execute([$aid, $appealText]);
-                }
-                $appealMsg = 'ok';
-            } catch (Throwable $e) { $appealMsg = 'err'; }
 
-// ── Уведомление админу о новом обращении ──────────────────
-$_tgToken  = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
-$_adminId  = getenv('ADMIN_ID') ?: '1710365896';
-$_siteUrl  = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
-$_tgText   = "📩 <b>Новое обращение по заказу!</b>\n\n"
-    . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
-    . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
-    . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
-    . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
-    . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>";
-$_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
-curl_setopt_array($_ch, [
-    CURLOPT_POST           => true,
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT        => 8,
-    CURLOPT_POSTFIELDS     => ['chat_id' => $_adminId, 'text' => $_tgText, 'parse_mode' => 'HTML'],
-]);
-curl_exec($_ch);
-curl_close($_ch);
-unset($_ch, $_tgToken, $_adminId, $_siteUrl, $_tgText);
-// ──────────────────────────────────────────────────────────
+        if ($appealOrderId > 0 && $appealSubject !== '' && $appealText !== '') {
+            // Сохраняем обращение
+            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW())");
+            $ins->execute([$appealOrderId, $appealUsername, $appealTelegram, $appealSubject, $appealText]);
+            $aid = (int)$pdo->lastInsertId();
+
+            // Если RETURNING не поддерживается — ищем последний id
+            if ($aid === 0) {
+                $last = $pdo->prepare("SELECT id FROM appeals WHERE order_id=? AND telegram=? ORDER BY id DESC LIMIT 1");
+                $last->execute([$appealOrderId, $appealTelegram]);
+                $aid = (int)($last->fetchColumn() ?: 0);
+            }
+
+            if ($aid > 0) {
+                $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'client', ?, NOW())");
+                $m->execute([$aid, $appealText]);
+            }
+
+            $appealMsg = 'ok';
+
+            // ── Уведомление админу в Telegram ──
+            $_tgToken = getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+            $_adminId = getenv('ADMIN_ID') ?: '1710365896';
+            $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
+            $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"
+                . "👤 Клиент: <b>" . htmlspecialchars($appealUsername ?: 'Клиент') . "</b>\n"
+                . "📋 Заказ: <b>#" . $appealOrderId . "</b>\n"
+                . "📌 Тема: <b>" . htmlspecialchars($appealSubject) . "</b>\n\n"
+                . "💬 <i>" . htmlspecialchars(mb_substr($appealText, 0, 300)) . (mb_strlen($appealText) > 300 ? '...' : '') . "</i>\n\n"
+                . "🔗 <a href=\"" . $_siteUrl . "\">Открыть заказ в админке</a>";
+            $_ch = curl_init('https://api.telegram.org/bot' . $_tgToken . '/sendMessage');
+            curl_setopt_array($_ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 8,
+                CURLOPT_POSTFIELDS     => ['chat_id' => $_adminId, 'text' => $_tgText, 'parse_mode' => 'HTML'],
+            ]);
+            curl_exec($_ch);
+            curl_close($_ch);
         } else {
             $appealMsg = 'err';
         }
-    } catch (Throwable $e) { $appealMsg = 'err'; }
+    } catch (Throwable $e) {
+        $appealMsg = 'err';
+    }
     header('Location: ' . $_SERVER['PHP_SELF'] . '?order=' . $appealOrderId . '&appeal=' . $appealMsg);
     exit;
 }
@@ -146,7 +152,6 @@ try {
             $clauses[] = 'telegram = ?';
             $params[]  = ltrim($tg_username, '@');
         }
-        // Поиск по session_id — главный фикс: client_chat_id часто пустой
         if ($sid !== '') {
             $clauses[] = 'session_id = ?';
             $params[]  = $sid;
@@ -162,7 +167,6 @@ try {
             $ostmt->execute($params);
             $orders = $ostmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Попутно записываем tg_id в client_chat_id у всех найденных заказов где он пустой
             if ($tg_id !== '' && !empty($orders)) {
                 foreach ($orders as $o) {
                     if (empty($o['client_chat_id'])) {
@@ -175,20 +179,39 @@ try {
             }
         }
 
-        // Загружаем обращения пользователя (ответы на них)
+        // Загружаем обращения — ищем по tg_id (числовой chat_id) И по username
         $userAppeals = [];
         try {
+            $apClauses = [];
+            $apParams  = [];
             if ($tg_id !== '') {
-                $astmt = $pdo->prepare("SELECT * FROM appeals WHERE telegram = ? ORDER BY id DESC");
-                $astmt->execute([$tg_id]);
+                $apClauses[] = 'telegram = ?';
+                $apParams[]  = $tg_id;
+            }
+            if ($tg_username !== '') {
+                $apClauses[] = 'username LIKE ?';
+                $apParams[]  = '%' . ltrim($tg_username, '@') . '%';
+            }
+            if (!empty($apClauses)) {
+                $apSql = "SELECT * FROM appeals WHERE " . implode(' OR ', $apClauses) . " ORDER BY id DESC";
+                $astmt = $pdo->prepare($apSql);
+                $astmt->execute($apParams);
                 $userAppeals = $astmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            }
+            // Если ничего не нашли — ищем по order_id заказов пользователя
+            if (empty($userAppeals) && !empty($orders)) {
+                $orderIds = array_column($orders, 'id');
+                $in = implode(',', array_fill(0, count($orderIds), '?'));
+                $astmt2 = $pdo->prepare("SELECT * FROM appeals WHERE order_id IN ($in) ORDER BY id DESC");
+                $astmt2->execute($orderIds);
+                $userAppeals = $astmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
             }
         } catch (Throwable $e) {}
     }
 } catch (Throwable $e) {}
 
 try {
-    $settings     = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $settings = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
 } catch (Throwable $e) { $settings = []; }
 $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
@@ -261,6 +284,38 @@ function profileStatusEmoji(string $s): string {
     };
 }
 
+// Helper: render messages thread for an appeal
+function renderAppealMessages(PDO $pdo, int $aid): string
+{
+    try {
+        $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+        $mstmt->execute([$aid]);
+        $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { $msgs = []; }
+
+    if (empty($msgs)) {
+        return '<div style="color:#8a8a96;font-size:12px;">Сообщений пока нет.</div>';
+    }
+    $html = '';
+    foreach ($msgs as $m) {
+        $isAdmin = ($m['author'] ?? '') === 'admin';
+        $date    = date('d.m.Y H:i', strtotime($m['created_at']));
+        $text    = nl2br(htmlspecialchars($m['message']));
+        if ($isAdmin) {
+            $html .= "<div style=\"background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:8px;\">
+                <div style=\"font-size:11px;font-weight:800;color:#86efac;margin-bottom:4px;\">Ответ дизайнера · {$date}</div>
+                <div style=\"font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;\">{$text}</div>
+            </div>";
+        } else {
+            $html .= "<div style=\"background:rgba(249,115,22,.04);border-left:3px solid rgba(249,115,22,.3);border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:8px;\">
+                <div style=\"font-size:11px;font-weight:800;color:#fdba74;margin-bottom:4px;\">Ваше сообщение · {$date}</div>
+                <div style=\"font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;\">{$text}</div>
+            </div>";
+        }
+    }
+    return $html;
+}
+
 $displayName = $profile ? (
     !empty($profile['tg_first_name']) ? $profile['tg_first_name'] :
     (!empty($profile['tg_username'])  ? '@' . $profile['tg_username'] : 'Гость')
@@ -269,19 +324,15 @@ $displayName = $profile ? (
 $activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
 $finishedOrders = array_filter($orders, fn($o) => in_array($o['status'], ['ready','declined']));
 
-// Сортировка активных: срочные → в работе → ожидают
 $statusPriority = ['urgent' => 0, 'in_progress' => 1, 'pending' => 2];
 usort($activeOrders, function($a, $b) use ($statusPriority) {
     $pa = $statusPriority[$a['status']] ?? 9;
     $pb = $statusPriority[$b['status']] ?? 9;
     if ($pa !== $pb) return $pa <=> $pb;
-    return (int)$b['id'] <=> (int)$a['id']; // внутри группы — новые первыми
+    return (int)$b['id'] <=> (int)$a['id'];
 });
-
-// Выполненные — новые первыми
 usort($finishedOrders, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
 
-// Разворачиваемый заказ из GET
 $expandedOrderId = (int)($_GET['order'] ?? 0);
 $appealStatus    = $_GET['appeal'] ?? '';
 $cancelledId     = (int)($_GET['cancelled'] ?? 0);
@@ -347,10 +398,8 @@ body::before {
 @keyframes pulse-orange { 0%,100%{ box-shadow:0 0 0 0 rgba(249,115,22,0); } 50%{ box-shadow:0 0 0 3px rgba(249,115,22,.3); } }
 @keyframes pulse-red    { 0%,100%{ box-shadow:0 0 0 0 rgba(239,68,68,0);  } 50%{ box-shadow:0 0 0 3px rgba(239,68,68,.35); } }
 
-/* Карточка заказа */
 .order-card { background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s; }
 .order-card:hover { border-color:var(--border-accent);box-shadow:0 0 20px rgba(249,115,22,0.1); }
-/* Цветовая маркировка по статусу */
 .order-card.status-urgent     { border-color:rgba(244,63,94,0.5);  box-shadow:0 0 18px rgba(244,63,94,0.12);  background:linear-gradient(135deg,rgba(244,63,94,0.06),var(--card)); }
 .order-card.status-in_progress{ border-color:rgba(96,165,250,0.35); box-shadow:0 0 14px rgba(96,165,250,0.08); }
 .order-card.status-pending    { border-color:rgba(249,115,22,0.25); }
@@ -366,11 +415,9 @@ body::before {
 .order-status-badge { display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:800;border:1px solid;white-space:nowrap;flex-shrink:0; }
 .order-expand-arrow { flex-shrink:0;color:var(--text2);transition:transform .25s;margin-top:4px; }
 .order-card-header[aria-expanded="true"] .order-expand-arrow { transform:rotate(180deg); }
-/* Кнопка скрыть историю */
 .btn-toggle-history { background:transparent;border:1px solid var(--border);border-radius:8px;padding:7px 14px;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.2s; }
 .btn-toggle-history:hover { border-color:var(--border-accent);color:var(--text); }
 
-/* Развёрнутое тело */
 .order-card-expanded { border-top:1px solid var(--border);padding:18px 20px;display:none; }
 .order-card-expanded.open { display:block; }
 .order-detail-block { background:rgba(0,0,0,0.2);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word; }
@@ -388,8 +435,7 @@ body::before {
 }
 .btn-appeal-toggle:hover { background:rgba(249,115,22,0.2);border-color:#f97316; }
 
-/* Форма обращения */
-.appeal-form-wrap { background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.2);border-radius:12px;padding:16px;margin-top:4px;display:none; }
+.appeal-form-wrap { background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.2);border-radius:12px;padding:16px;margin-top:12px;display:none; }
 .appeal-form-wrap.open { display:block; }
 .appeal-form-wrap label { display:block;color:#d9d9e4;font-size:11px;font-weight:800;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.5px; }
 .appeal-form-wrap input, .appeal-form-wrap textarea {
@@ -406,15 +452,6 @@ body::before {
 }
 .btn-appeal-submit:hover { opacity:.88;transform:translateY(-1px); }
 
-/* Ответы на обращения */
-.appeal-reply-block { background:rgba(34,197,94,0.06);border-left:3px solid #22c55e;border-radius:0 10px 10px 0;padding:12px 14px;margin-bottom:8px; }
-.appeal-reply-subject { font-size:12px;font-weight:800;color:#d8d8e8;margin-bottom:4px; }
-.appeal-reply-text { font-size:13px;color:#86efac;line-height:1.6;white-space:pre-wrap;word-break:break-word; }
-.appeal-reply-meta { font-size:11px;color:#6b7280;margin-top:6px; }
-.appeal-pending-block { background:rgba(249,115,22,0.05);border-left:3px solid #f97316;border-radius:0 10px 10px 0;padding:10px 14px;margin-bottom:8px; }
-.appeal-pending-text { font-size:12px;color:#fdba74; }
-
-/* Уведомления */
 .profile-notice { border-radius:12px;padding:13px 16px;margin-bottom:18px;font-weight:700;font-size:13px; }
 .profile-notice.ok { background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.35);color:#86efac; }
 .profile-notice.err { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#fca5a5; }
@@ -428,11 +465,12 @@ body::before {
 .not-linked-card h2 { color:var(--text);font-size:18px;margin:16px 0 8px; }
 .not-linked-card p { color:var(--text2);font-size:13px;margin:0 0 20px; }
 
-/* Раздел ответов на обращения */
-.appeals-answers-section { margin-bottom:28px; }
-.appeal-answered-card { background:var(--card);border:1px solid rgba(34,197,94,0.25);border-radius:14px;padding:16px 18px;margin-bottom:10px; }
-.appeal-answered-card-title { font-size:13px;font-weight:800;color:#d8d8e8;margin-bottom:6px; }
-.appeal-answered-card-order { font-size:11px;color:#8a8a96;margin-bottom:10px; }
+/* Appeals thread block inside order */
+.appeals-thread { margin-top:14px;border-top:1px solid var(--border);padding-top:14px; }
+.appeals-thread-title { font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#8a8a96;margin-bottom:10px; }
+.appeal-thread-item { background:#0b0b10;border-radius:10px;padding:12px 14px;margin-bottom:10px;border:1px solid rgba(255,255,255,.04); }
+.appeal-thread-subject { font-size:12px;font-weight:800;color:#d8d8e8;margin-bottom:8px;display:flex;align-items:center;gap:6px; }
+.appeal-status-dot { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
 
 @media(max-width:600px){
     .profile-hero{flex-direction:column;align-items:flex-start;padding:22px 18px;}
@@ -489,7 +527,7 @@ body::before {
 <div class="profile-notice info">✅ Заказ #<?= $cancelledId ?> отменён и убран из очереди.</div>
 <?php endif; ?>
 <?php if ($appealStatus === 'ok'): ?>
-<div class="profile-notice ok">✅ Обращение отправлено дизайнеру! Ответ появится в этом разделе.</div>
+<div class="profile-notice ok">✅ Обращение отправлено дизайнеру! Ответ появится в разделе ниже.</div>
 <?php elseif ($appealStatus === 'err'): ?>
 <div class="profile-notice err">❌ Не удалось отправить обращение. Заполни все поля.</div>
 <?php endif; ?>
@@ -557,8 +595,7 @@ body::before {
             $date  = date('d.m.Y H:i', strtotime($order['created_at']));
             $oid   = (int)$order['id'];
             $isExpanded = ($expandedOrderId === $oid);
-            // Обращения по этому заказу
-            $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
+            $orderAppeals = array_values(array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid));
         ?>
         <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
             <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
@@ -566,13 +603,10 @@ body::before {
                 <div class="order-card-body">
                     <div class="order-card-title">Заказ #<?= $oid ?> — <?= htmlspecialchars($order['service_key']) ?></div>
                     <div class="order-card-meta"><?= $date ?></div>
-                    <?php
-                        $dlBadge = profileDeadlineBadge($order['deadline'] ?? null, $order['status']);
-                        if ($dlBadge): ?>
-                    <div><?= $dlBadge ?></div>
-                    <?php endif; ?>
+                    <?php $dlBadge = profileDeadlineBadge($order['deadline'] ?? null, $order['status']); ?>
+                    <?php if ($dlBadge): ?><div><?= $dlBadge ?></div><?php endif; ?>
                     <?php if (!empty($order['details'])): ?>
-                    <div class="order-card-details" id="preview-<?= $oid ?>"><?= htmlspecialchars($order['details']) ?></div>
+                    <div class="order-card-details"><?= htmlspecialchars($order['details']) ?></div>
                     <?php endif; ?>
                 </div>
                 <div class="order-status-badge" style="color:<?= $color ?>;border-color:<?= $color ?>22;background:<?= $color ?>11;">
@@ -582,16 +616,13 @@ body::before {
             </div>
 
             <div class="order-card-expanded <?= $isExpanded ? 'open' : '' ?>" id="exp-<?= $oid ?>">
-                <?php if ($dlBadge): ?>
-                <div style="margin-bottom:12px;"><?= $dlBadge ?></div>
-                <?php endif; ?>
+                <?php if ($dlBadge): ?><div style="margin-bottom:12px;"><?= $dlBadge ?></div><?php endif; ?>
                 <?php if (!empty($order['details'])): ?>
                 <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
                 <?php endif; ?>
 
                 <div class="order-actions-row">
-                    <!-- Кнопка отмены только если pending или in_progress -->
-                    <form method="POST" onsubmit="return confirm('Отменить заказ #<?= $oid ?>? Это действие нельзя отменить.');" style="margin:0;">
+                    <form method="POST" onsubmit="return confirm('Отменить заказ #<?= $oid ?>?');" style="margin:0;">
                         <input type="hidden" name="order_id" value="<?= $oid ?>">
                         <button type="submit" name="cancel_order" class="btn-cancel-order">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -608,7 +639,7 @@ body::before {
                     </button>
                 </div>
 
-                <!-- Форма обращения -->
+                <!-- Форма обращения — ВНУТРИ expanded -->
                 <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
                     <form method="POST">
                         <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
@@ -616,41 +647,29 @@ body::before {
                         <input type="text" name="appeal_subject" required placeholder="Например: уточнение по заказу" maxlength="200">
                         <label>Сообщение</label>
                         <textarea name="appeal_message" required rows="4" placeholder="Опиши вопрос или пожелание подробно..."></textarea>
-                        <button type="submit" name="send_appeal" class="btn-appeal-submit">
-                            📤 Отправить обращение
-                        </button>
+                        <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить обращение</button>
                     </form>
                 </div>
 
-                <!-- Ответы на обращения по этому заказу -->
+                <!-- Тред обращений по этому заказу -->
                 <?php if (!empty($orderAppeals)): ?>
-                <div style="margin-top:14px;">
-                    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#8a8a96;margin-bottom:8px;">💬 Обращения по заказу</div>
-                        <?php foreach ($orderAppeals as $ap): ?>
-                            <div style="margin-bottom:10px;border-radius:8px;padding:10px;background:#0b0b0f;">
-                                <div style="font-size:13px;font-weight:800;margin-bottom:6px;">📩 <?= htmlspecialchars($ap['subject'] ?? '') ?></div>
-                                <?php
-                                    $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                    $mstmt->execute([(int)$ap['id']]);
-                                    $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                                ?>
-                                <?php if (empty($msgs)): ?>
-                                    <div style="color:#8a8a96;">Сообщений пока нет.</div>
-                                <?php else: ?>
-                                    <?php foreach ($msgs as $m): ?>
-                                        <?php if (($m['author'] ?? '') === 'admin'): ?>
-                                            <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Ответ администратора</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
-                                        <?php else: ?>
-                                            <div style="background:rgba(249,115,22,.04);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Сообщение клиента</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
-                                        <?php endif; ?>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
+                <div class="appeals-thread">
+                    <div class="appeals-thread-title">💬 Переписка (<?= count($orderAppeals) ?>)</div>
+                    <?php foreach ($orderAppeals as $ap): ?>
+                    <div class="appeal-thread-item">
+                        <div class="appeal-thread-subject">
+                            <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
+                            📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                            <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
+                        </div>
+                        <?= renderAppealMessages($pdo, (int)$ap['id']) ?>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-            </div>
-        </div>
+
+            </div><!-- /order-card-expanded -->
+        </div><!-- /order-card -->
         <?php endforeach; ?>
     <?php endif; ?>
 </div>
@@ -670,7 +689,7 @@ body::before {
         $date  = date('d.m.Y', strtotime($order['created_at']));
         $oid   = (int)$order['id'];
         $isExpanded = ($expandedOrderId === $oid);
-        $orderAppeals = array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid);
+        $orderAppeals = array_values(array_filter($userAppeals ?? [], fn($a) => (int)$a['order_id'] === $oid));
     ?>
     <div class="order-card status-<?= htmlspecialchars($order['status']) ?>" id="order-<?= $oid ?>">
         <div class="order-card-header" onclick="toggleOrder(<?= $oid ?>)" aria-expanded="<?= $isExpanded ? 'true' : 'false' ?>" id="hdr-<?= $oid ?>">
@@ -678,11 +697,6 @@ body::before {
             <div class="order-card-body">
                 <div class="order-card-title">Заказ #<?= $oid ?> — <?= htmlspecialchars($order['service_key']) ?></div>
                 <div class="order-card-meta"><?= $date ?></div>
-                <?php
-                    $dlBadgeH = profileDeadlineBadge($order['deadline'] ?? null, $order['status']);
-                    if ($dlBadgeH): ?>
-                <div><?= $dlBadgeH ?></div>
-                <?php endif; ?>
                 <?php if (!empty($order['details'])): ?>
                 <div class="order-card-details"><?= htmlspecialchars(mb_substr($order['details'], 0, 100)) ?></div>
                 <?php endif; ?>
@@ -692,10 +706,13 @@ body::before {
             </div>
             <svg class="order-expand-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
         </div>
+
+        <!-- order-card-expanded для истории — ЗАКРЫТЫЙ правильно -->
         <div class="order-card-expanded <?= $isExpanded ? 'open' : '' ?>" id="exp-<?= $oid ?>">
             <?php if (!empty($order['details'])): ?>
             <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
             <?php endif; ?>
+
             <div class="order-actions-row">
                 <button type="button" class="btn-appeal-toggle" onclick="toggleAppeal(<?= $oid ?>)">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -711,7 +728,8 @@ body::before {
                 </a>
                 <?php endif; ?>
             </div>
-            </div>
+
+            <!-- Форма обращения — ВНУТРИ expanded, правильно -->
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
                 <form method="POST">
                     <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
@@ -723,34 +741,25 @@ body::before {
                 </form>
             </div>
 
+            <!-- Тред обращений -->
             <?php if (!empty($orderAppeals)): ?>
-            <div style="margin-top:14px;">
-                <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#8a8a96;margin-bottom:8px;">💬 Обращения</div>
+            <div class="appeals-thread">
+                <div class="appeals-thread-title">💬 Переписка (<?= count($orderAppeals) ?>)</div>
                 <?php foreach ($orderAppeals as $ap): ?>
-                    <div style="margin-bottom:10px;border-radius:8px;padding:10px;background:#0b0b0f;">
-                        <div style="font-size:13px;font-weight:800;margin-bottom:6px;">📩 <?= htmlspecialchars($ap['subject'] ?? '') ?></div>
-                        <?php
-                            $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                            $mstmt->execute([(int)$ap['id']]);
-                            $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                        ?>
-                        <?php if (empty($msgs)): ?>
-                            <div style="color:#8a8a96;">Сообщений пока нет.</div>
-                        <?php else: ?>
-                            <?php foreach ($msgs as $m): ?>
-                                <?php if (($m['author'] ?? '') === 'admin'): ?>
-                                    <div style="background:rgba(34,197,94,.06);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Ответ администратора</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
-                                <?php else: ?>
-                                    <div style="background:rgba(249,115,22,.04);padding:8px;border-radius:6px;color:#d8d8e8;margin-bottom:6px;"><strong>Сообщение клиента</strong> · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?><div style="margin-top:6px;white-space:pre-wrap;"><?= nl2br(htmlspecialchars($m['message'])) ?></div></div>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                <div class="appeal-thread-item">
+                    <div class="appeal-thread-subject">
+                        <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
+                        📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                        <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                     </div>
+                    <?= renderAppealMessages($pdo, (int)$ap['id']) ?>
+                </div>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
-        </div>
-    </div>
+
+        </div><!-- /order-card-expanded -->
+    </div><!-- /order-card -->
     <?php endforeach; ?>
     </div><!-- /history-list -->
 </div>
@@ -779,8 +788,17 @@ function toggleOrder(id) {
 }
 
 function toggleAppeal(id) {
+    const exp  = document.getElementById('exp-' + id);
     const form = document.getElementById('appeal-form-' + id);
+    if (!exp.classList.contains('open')) {
+        exp.classList.add('open');
+        const hdr = document.getElementById('hdr-' + id);
+        if (hdr) hdr.setAttribute('aria-expanded', 'true');
+    }
     form.classList.toggle('open');
+    if (form.classList.contains('open')) {
+        setTimeout(() => form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    }
 }
 
 function toggleHistory() {
@@ -792,20 +810,16 @@ function toggleHistory() {
     btn.textContent = hidden ? 'Скрыть историю' : 'Показать историю';
 }
 
-// Авто-раскрыть заказ если в URL есть ?order=ID
 (function() {
     const params = new URLSearchParams(location.search);
     const oid = params.get('order');
     if (oid) {
-        const exp = document.getElementById('exp-' + oid);
-        const hdr = document.getElementById('hdr-' + oid);
-        if (exp) { exp.classList.add('open'); }
-        if (hdr) { hdr.setAttribute('aria-expanded', 'true'); }
-        // Скролл к заказу
+        const exp  = document.getElementById('exp-' + oid);
+        const hdr  = document.getElementById('hdr-' + oid);
+        if (exp) exp.classList.add('open');
+        if (hdr) hdr.setAttribute('aria-expanded', 'true');
         const card = document.getElementById('order-' + oid);
         if (card) setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
-
-        // Если только что отправили обращение — открыть форму
         const appeal = params.get('appeal');
         if (appeal === 'err') {
             const form = document.getElementById('appeal-form-' + oid);
