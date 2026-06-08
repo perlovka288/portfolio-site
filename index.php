@@ -18,17 +18,21 @@ try {
     )");
 } catch (Throwable $e) {}
 
-// Удаление отзыва (только для админа)
-if (isset($_GET['delete_review']) && $isAdmin) {
-    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
-    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#reviews'); exit;
-}
-
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+
+// Удаление отзыва (только для админа)
+if (isset($_GET['delete_review']) && $isAdmin) {
+    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#reviews'); exit;
+}
+if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
+    $_SESSION['admin_logged'] = true;
+}
+// $isAdmin уже объявлен выше
 
 // Если пользователь привязал TG и его tg_id = ADMIN_ID — тоже admin
 $adminTgId = getenv('ADMIN_ID') ?: '1710365896';
