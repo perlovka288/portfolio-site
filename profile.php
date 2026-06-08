@@ -598,6 +598,10 @@ body::before {
                             Отменить заказ
                         </button>
                     </form>
+                    <a href="order.php?service=<?= urlencode($order['service_key']) ?>" class="btn-appeal-toggle" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                        Заказать снова
+                    </a>
                     <button type="button" class="btn-appeal-toggle" onclick="toggleAppeal(<?= $oid ?>)">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         Связаться с дизайнером
@@ -697,6 +701,16 @@ body::before {
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     Написать дизайнеру
                 </button>
+                <a href="order.php?service=<?= urlencode($order['service_key']) ?>" class="btn-appeal-toggle" style="text-decoration:none;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                    Заказать снова
+                </a>
+                <?php if ($order['status'] === 'ready'): ?>
+                <a href="review.php?order=<?= $oid ?>" class="btn-appeal-toggle" style="text-decoration:none;background:rgba(249,115,22,.12);border-color:rgba(249,115,22,.3);color:#fb923c;">
+                    ⭐ Оставить отзыв
+                </a>
+                <?php endif; ?>
+            </div>
             </div>
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
                 <form method="POST">

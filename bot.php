@@ -134,7 +134,7 @@ if (isset($update['callback_query'])) {
         ]);
         // Уведомляем клиента
         safeNotifyClient($pdo, $token, $order_id,
-            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!"
+            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio\\-site\\-boo5\\.onrender\\.com/review\\.php?order={$order_id}"
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ выполнен']);
         exit;
@@ -482,6 +482,59 @@ if (isset($update['message'])) {
                 'parse_mode' => 'Markdown',
                 'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
+            exit;
+        }
+
+        if ($text === '📣 Рассылка клиентам') {
+            file_put_contents(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt', '1');
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id,
+                'text'       => "📣 *Режим рассылки*\n\nНапиши следующим сообщением текст рассылки — бот отправит его всем клиентам у которых есть привязанный chat\\_id.\n\n_Поддерживается Markdown: *жирный*, _курсив_, ссылки._",
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode(['keyboard' => [[['text' => '◀️ Отмена рассылки']]], 'resize_keyboard' => true], JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        if ($text === '◀️ Отмена рассылки') {
+            @unlink(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt');
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => "❌ Рассылка отменена.",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // Если активен режим рассылки — отправляем текст всем клиентам
+        $broadcastFile = sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt';
+        if (file_exists($broadcastFile) && $text !== '' && strpos($text, '/') !== 0) {
+            @unlink($broadcastFile);
+            try {
+                $chatIds = $pdo->query("SELECT DISTINCT client_chat_id FROM orders WHERE client_chat_id IS NOT NULL AND client_chat_id != '' AND client_chat_id != '{$admin_id}'")->fetchAll(PDO::FETCH_COLUMN);
+                $sent = 0; $failed = 0;
+                foreach (array_unique($chatIds) as $cid) {
+                    if (!is_numeric($cid)) continue;
+                    $res = sendTelegram($token, 'sendMessage', [
+                        'chat_id'                  => $cid,
+                        'text'                     => "📣 *Сообщение от Kostlim Design:*\n\n" . $text,
+                        'parse_mode'               => 'Markdown',
+                        'disable_web_page_preview' => true,
+                    ]);
+                    $decoded = json_decode((string)$res, true);
+                    if (!empty($decoded['ok'])) $sent++; else $failed++;
+                    usleep(50000); // 50ms задержка чтобы не упереться в лимит
+                }
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id'      => $admin_id,
+                    'text'         => "✅ *Рассылка завершена!*\n\n📤 Отправлено: *{$sent}*\n❌ Не доставлено: *{$failed}*",
+                    'parse_mode'   => 'Markdown',
+                    'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                ]);
+            } catch (Throwable $e) {
+                sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "❌ Ошибка рассылки: " . $e->getMessage(), 'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE)]);
+            }
             exit;
         }
 
@@ -981,6 +1034,7 @@ function adminReplyKeyboard() {
             [['text' => '🗂 Очередь заказов'],  ['text' => '📊 Статистика']],
             [['text' => '💾 Бэкап БД'],         ['text' => '🔗 Привязки TG']],
             [['text' => '🐛 Диагностика БД'],    ['text' => '🔧 Починить БД']],
+            [['text' => '📣 Рассылка клиентам']],
             [['text' => '🗑 Очистить все заказы']],
             [['text' => '◀️ Главное меню']],
         ],

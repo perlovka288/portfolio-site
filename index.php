@@ -3,6 +3,27 @@ session_start();
 require_once 'config/db.php';
 require_once 'donationalerts.php';
 
+// Создаём таблицу отзывов если нет
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        order_id INT NOT NULL,
+        tg_username VARCHAR(128) NOT NULL DEFAULT '',
+        tg_first_name VARCHAR(255) NOT NULL DEFAULT '',
+        tg_photo_url TEXT DEFAULT NULL,
+        rating SMALLINT NOT NULL DEFAULT 5,
+        text TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        approved BOOLEAN NOT NULL DEFAULT TRUE
+    )");
+} catch (Throwable $e) {}
+
+// Удаление отзыва (только для админа)
+if (isset($_GET['delete_review']) && $isAdmin) {
+    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#reviews'); exit;
+}
+
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
@@ -130,6 +151,12 @@ $categories   = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_or
 $categoryMap  = [];
 foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
 $works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Загружаем отзывы
+$reviews = [];
+try {
+    $reviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+} catch(Throwable $e) {}
 $admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
 
@@ -626,6 +653,7 @@ body::after {
 
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
         <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
+        <a href="#reviews" class="nav-link" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});" style="font-size:13px;font-weight:700;color:#d8d8e8;text-decoration:none;padding:7px 12px;border-radius:8px;transition:.2s;" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">⭐ Отзывы</a>
 
         <?php if ($isLinked && !empty($tgProfile)): ?>
         <!-- ── TG ПРОФИЛЬ (привязан) ── -->
@@ -716,6 +744,75 @@ body::after {
         <?php endforeach; ?>
     </section>
 </main>
+
+<!-- ══════════════════ СЕКЦИЯ ОТЗЫВОВ ══════════════════ -->
+<section id="reviews" style="max-width:1200px;margin:0 auto;padding:60px 20px 40px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:32px;">
+        <div>
+            <h2 style="margin:0 0 6px;font-size:26px;font-weight:900;">⭐ Отзывы клиентов</h2>
+            <?php
+                $avgRating = 0; $totalReviews = count($reviews);
+                if ($totalReviews > 0) $avgRating = round(array_sum(array_column($reviews,'rating')) / $totalReviews, 1);
+            ?>
+            <?php if ($totalReviews > 0): ?>
+            <div style="display:flex;align-items:center;gap:8px;color:#8a8a96;font-size:14px;">
+                <span style="color:#f59e0b;font-size:16px;"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
+                <strong style="color:#fff;"><?= $avgRating ?></strong>
+                <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
+            </div>
+            <?php endif; ?>
+        </div>
+        <a href="review.php" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(249,115,22,.3);">
+            ✍️ Оставить отзыв
+        </a>
+    </div>
+
+    <?php if (empty($reviews)): ?>
+        <div style="text-align:center;padding:60px 20px;color:#555568;">
+            <div style="font-size:40px;margin-bottom:12px;">💬</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:6px;">Пока нет отзывов</div>
+            <div style="font-size:13px;">Будьте первым, кто оставит отзыв!</div>
+        </div>
+    <?php else: ?>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+        <?php foreach ($reviews as $rv): ?>
+            <div style="background:#111116;border:1px solid #20202c;border-radius:16px;padding:20px;position:relative;transition:.2s;" onmouseover="this.style.borderColor='rgba(249,115,22,.3)'" onmouseout="this.style.borderColor='#20202c'">
+                <?php if ($isAdmin): ?>
+                    <a href="?delete_review=<?= (int)$rv['id'] ?>" onclick="return confirm('Удалить отзыв?')" style="position:absolute;top:12px;right:12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:4px 8px;color:#ef4444;font-size:11px;font-weight:700;text-decoration:none;">✕ Удалить</a>
+                <?php endif; ?>
+                <!-- Профиль -->
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                    <?php if (!empty($rv['tg_photo_url'])): ?>
+                        <img src="<?= htmlspecialchars($rv['tg_photo_url']) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);" onerror="this.style.display='none'">
+                    <?php else: ?>
+                        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
+                            <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
+                        </div>
+                    <?php endif; ?>
+                    <div style="min-width:0;">
+                        <div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                            <?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?>
+                        </div>
+                        <?php if (!empty($rv['tg_username'])): ?>
+                        <div style="font-size:12px;color:#8a8a96;">@<?= htmlspecialchars($rv['tg_username']) ?></div>
+                        <?php endif; ?>
+                    </div>
+                    <!-- Звёзды -->
+                    <div style="margin-left:auto;flex-shrink:0;">
+                        <?php for($s=1;$s<=5;$s++): ?>
+                            <span style="font-size:16px;color:<?= $s <= $rv['rating'] ? '#f59e0b' : '#2a2a38' ?>;">★</span>
+                        <?php endfor; ?>
+                    </div>
+                </div>
+                <!-- Текст -->
+                <div style="font-size:13px;color:#c8c8d8;line-height:1.65;word-break:break-word;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
+                <!-- Дата -->
+                <div style="margin-top:12px;font-size:11px;color:#555568;"><?= date('d.m.Y', strtotime($rv['created_at'])) ?></div>
+            </div>
+        <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</section>
 
 <footer>
     <div class="container">© <?= date('Y') ?> Kostlim Design</div>
