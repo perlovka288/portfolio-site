@@ -1875,12 +1875,6 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
     if (psdInput && psdInput.files.length > 0) {
         let totalSize = 0;
         for (let file of psdInput.files) { totalSize += file.size; }
-        if (totalSize > 32 * 1024 * 1024) {
-            showToast('⚠️ Файлы слишком тяжелые для сайта. Сохрани кейс без PSD, а затем загрузи их через бота: /upload', 'error', 10000);
-            btn.disabled = false;
-            btn.classList.remove('loading');
-            return;
-        }
     }
 
     btn.disabled = true;

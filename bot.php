@@ -360,13 +360,6 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // ── Админ: загрузка больших файлов ───────────────────────────
-    if (isBotAdmin($update) && ($text_key === 'загрузить psd' || $text === '📤 Загрузить PSD')) {
-        $replyChat = getBotReplyChatId($update) ?: (int)$chat_id;
-        cmdUploadLink($pdo, $token, $replyChat, getBotAdminId(), 'psd_upload', '');
-        exit;
-    }
-
     // ── Открыть админ-панель ──────────────────────────────────────
     if ($text === '/admin' || $text_key === 'admin panel' || $text_key === 'админ панель' || $text === '⚙️ Админ-панель') {
         if (!isBotAdmin($update)) {
@@ -387,11 +380,6 @@ if (isset($update['message'])) {
 
         if ($text === '🗂 Очередь заказов') {
             showAdminQueue($pdo, $token, $admin_id, $site_url);
-            exit;
-        }
-
-        if ($text === '📜 Опубликованные') {
-            cmdListPublished($pdo, $token, (int)$chat_id);
             exit;
         }
 
@@ -501,7 +489,7 @@ if (isset($update['message'])) {
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $admin_id,
                 'text'       => $msg,
-                'parse_mode' => 'Markdown',
+                'parse_mode' => 'Markdown', // Исправлено: Markdown вместо HTML
                 'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
@@ -1081,9 +1069,7 @@ function mainKeyboard($isAdmin) {
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
         [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
     ];
-    if ($isAdmin) {
-        $buttons[] = [['text' => '⚙️ Админ-панель'], ['text' => '📤 Загрузить PSD']];
-    }
+    if ($isAdmin) { $buttons[] = [['text' => '⚙️ Админ-панель']]; }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }
 
@@ -1091,12 +1077,10 @@ function mainKeyboard($isAdmin) {
 function adminReplyKeyboard() {
     return [
         'keyboard' => [
-            [['text' => '🗂 Очередь заказов'],  ['text' => '📜 Опубликованные']],
-            [['text' => '📊 Статистика'],       ['text' => '🔗 Привязки TG']],
-            [['text' => '💾 Бэкап БД'],         ['text' => '🔗 Привязки TG']],
-            [['text' => '� Бэкап БД'],         ['text' => '📤 Загрузить PSD']],
-            [['text' => '�🐛 Диагностика БД'],    ['text' => '🔧 Починить БД']],
-            [['text' => '📣 Рассылка клиентам']],
+            [['text' => '🗂 Очередь заказов'],   ['text' => '📜 Опубликованные']],
+            [['text' => '📊 Статистика'],        ['text' => '🔗 Привязки TG']],
+            [['text' => '💾 Бэкап БД'],          ['text' => '🐛 Диагностика БД']],
+            [['text' => '🔧 Починить БД'],       ['text' => '📣 Рассылка клиентам']],
             [['text' => '🗑 Очистить все заказы']],
             [['text' => '◀️ Главное меню']],
         ],

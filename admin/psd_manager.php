@@ -39,9 +39,8 @@ function savePortfolioPsdFiles(PDO $pdo, int $portfolio_id): array
         }
         if (($_FILES['psd_files']['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $err = (int)($_FILES['psd_files']['error'][$i] ?? 0);
-            if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
-                $messages[] = '⚠️ Файл «' . basename((string)$name) . '» слишком большой для веб-формы. Используй /upload в боте.';
-            }
+            // Если файл слишком большой для PHP, сообщаем об этом
+            if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) { $messages[] = '⚠️ Файл «' . basename((string)$name) . '» слишком большой для загрузки через веб-форму. Используй команду /upload ID в боте.'; }
             continue;
         }
 
@@ -183,7 +182,22 @@ function publishPortfolioToPrivatePack(
         $origName = $psd['original_name'] ?: basename((string)$psd['psd_file']);
         $fileSize = (int)$psd['file_size'];
 
-        if ($fileSize > 0 && $fileSize <= TELEGRAM_DOC_MAX_BYTES && is_file($filePath)) {
+        // Если файл слишком большой для Telegram, загружаем на Google Диск
+        if ($fileSize > TELEGRAM_DOC_MAX_BYTES && is_file($filePath)) {
+            $externalUrl = uploadToGoogleDrive($filePath, $origName);
+            if ($externalUrl) {
+                $keyboard['inline_keyboard'][] = [
+                    ['text' => "☁️ {$origName} (Google Drive)", 'url' => $externalUrl]
+                ];
+                // Удаляем локальный файл после успешной загрузки на Google Drive
+                @unlink($filePath);
+                continue; // Переходим к следующему файлу
+            }
+        }
+
+        // Если файл не был загружен на Google Диск (либо меньше лимита Telegram, либо ошибка GDrive)
+        if ($fileSize > 0 && is_file($filePath)) {
+            // Пытаемся отправить в Telegram как документ
             $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
             curl_setopt_array($ch, [
                 CURLOPT_POST => true,
@@ -198,13 +212,13 @@ function publishPortfolioToPrivatePack(
             ]);
             $resp = json_decode((string)curl_exec($ch), true);
             curl_close($ch);
-            if (!($resp['ok'] ?? false)) {
+            if (!($resp['ok'] ?? false)) { // Если отправка в Telegram не удалась
                 $needLinks = true;
                 $keyboard['inline_keyboard'][] = [
                     ['text' => "📥 {$origName}", 'url' => $siteUrl . 'admin/psd_download.php?id=' . (int)$psd['id']],
                 ];
             }
-        } else {
+        } else { // Если файл не существует или 0 размера
             $needLinks = true;
             $sizeText = $fileSize > 0 ? ' (' . round($fileSize / 1024 / 1024, 1) . ' MB)' : '';
             $keyboard['inline_keyboard'][] = [
