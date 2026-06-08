@@ -17,7 +17,7 @@ $turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'ТВОЙ_СЕКРЕТ
 
 define('COOLDOWN_SECONDS', 300);
 
-$selected_service = $_GET['service'] ?? '';
+$selected_service = $_POST['service'] ?? $_GET['service'] ?? '';
 $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 // ── TG: статус привязки для текущей сессии ──────────────────────
@@ -59,19 +59,27 @@ if (isset($_GET['check_linked'])) {
 $success_msg = '';
 $error_msg   = '';
 
-$rules_accepted = (($_GET['accepted'] ?? '') === '1') || (($_POST['rules_accepted'] ?? '') === '1');
+$skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
+$rules_accepted = $skip_rules || (($_GET['accepted'] ?? '') === '1') || (($_POST['rules_accepted'] ?? '') === '1');
+
+if (isset($_POST['accept_rules'])) {
+    if (!empty($_POST['dont_ask'])) {
+        setcookie('rules_skip', '1', time() + (3600 * 24 * 365), '/');
+    }
+    $rules_accepted = true;
+}
 
 $accept_params = [];
 if ($selected_service !== '') $accept_params['service'] = $selected_service;
 $accept_params['accepted'] = '1';
 $accept_url = 'order.php?' . http_build_query($accept_params);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$rules_accepted) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules']) && !$rules_accepted) {
     header('Location: index.php');
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
 
     $user_ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
@@ -696,28 +704,37 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 <div class="msg-error"><?= htmlspecialchars($error_msg) ?></div>
 <?php endif; ?>
 
-<?php if (!$rules_accepted && $_SERVER['REQUEST_METHOD'] !== 'POST'): ?>
+<?php if (!$rules_accepted): ?>
 
-<div class="rules-card">
+<form method="POST" class="rules-card">
+    <?php if ($selected_service): ?>
+        <input type="hidden" name="service" value="<?= htmlspecialchars($selected_service) ?>">
+    <?php endif; ?>
     <div style="text-align:center; margin-bottom:22px;">
         <a href="index.php" class="order-back">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             На главную к портфолио
         </a>
         <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
-        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Перед заполнением ТЗ подтвердите, что ознакомились с условиями.</p>
+        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, ознакомьтесь с условиями перед оформлением заказа.</p>
     </div>
     <ul style="display:grid; gap:12px; color:#e0e0ec; padding-left:20px; line-height:1.6; margin:0 0 26px; font-size:13px;">
-        <li>Заказ выполняется в течение 5 дней. При предоплате 50% — вне очереди: сегодня или на следующий день.</li>
+        <li>Стандартный срок сдачи работы — <b>5 дней</b>.</li>
+        <li>При оплате <b>50%</b> от цены заказа — срок выполнения <b>24 часа</b> после создания заказа.</li>
+        <li>По всем вопросам пишите дизайнеру в Telegram: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
         <li>Деньги не возвращаются.</li>
-        <li>Отслеживать статус заказа можно в боте: <a href="<?= htmlspecialchars($bot_link) ?>" target="_blank" style="color:var(--or); font-weight:700;">@kostlimdznbot</a>.</li>
-        <li>По личным вопросам: <a href="<?= htmlspecialchars($support_tg) ?>" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
     </ul>
+    <div style="margin-bottom: 20px;">
+        <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
+            <input type="checkbox" name="dont_ask" value="1" style="width:auto; margin:0; accent-color:var(--or);">
+            Больше не спрашивать
+        </label>
+    </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-        <a href="<?= htmlspecialchars($accept_url) ?>" class="rules-agree-btn">Согласиться</a>
+        <button type="submit" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;">Согласиться</button>
         <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
-</div>
+</form>
 
 <?php else: ?>
 

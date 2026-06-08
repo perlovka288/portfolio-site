@@ -760,13 +760,13 @@ body::after {
             ?>
             <?php if ($totalReviews > 0): ?>
             <div style="display:flex;align-items:center;gap:8px;color:#8a8a96;font-size:14px;">
-                <span style="color:#f59e0b;font-size:16px;"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
+                <span style="color:#f97316;font-size:16px;text-shadow:0 0 10px rgba(249,115,22,0.35);"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
                 <strong style="color:#fff;"><?= $avgRating ?></strong>
                 <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
             </div>
             <?php endif; ?>
         </div>
-        <a href="review.php" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(249,115,22,.3);">
+        <a href="review.php" id="leaveReviewBtn" onclick="return handleReviewClick(event)" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(249,115,22,.3);">
             ✍️ Оставить отзыв
         </a>
     </div>
@@ -804,7 +804,7 @@ body::after {
                     <!-- Звёзды -->
                     <div style="margin-left:auto;flex-shrink:0;">
                         <?php for($s=1;$s<=5;$s++): ?>
-                            <span style="font-size:16px;color:<?= $s <= $rv['rating'] ? '#f59e0b' : '#2a2a38' ?>;">★</span>
+                            <span style="font-size:16px;color:<?= $s <= $rv['rating'] ? '#f97316' : '#2a2a38' ?>;<?= $s <= $rv['rating'] ? 'text-shadow:0 0 8px rgba(249,115,22,0.3);' : '' ?>">★</span>
                         <?php endfor; ?>
                     </div>
                 </div>
@@ -1022,6 +1022,15 @@ function closeTgModal() {
     document.getElementById('tgModalOverlay').classList.remove('active');
     document.body.style.overflow = '';
     stopPolling();
+}
+
+function handleReviewClick(e) {
+    if (!IS_LINKED) {
+        e.preventDefault();
+        openTgModal();
+        return false;
+    }
+    return true;
 }
 
 // ── Закрыть по клику на оверлей ──

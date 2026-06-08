@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .tg-ava-fallback { width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg,#f97316,#ea580c); display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:900; color:#fff; flex-shrink:0; }
         .star-row { display:flex; gap:8px; justify-content:center; margin-bottom:24px; }
         .star-btn { background:none; border:none; font-size:36px; cursor:pointer; color:#2a2a38; transition:color .15s, transform .15s; padding:0; line-height:1; }
-        .star-btn:hover, .star-btn.active { color:#f59e0b; transform:scale(1.15); }
+        .star-btn:hover, .star-btn.active { color:#f97316; text-shadow:0 0 15px rgba(249,115,22,0.5); transform:scale(1.15); }
         label { display:block; font-size:12px; font-weight:800; color:#8a8a96; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
         input, textarea { width:100%; background:#171720; color:#fff; border:1px solid #2a2a38; border-radius:10px; padding:12px 14px; font-family:Montserrat,Arial,sans-serif; font-size:13px; outline:none; box-sizing:border-box; transition:.2s; }
         input:focus, textarea:focus { border-color:#f97316; box-shadow:0 0 0 3px rgba(249,115,22,.15); }
@@ -102,6 +102,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h2 style="margin:0 0 8px;font-size:20px;font-weight:900;">Спасибо за отзыв!</h2>
                 <p style="color:#8a8a96;margin:0 0 24px;">Ваш отзыв опубликован на сайте.</p>
                 <a href="index.php#reviews" style="display:inline-flex;align-items:center;gap:8px;background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.3);color:#fb923c;padding:11px 24px;border-radius:10px;text-decoration:none;font-weight:800;font-size:13px;">Посмотреть отзывы</a>
+            </div>
+        <?php elseif (!$tgProfile): ?>
+            <div class="msg-success-wrap">
+                <div class="icon">🔐</div>
+                <h2 style="margin:0 0 8px;font-size:20px;font-weight:900;">Нужна привязка Telegram</h2>
+                <p style="color:#8a8a96;margin:0 0 24px;line-height:1.6;">Чтобы оставить отзыв, необходимо привязать свой Telegram к сайту. Это защищает от спама и позволяет подтянуть вашу аватарку.</p>
+                <a href="index.php?open_tg=1" class="btn-submit" style="text-decoration:none; display:inline-flex; justify-content:center; align-items:center;">Привязать Telegram</a>
             </div>
         <?php else: ?>
             <div class="review-header">
@@ -143,13 +150,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php endfor; ?>
                 </div>
                 <input type="hidden" name="rating" id="ratingInput" value="5">
-
-                <?php if (!$tgProfile): ?>
-                    <div style="margin-bottom:16px;">
-                        <label>Ваше имя</label>
-                        <input type="text" name="name" placeholder="Как вас зовут?" required>
-                    </div>
-                <?php endif; ?>
 
                 <div style="margin-bottom:4px;">
                     <label>Ваш отзыв</label>
