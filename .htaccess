@@ -1,4 +1,4 @@
-# ── Индексный файл (исправляет / → /index.php) ──
+# ── Индексный файл ──
 DirectoryIndex index.php index.html
 
 # ── Лимиты загрузки ──
@@ -7,14 +7,9 @@ php_value post_max_size 34M
 php_value memory_limit 128M
 php_value max_execution_time 60
 
-# ── Обязательный HTTPS-редирект (нужен для SameSite=None куков) ──
-RewriteEngine On
-RewriteCond %{HTTPS} off
-RewriteCond %{HTTP_HOST} !localhost
-RewriteCond %{HTTP_HOST} !^127\.
-RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-
-# ── Заголовки безопасности + SameSite для куков (Safari/iOS) ──
+# ── SameSite куки для Safari/iOS ──
+# НЕ делаем HTTPS-редирект — Render уже терминирует TLS на своём прокси,
+# Apache внутри контейнера всегда видит HTTP → редирект зацикливается.
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always edit Set-Cookie (.*) "$1; SameSite=None; Secure"
