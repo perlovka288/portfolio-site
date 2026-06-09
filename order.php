@@ -315,38 +315,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ],
             ]];
 
-            $media    = [];
-            $host_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
-                        . '://' . $_SERVER['HTTP_HOST']
-                        . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/';
+            // Сначала отправляем основное сообщение с текстом и кнопками
+            $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POSTFIELDS => http_build_query([
+                    'chat_id'      => $my_chat_id,
+                    'text'         => $msg_text,
+                    'parse_mode'   => 'Markdown',
+                    'reply_markup' => json_encode($keyboard),
+                ])]);
+            curl_exec($ch); curl_close($ch);
 
+            // Потом отдельно отправляем фото (через upload, не по URL — надёжнее на Render)
+            $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
-                $media[] = ['type' => 'photo', 'media' => $host_url . $target_dir . $pay_screenshot];
+                $photos_to_send[] = $target_dir . $pay_screenshot;
             }
             foreach ($example_imgs as $ref) {
-                if (file_exists($target_dir . $ref)) {
-                    $media[] = ['type' => 'photo', 'media' => $host_url . $target_dir . $ref];
+                if ($ref !== '' && file_exists($target_dir . $ref)) {
+                    $photos_to_send[] = $target_dir . $ref;
                 }
             }
-
-            if (!empty($media)) {
-                $media[0]['caption']    = $msg_text;
-                $media[0]['parse_mode'] = 'Markdown';
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
+            foreach ($photos_to_send as $photo_path) {
+                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
                 curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id, 'media' => json_encode($media)])]);
-                curl_exec($ch); curl_close($ch);
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id,
-                        'text' => "🎛 Управление заказом #{$order_id}:",
-                        'parse_mode' => 'Markdown', 'reply_markup' => json_encode($keyboard)])]);
-                curl_exec($ch); curl_close($ch);
-            } else {
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id,
-                        'text' => $msg_text, 'parse_mode' => 'Markdown', 'reply_markup' => json_encode($keyboard)])]);
+                    CURLOPT_POSTFIELDS => [
+                        'chat_id' => $my_chat_id,
+                        'photo'   => new CURLFile(realpath($photo_path)),
+                        'caption' => '📎 Файл к заказу #' . $order_id,
+                    ]]);
                 curl_exec($ch); curl_close($ch);
             }
         }
