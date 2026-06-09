@@ -12,6 +12,7 @@ ensureBotCommandTables($pdo);
 try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (id SERIAL PRIMARY KEY, rule_key VARCHAR(100) UNIQUE, rule_text TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);");
 } catch (PDOException $e) {
     // ignore
 }
@@ -54,6 +55,109 @@ if (!function_exists('daGetCurrentMonthPayoutStats')) {
 }
 
 ensureDefaultPortfolioCategories($pdo);
+
+// ──────────────────────────────────────────────────────────────────
+// ОТЗЫВЫ - одобрение/отклонение
+// ──────────────────────────────────────────────────────────────────
+if (isset($_POST['approve_review'])) {
+    $rid = (int)($_POST['review_id'] ?? 0);
+    if ($rid > 0) {
+        $pdo->prepare("UPDATE reviews SET approved = TRUE WHERE id = ?")->execute([$rid]);
+        $message = '✅ Отзыв одобрен.';
+        // Уведомление админу в TG
+        try {
+            $rv = $pdo->prepare("SELECT * FROM reviews WHERE id = ? LIMIT 1");
+            $rv->execute([$rid]);
+            $rvRow = $rv->fetch(PDO::FETCH_ASSOC);
+            if ($rvRow && defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
+                $stars = str_repeat('⭐', (int)($rvRow['rating'] ?? 5));
+                $name  = htmlspecialchars($rvRow['tg_first_name'] ?: ('Клиент #' . $rvRow['order_id']));
+                $txt   = htmlspecialchars(mb_substr($rvRow['text'] ?? '', 0, 200));
+                $tgMsg = "✅ <b>Отзыв одобрен!</b>\n\n👤 {$name}\n{$stars}\n\n💬 <i>{$txt}</i>";
+                sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $tgMsg, 'parse_mode' => 'HTML']);
+            }
+        } catch (Throwable $e) {}
+    }
+}
+
+if (isset($_POST['reject_review'])) {
+    $rid = (int)($_POST['review_id'] ?? 0);
+    if ($rid > 0) {
+        $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([$rid]);
+        $message = '🗑️ Отзыв удален.';
+    }
+}
+
+// Уведомление о новом отзыве (вызывается из review.php через POST с ключом notify_new_review)
+if (isset($_POST['notify_new_review_internal'])) {
+    $rid = (int)($_POST['review_id_notify'] ?? 0);
+    if ($rid > 0) {
+        try {
+            $rv = $pdo->prepare("SELECT * FROM reviews WHERE id = ? LIMIT 1");
+            $rv->execute([$rid]);
+            $rvRow = $rv->fetch(PDO::FETCH_ASSOC);
+            if ($rvRow && defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
+                $stars = str_repeat('⭐', (int)($rvRow['rating'] ?? 5));
+                $name  = $rvRow['tg_first_name'] ?: ('Клиент #' . $rvRow['order_id']);
+                $txt   = mb_substr($rvRow['text'] ?? '', 0, 300);
+                $adminUrl = PUBLIC_SITE_URL . 'admin/index.php';
+                $tgMsg = "⭐ <b>Новый отзыв!</b> (Заказ #" . (int)$rvRow['order_id'] . ")\n\n👤 {$name}\n{$stars}\n\n💬 <i>{$txt}</i>\n\n🔗 <a href=\"{$adminUrl}\">Модерировать</a>";
+                sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $tgMsg, 'parse_mode' => 'HTML']);
+            }
+        } catch (Throwable $e) {}
+    }
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// КОМАНДЫ БОТА - сохранение
+// ──────────────────────────────────────────────────────────────────
+if (isset($_POST['save_bot_commands'])) {
+    $commands = $_POST['bot_commands'] ?? [];
+    foreach ($commands as $id => $data) {
+        $id = (int)$id;
+        $cmd = trim($data['command'] ?? '');
+        $desc = trim($data['description'] ?? '');
+        $level = trim($data['access_level'] ?? 'admin');
+        
+        if ($cmd !== '' && $id > 0) {
+            try {
+                $pdo->prepare("UPDATE bot_commands SET command = ?, description = ?, access_level = ? WHERE id = ?")
+                    ->execute([$cmd, $desc, $level, $id]);
+            } catch (Throwable $e) {}
+        }
+    }
+    
+    // Добавить новую команду если указана
+    $newCmd = trim($_POST['new_command_name'] ?? '');
+    $newDesc = trim($_POST['new_command_desc'] ?? '');
+    if ($newCmd !== '' && $newDesc !== '') {
+        try {
+            $pdo->prepare("INSERT INTO bot_commands (command, description, access_level) VALUES (?, ?, 'admin')")
+                ->execute([$newCmd, $newDesc]);
+        } catch (Throwable $e) {}
+    }
+    
+    $message = '✅ Команды бота сохранены.';
+}
+
+// ──────────────────────────────────────────────────────────────────
+// ПРАВИЛА ЗАКАЗА - сохранение
+// ──────────────────────────────────────────────────────────────────
+if (isset($_POST['save_order_rules'])) {
+    $rulesText = trim($_POST['order_rules_text'] ?? '');
+    try {
+        $pdo->prepare("INSERT INTO site_rules (rule_key, rule_text, updated_at) VALUES (?, ?, NOW()) ON CONFLICT (rule_key) DO UPDATE SET rule_text = EXCLUDED.rule_text, updated_at = NOW()")
+            ->execute(['order_terms', $rulesText]);
+        $message = '✅ Правила заказа сохранены.';
+    } catch (Throwable $e) {
+        $message = '❌ Ошибка сохранения: ' . $e->getMessage();
+    }
+}
 
 // ──────────────────────────────────────────────────────────────────
 // Вспомогательная функция: дедлайн заказа
@@ -170,7 +274,6 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
 
     $chatId = trim((string)($row['client_chat_id'] ?? ''));
 
-    // Фолбэк: ищем числовой tg_id через tg_links по session_id
     if (($chatId === '' || !is_numeric($chatId)) && !empty($row['session_id'])) {
         try {
             $lnk = $pdo->prepare("
@@ -187,7 +290,6 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
         } catch (Throwable $e) {}
     }
 
-    // Только числовой chat_id — @username не работает без начала диалога
     if ($chatId === '' || !is_numeric($chatId)) return;
 
     $statusMessages = [
@@ -218,7 +320,6 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
 }
 
-// ── Установить дедлайн при взятии в работу ───────────────────────
 function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
 {
     $interval = $isUrgent ? '+1 day' : '+5 days';
@@ -271,7 +372,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $stmt->execute([$orderId]);
                 $row  = $stmt->fetch(PDO::FETCH_ASSOC);
                 $chat = trim((string)($row['client_chat_id'] ?? ''));
-                // Фолбэк через session_id
                 if ($chat === '' || !is_numeric($chat)) {
                     try {
                         $sess = $pdo->prepare("SELECT session_id FROM orders WHERE id = ? LIMIT 1");
@@ -315,7 +415,6 @@ if (isset($_POST['mass_broadcast'])) {
     $text   = trim($_POST['broadcast_text'] ?? '');
     $photos = [];
     
-    // Загружаем до 5 фото на ImgBB
     if (!empty($_FILES['broadcast_photos']['name'][0])) {
         foreach ($_FILES['broadcast_photos']['tmp_name'] as $i => $tmp) {
             if ($i >= 5) break;
@@ -348,7 +447,7 @@ if (isset($_POST['mass_broadcast'])) {
                 sendTelegramRequest('sendMessage', ['chat_id' => $cid, 'text' => $text, 'parse_mode' => 'HTML']);
             }
             $sent++;
-            usleep(50000); // защита от флуда
+            usleep(50000);
         }
         $message = "✅ Рассылка завершена. Доставлено: {$sent} чел.";
     }
@@ -839,7 +938,7 @@ if (isset($_POST['reply_appeal'])) {
         $ap = $ap->fetch(PDO::FETCH_ASSOC);
 
         if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
-            $link = PUBLIC_SITE_URL . 'includes/profile.php?order=' . (int)$ap['order_id'];
+            $link = PUBLIC_SITE_URL . 'profile.php?order=' . (int)$ap['order_id'];
             $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
                   . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
                   . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
@@ -950,6 +1049,27 @@ $categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_orde
 $categoryMap = [];
 foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
 $works = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Отзывы
+$pendingReviews = [];
+$approvedReviews = [];
+try {
+    $pendingReviews = $pdo->query("SELECT * FROM reviews WHERE approved = FALSE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+    $approvedReviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
+
+// Команды бота
+$botCommands = [];
+try {
+    $botCommands = $pdo->query("SELECT * FROM bot_commands ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
+
+// Правила заказа
+$orderRulesText = '';
+try {
+    $rulesRow = $pdo->query("SELECT rule_text FROM site_rules WHERE rule_key = 'order_terms' LIMIT 1")->fetch();
+    $orderRulesText = $rulesRow['rule_text'] ?? '';
+} catch (Throwable $e) {}
 
 $orderStats = $pdo->query("
     SELECT COUNT(*) AS total,
@@ -1063,7 +1183,6 @@ if (isset($_POST['send_order_message'])) {
         $sendTo = '';
         if ($orow) {
             $sendTo = trim((string)($orow['client_chat_id'] ?? ''));
-            // Фолбэк через session_id -> tg_links
             if ($sendTo === '' || !is_numeric($sendTo)) {
                 if (!empty($orow['session_id'])) {
                     try {
@@ -1166,12 +1285,16 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
         .mini-file-name { font-size: 10px; color: #8a8a96; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
         .mini-file-name.has-file { color: #86efac; font-style: normal; }
-        .btn-panel { width: 100%; margin-top: 14px; border: none; border-radius: 10px; padding: 13px 16px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase; font-family: Montserrat,sans-serif; letter-spacing: 1px; font-size: 13px; box-shadow: 0 8px 24px rgba(249,115,22,.30); transition: .2s; position: relative; }
-        .btn-panel:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 28px rgba(249,115,22,.55), 0 12px 30px rgba(249,115,22,.25); }
-        .btn-panel:disabled { opacity: .6; cursor: not-allowed; transform: none; }
-        .btn-panel .btn-spinner { display: none; }
-        .btn-panel.loading .btn-text { display: none; }
-        .btn-panel.loading .btn-spinner { display: inline-flex; align-items: center; gap: 8px; }
+        .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
+        .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
+        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
+        .tab-hidden { display: none !important; }
+        #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
+        #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        #admin-toast.success { background: #0f2b1a; border: 1px solid rgba(34,197,94,.5); color: #86efac; }
+        #admin-toast.error   { background: #2b0f0f; border: 1px solid rgba(239,68,68,.5);  color: #fca5a5; }
+        #admin-toast.loading { background: #1a1a24; border: 1px solid rgba(249,115,22,.5); color: #fdba74; }
         .admin-table-wrap { overflow-x: auto; border: 1px solid #20202c; border-radius: 12px; }
         table { width: 100%; border-collapse: collapse; min-width: 760px; }
         th, td { padding: 12px; border-bottom: 1px solid #20202c; text-align: left; vertical-align: middle; }
@@ -1196,7 +1319,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
         tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
         tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
-        /* Срочный ряд — красная обводка */
         tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
         .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
         @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
@@ -1205,16 +1327,24 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
         .mini-media-form button { border: 0; border-radius: 8px; padding: 8px 12px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; transition: .2s; }
         .mini-media-form button:hover { opacity: .85; }
-        .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
-        .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
-        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
-        .tab-hidden { display: none !important; }
-        #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
-        #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
-        #admin-toast.success { background: #0f2b1a; border: 1px solid rgba(34,197,94,.5); color: #86efac; }
-        #admin-toast.error   { background: #2b0f0f; border: 1px solid rgba(239,68,68,.5);  color: #fca5a5; }
-        #admin-toast.loading { background: #1a1a24; border: 1px solid rgba(249,115,22,.5); color: #fdba74; }
+        .btn-panel { width: 100%; margin-top: 14px; border: none; border-radius: 10px; padding: 13px 16px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase; font-family: Montserrat,sans-serif; letter-spacing: 1px; font-size: 13px; box-shadow: 0 8px 24px rgba(249,115,22,.30); transition: .2s; position: relative; }
+        .btn-panel:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 28px rgba(249,115,22,.55), 0 12px 30px rgba(249,115,22,.25); }
+        .btn-panel:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+        .btn-panel .btn-spinner { display: none; }
+        .btn-panel.loading .btn-text { display: none; }
+        .btn-panel.loading .btn-spinner { display: inline-flex; align-items: center; gap: 8px; }
+        .review-card { background: #0b0b10; border: 1px solid #20202c; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+        .review-card.pending { border-color: rgba(249,115,22,.35); background: rgba(249,115,22,.04); }
+        .review-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        .review-header .name { font-weight: 800; color: #fff; }
+        .review-header .rating { font-size: 14px; font-weight: 700; color: #f97316; }
+        .review-actions { display: flex; gap: 6px; }
+        .review-btn { border: none; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; transition: .2s; }
+        .review-btn.approve { background: rgba(34,197,94,.2); color: #86efac; border: 1px solid rgba(34,197,94,.35); }
+        .review-btn.approve:hover { background: rgba(34,197,94,.35); }
+        .review-btn.reject { background: rgba(239,68,68,.2); color: #fca5a5; border: 1px solid rgba(239,68,68,.35); }
+        .review-btn.reject:hover { background: rgba(239,68,68,.35); }
+        .cmd-row { display: grid; grid-template-columns: 100px 1fr 100px 60px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px; background: #0b0b10; border-radius: 8px; }
         @media (max-width: 1100px) { .admin-board { grid-template-columns: 1fr; } .admin-tabs { position: static; grid-template-columns: repeat(2,1fr); } .stats-grid { grid-template-columns: repeat(2,1fr); } .admin-layout { grid-template-columns: 1fr; } }
         @media (max-width: 640px) { .admin-shell { padding: 16px; } .admin-top { align-items: flex-start; flex-direction: column; } .admin-tabs { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr; } .two-cols { grid-template-columns: 1fr; } }
     </style>
@@ -1254,12 +1384,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="portfolio"  onclick="activateAdminTab('portfolio')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 2l-4 5-4-5"/></svg> Портфолио</button>
             <button type="button" class="admin-tab"        data-tab="price"      onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
             <button type="button" class="admin-tab"        data-tab="orders"     onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Заказы</button>
+            <button type="button" class="admin-tab"        data-tab="reviews"    onclick="activateAdminTab('reviews')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Отзывы<?php if (!empty($pendingReviews)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= count($pendingReviews) ?></span><?php endif; ?></button>
+            <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
+            <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
             <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
-            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?>
-            </button>
-            <button type="button" class="admin-tab"        data-tab="bot_commands" onclick="activateAdminTab('bot_commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Команды бота</button>
+            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
         </nav>
 
@@ -1288,9 +1417,97 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <?php endif; ?>
             </section>
 
+            <!-- ════════════════════════════════════════════════════════════
+                 ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ
+            ════════════════════════════════════════════════════════════ -->
+
             <div class="admin-layout">
                 <aside>
-                    <!-- Добавить в портфолио -->
+                    <!-- ════ ОТЗЫВЫ ════ -->
+                    <div class="panel" data-panel="reviews">
+                        <h2>⭐ Отзывы на проверку</h2>
+                        <?php if (empty($pendingReviews)): ?>
+                            <div style="color:#555568;font-size:13px;">Все отзывы одобрены! 🎉</div>
+                        <?php else: ?>
+                            <?php foreach ($pendingReviews as $rv): ?>
+                                <div class="review-card pending">
+                                    <div class="review-header">
+                                        <span class="name"><?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?></span>
+                                        <span class="rating"><?= str_repeat('★', (int)$rv['rating']) . str_repeat('☆', 5 - (int)$rv['rating']) ?></span>
+                                        <div class="review-actions" style="margin-left:auto;">
+                                            <form method="POST" style="margin:0;">
+                                                <input type="hidden" name="review_id" value="<?= (int)$rv['id'] ?>">
+                                                <button type="submit" name="approve_review" class="review-btn approve">✅ Одобрить</button>
+                                            </form>
+                                            <form method="POST" style="margin:0;">
+                                                <input type="hidden" name="review_id" value="<?= (int)$rv['id'] ?>">
+                                                <button type="submit" name="reject_review" onclick="return confirm('Удалить отзыв?')" class="review-btn reject">🗑️ Отклонить</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    <div style="color:#d8d8e8;font-size:13px;line-height:1.55;word-break:break-word;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+
+                        <hr style="border:none;border-top:1px solid #20202c;margin:14px 0;"/>
+                        <h2 style="margin-top:18px;">✅ Одобренные</h2>
+                        <?php if (empty($approvedReviews)): ?>
+                            <div style="color:#555568;font-size:13px;">Нет одобренных отзывов.</div>
+                        <?php else: ?>
+                            <?php foreach (array_slice($approvedReviews, 0, 5) as $rv): ?>
+                                <div class="review-card" style="background:rgba(34,197,94,.05);border-color:rgba(34,197,94,.25);">
+                                    <div class="review-header">
+                                        <span class="name"><?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?></span>
+                                        <span class="rating" style="color:#86efac;"><?= str_repeat('★', (int)$rv['rating']) ?></span>
+                                    </div>
+                                    <div style="color:#c8c8d8;font-size:12px;line-height:1.5;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- ════ КОМАНДЫ БОТА ════ -->
+                    <div class="panel" data-panel="commands">
+                        <h2>🤖 Команды бота</h2>
+                        <form method="POST">
+                            <div style="display:grid;gap:8px;margin-bottom:12px;">
+                                <?php foreach ($botCommands as $cmd): ?>
+                                    <div class="cmd-row">
+                                        <input type="text" name="bot_commands[<?= (int)$cmd['id'] ?>][command]" value="<?= htmlspecialchars($cmd['command'] ?? '') ?>" style="margin:0;">
+                                        <textarea name="bot_commands[<?= (int)$cmd['id'] ?>][description]" rows="1" style="margin:0;"><?= htmlspecialchars($cmd['description'] ?? '') ?></textarea>
+                                        <select name="bot_commands[<?= (int)$cmd['id'] ?>][access_level]" style="margin:0;">
+                                            <option value="admin" <?= ($cmd['access_level'] ?? '') === 'admin' ? 'selected' : '' ?>>admin</option>
+                                            <option value="user" <?= ($cmd['access_level'] ?? '') === 'user' ? 'selected' : '' ?>>user</option>
+                                        </select>
+                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.parentElement.style.display='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#fca5a5;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <hr style="border:none;border-top:1px solid #20202c;margin:12px 0;"/>
+                            <h3 style="font-size:12px;color:#8a8a96;text-transform:uppercase;margin:12px 0 8px;">Добавить новую</h3>
+                            <div style="display:grid;gap:6px;margin-bottom:12px;">
+                                <input type="text" name="new_command_name" placeholder="/command" style="margin:0;padding:8px 10px;">
+                                <textarea name="new_command_desc" rows="1" placeholder="Описание" style="margin:0;padding:8px 10px;"></textarea>
+                            </div>
+
+                            <button type="submit" name="save_bot_commands" class="btn-panel" style="margin-top:8px;">💾 Сохранить команды</button>
+                        </form>
+                    </div>
+
+                    <!-- ════ ПРАВИЛА ЗАКАЗА ════ -->
+                    <div class="panel" data-panel="rules">
+                        <h2>📋 Правила заказа</h2>
+                        <form method="POST">
+                            <label>Текст правил (HTML поддерживается)</label>
+                            <textarea name="order_rules_text" rows="6" style="margin-bottom:12px;font-family:monospace;font-size:11px;"><?= htmlspecialchars($orderRulesText) ?></textarea>
+                            <div style="color:#8a8a96;font-size:11px;margin-bottom:12px;line-height:1.6;">💡 Эти правила будут отображаться при оформлении заказа. Поддерживаются HTML теги: &lt;b&gt;, &lt;i&gt;, &lt;br&gt;, &lt;a href=""&gt;</div>
+                            <button type="submit" name="save_order_rules" class="btn-panel" style="margin-top:8px;">💾 Сохранить правила</button>
+                        </form>
+                    </div>
+
+                    <!-- ════ ПОРТФОЛИО ════ -->
                     <section class="panel" data-panel="portfolio-add">
                         <h2>📁 Добавить в портфолио</h2>
                         <form id="portfolio-form" enctype="multipart/form-data">
@@ -1325,7 +1542,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
                     </section>
 
-                    <!-- Категории -->
+                    <!-- ════ КАТЕГОРИИ ════ -->
                     <section class="panel" data-panel="categories">
                         <h2>🧩 Создать категорию</h2>
                         <form action="" method="POST">
@@ -1351,7 +1568,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </div>
                     </section>
 
-                    <!-- Последние заказы -->
+                    <!-- ════ ЗАКАЗЫ ════ -->
                     <section class="panel" data-panel="orders">
                         <h2>🧾 Заказы</h2>
                         <?php if (!empty($pendingOrders)): ?>
@@ -1439,7 +1656,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <?php endif; ?>
                     </section>
 
-                    <!-- Добавить услугу в прайс -->
+                    <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
                     <section class="panel" data-panel="price-add">
                         <h2>➕ Добавить услугу в прайс</h2>
                         <form action="" method="POST" enctype="multipart/form-data">
@@ -1461,7 +1678,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </form>
                     </section>
 
-                    <!-- Аватарка сайта -->
+                    <!-- ════ АВАТАРКА САЙТА ════ -->
                     <section class="panel" data-panel="avatar">
                         <h2>🖼️ Аватарка сайта</h2>
                         <div class="avatar-preview-wrap">
@@ -1483,7 +1700,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 </aside>
 
                 <section>
-                    <!-- Менеджер цен -->
+                    <!-- ════ МЕНЕДЖЕР ЦЕН ════ -->
                     <div class="panel" data-panel="price-manager">
                         <h2>💲 Менеджер цен и прайс-листа</h2>
                         <form action="" method="POST" enctype="multipart/form-data">
@@ -1503,7 +1720,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </td>
                                                 <td>
                                                     <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
-                                                    <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Фичи через |">
+                                                    <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Фичи через |" style="margin-top:8px;">
                                                 </td>
                                                 <td>
                                                     <input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>">
@@ -1519,7 +1736,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </form>
                     </div>
 
-                    <!-- Управление кейсами -->
+                    <!-- ════ УПРАВЛЕНИЕ КЕЙСАМИ ════ -->
                     <div class="panel" data-panel="portfolio-list">
                         <h2>🎬 Управление кейсами</h2>
                         <div class="admin-table-wrap">
@@ -1553,273 +1770,258 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             </table>
                         </div>
                     </div>
-                </section>
-            </div>
 
-            <!-- ════ ПАНЕЛЬ ОБРАЩЕНИЙ ════ -->
-            <div id="appeals-panel" style="display:none;">
-                <div class="panel" data-panel="appeals" style="max-width:960px;margin:0 auto;">
-                    <!-- Блок рассылки -->
-                    <div style="background:rgba(249,115,22,0.1); border:1px solid rgba(249,115,22,0.3); border-radius:14px; padding:20px; margin-bottom:24px;">
-                        <h3 style="margin-top:0; color:#fb923c; font-size:14px; text-transform:uppercase;">📣 Массовая рассылка всем клиентам</h3>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <textarea name="broadcast_text" placeholder="Текст акции или новости... (HTML поддерживается)" style="margin-bottom:10px; min-height:80px;"></textarea>
-                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                                <input type="file" name="broadcast_photos[]" multiple accept="image/*" style="flex:1;">
-                                <button type="submit" name="mass_broadcast" class="btn-panel" style="width:auto; margin:0; padding:10px 25px;">🚀 Разослать всем</button>
-                            </div>
-                            <p style="font-size:10px; color:#8a8a96; margin-top:8px;">* Можно прикрепить до 5 фото. Сообщение уйдет всем, кто привязывал бот или делал заказ.</p>
-                        </form>
-                    </div>
-
-                    <h2>📩 Обращения клиентов
-                        <?php if ($openAppealsCount > 0): ?>
-                            <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
-                        <?php endif; ?>
-                    </h2>
-                    <?php if (empty($appeals)): ?>
-                        <p style="color:#8a8a96;">Обращений пока нет.</p>
-                    <?php else: ?>
-                    <div style="display:grid;gap:14px;">
-                    <?php foreach ($appeals as $ap): ?>
-                        <?php $isOpen = $ap['status'] === 'open'; ?>
-                        <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : '#111116' ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : '#20202c' ?>;">
-                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-                                <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
-                                <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
-                                <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
-                                <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : 'background:rgba(34,197,94,.15);color:#86efac;' ?>">
-                                    <?= $isOpen ? '⏳ Ожидает ответа' : '✅ Отвечено' ?>
-                                </span>
-                                <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
-                                <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
-                            </div>
-                            <?php
-                                $mstmt2 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                $mstmt2->execute([(int)$ap['id']]);
-                                $msgs2 = $mstmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                            ?>
-                            <?php if (!empty($msgs2)): ?>
-                                <?php foreach ($msgs2 as $m): ?>
-                                    <?php if (($m['author'] ?? '') === 'admin'): ?>
-                                        <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;color:#d8d8e8;">
-                                            <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ответ администратора · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?></div>
-                                            <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
-                                        </div>
-                                    <?php else: ?>
-                                        <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
+                    <!-- ════ ОБРАЩЕНИЯ ════ -->
+                    <div class="panel" data-panel="appeals">
+                        <h2>📩 Обращения клиентов
+                            <?php if ($openAppealsCount > 0): ?>
+                                <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
                             <?php endif; ?>
-                            <form action="" method="POST" style="display:grid;gap:8px;">
-                                <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
-                                <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
-                                <div><button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button></div>
-                            </form>
-                        </div>
-                    <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- ════ ДЕТАЛЬ ЗАКАЗА ════ -->
-            <div id="order-detail-panel" style="display:none;">
-                <div class="panel" data-panel="order-detail" style="max-width:1100px;margin:0 auto;padding:0;background:transparent;border:none;">
-                    <?php if (!empty($viewOrder)): ?>
-                        <?php
-                            $isUrgentView = $viewOrder['status'] === 'urgent';
-                            $dlBadge = '';
-                            if (!empty($viewOrder['deadline'])) {
-                                $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
-                            } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
-                                $dlBadge = deadlineBadge($viewOrder['created_at'], $isUrgentView);
-                            }
-                            $cleanTg = trim($viewOrder['telegram'] ?? '');
-                            $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
-                            $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
-                            $examples = [];
-                            $raw = $viewOrder['example_photo'] ?? '';
-                            if ($raw !== '') {
-                                $dec = json_decode($raw, true);
-                                $examples = is_array($dec) ? $dec : [$raw];
-                            }
-                        ?>
-
-                        <!-- Шапка заказа -->
-                        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
-                            <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#8a8a96;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:5px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> Назад
-                            </a>
-                            <span style="color:#2a2a38;">|</span>
-                            <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#8a8a96;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
-                            <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></span>
-                            <?php if ($dlBadge): echo $dlBadge; endif; ?>
-                            <?php if (!empty($viewOrder['cooperation'])): ?>
-                                <span style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>
-                            <?php endif; ?>
-                        </div>
-
-                        <!-- Двухколоночный layout -->
-                        <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;">
-
-                            <!-- Левая колонка -->
-                            <div style="display:grid;gap:14px;">
-
-                                <!-- Инфо о клиенте + ТЗ -->
-                                <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-                                        <div>
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Клиент</div>
-                                            <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['username'] ?? '—') ?></div>
-                                        </div>
-                                        <div>
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Telegram</div>
-                                            <div style="font-size:14px;color:#efeff7;font-weight:700;">
-                                                <?php if ($cleanTg): ?>
-                                                    <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="color:#60a5fa;text-decoration:none;">@<?= htmlspecialchars($cleanTg) ?></a>
-                                                <?php else: ?>—<?php endif; ?>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
-                                            <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
-                                        </div>
-                                        <div>
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
-                                            <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
-                                        </div>
-                                    </div>
-                                    <?php if (!empty($viewOrder['details'])): ?>
-                                        <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
-                                        <div style="background:#0b0b10;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
-                                    <?php endif; ?>
+                        </h2>
+                        <?php if (empty($appeals)): ?>
+                            <p style="color:#8a8a96;">Обращений пока нет.</p>
+                        <?php else: ?>
+                        <div style="display:grid;gap:14px;">
+                        <?php foreach ($appeals as $ap): ?>
+                            <?php $isOpen = $ap['status'] === 'open'; ?>
+                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : '#111116' ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : '#20202c' ?>;">
+                                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                                    <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
+                                    <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
+                                    <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
+                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : 'background:rgba(34,197,94,.15);color:#86efac;' ?>">
+                                        <?= $isOpen ? '⏳ Ожидает ответа' : '✅ Отвечено' ?>
+                                    </span>
+                                    <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
+                                    <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                                 </div>
-
-                                <!-- Файлы -->
-                                <?php if ($screenshotSrc !== '' || !empty($examples)): ?>
-                                <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
-                                    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
-                                        <?php if ($screenshotSrc !== ''): ?>
-                                        <div>
-                                            <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
-                                            <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank">
-                                                <img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
-                                            </a>
-                                        </div>
-                                        <?php endif; ?>
-                                        <?php if (!empty($examples)): ?>
-                                        <div style="flex:1;">
-                                            <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Референсы</div>
-                                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                                <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
-                                                    <?php if ($exSrc !== ''): ?>
-                                                        <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank">
-                                                            <img src="<?= htmlspecialchars($exSrc) ?>" style="width:100px;height:80px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'">
-                                                        </a>
-                                                    <?php endif; ?>
-                                                <?php endforeach; ?>
+                                <?php
+                                    $mstmt2 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                    $mstmt2->execute([(int)$ap['id']]);
+                                    $msgs2 = $mstmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                ?>
+                                <?php if (!empty($msgs2)): ?>
+                                    <?php foreach ($msgs2 as $m): ?>
+                                        <?php if (($m['author'] ?? '') === 'admin'): ?>
+                                            <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;color:#d8d8e8;">
+                                                <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ответ администратора · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?></div>
+                                                <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
                                             </div>
-                                        </div>
+                                        <?php else: ?>
+                                            <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
                                         <?php endif; ?>
-                                    </div>
-                                </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
                                 <?php endif; ?>
+                                <form action="" method="POST" style="display:grid;gap:8px;">
+                                    <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
+                                    <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
+                                    <div><button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button></div>
+                                </form>
+                            </div>
+                        <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
 
-                                <!-- Переписка -->
-                                <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Переписка</div>
-                                    <?php if (!empty($orderAppeals)): ?>
-                                        <?php foreach ($orderAppeals as $oap):
-                                            $mstmt3 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                            $mstmt3->execute([(int)$oap['id']]);
-                                            $msgs3 = $mstmt3->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                                        ?>
-                                        <div style="margin-bottom:14px;">
-                                            <div style="font-size:11px;color:#8a8a96;font-weight:700;margin-bottom:8px;"><?= htmlspecialchars($oap['subject'] ?: 'Обращение') ?></div>
-                                            <?php foreach ($msgs3 as $m): ?>
-                                                <?php $isAdmin = ($m['author'] ?? '') === 'admin'; ?>
-                                                <div style="display:flex;gap:8px;margin-bottom:8px;<?= $isAdmin ? 'flex-direction:row-reverse;' : '' ?>">
-                                                    <div style="width:28px;height:28px;border-radius:50%;background:<?= $isAdmin ? 'rgba(249,115,22,.2)' : 'rgba(96,165,250,.2)' ?>;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">
-                                                        <?= $isAdmin ? '⚙' : '👤' ?>
-                                                    </div>
-                                                    <div style="background:<?= $isAdmin ? 'rgba(249,115,22,.06)' : 'rgba(96,165,250,.06)' ?>;border:1px solid <?= $isAdmin ? 'rgba(249,115,22,.15)' : 'rgba(96,165,250,.15)' ?>;border-radius:10px;padding:10px 12px;max-width:85%;">
-                                                        <div style="font-size:10px;color:#555568;margin-bottom:4px;"><?= $isAdmin ? 'Дизайнер' : 'Клиент' ?> · <?= date('d.m H:i', strtotime($m['created_at'])) ?></div>
-                                                        <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars($m['message'])) ?></div>
+                    <!-- ════ ДЕТАЛЬ ЗАКАЗА ════ -->
+                    <div id="order-detail-panel" style="display:none;">
+                        <div class="panel" style="max-width:1100px;margin:0 auto;padding:0;background:transparent;border:none;">
+                            <?php if (!empty($viewOrder)): ?>
+                                <?php
+                                    $isUrgentView = $viewOrder['status'] === 'urgent';
+                                    $dlBadge = '';
+                                    if (!empty($viewOrder['deadline'])) {
+                                        $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
+                                    } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
+                                        $dlBadge = deadlineBadge($viewOrder['created_at'], $isUrgentView);
+                                    }
+                                    $cleanTg = trim($viewOrder['telegram'] ?? '');
+                                    $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
+                                    $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
+                                    $examples = [];
+                                    $raw = $viewOrder['example_photo'] ?? '';
+                                    if ($raw !== '') {
+                                        $dec = json_decode($raw, true);
+                                        $examples = is_array($dec) ? $dec : [$raw];
+                                    }
+                                ?>
+
+                                <!-- Шапка заказа -->
+                                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
+                                    <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#8a8a96;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:5px;">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> Назад
+                                    </a>
+                                    <span style="color:#2a2a38;">|</span>
+                                    <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#8a8a96;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
+                                    <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></span>
+                                    <?php if ($dlBadge): echo $dlBadge; endif; ?>
+                                    <?php if (!empty($viewOrder['cooperation'])): ?>
+                                        <span style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>
+                                    <?php endif; ?>
+                                </div>
+
+                                <!-- Двухколоночный layout -->
+                                <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;">
+
+                                    <!-- Левая колонка -->
+                                    <div style="display:grid;gap:14px;">
+
+                                        <!-- Инфо о клиенте + ТЗ -->
+                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                                                <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Клиент</div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['username'] ?? '—') ?></div>
+                                                </div>
+                                                <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Telegram</div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;">
+                                                        <?php if ($cleanTg): ?>
+                                                            <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="color:#60a5fa;text-decoration:none;">@<?= htmlspecialchars($cleanTg) ?></a>
+                                                        <?php else: ?>—<?php endif; ?>
                                                     </div>
                                                 </div>
-                                            <?php endforeach; ?>
+                                                <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
+                                                </div>
+                                                <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
+                                                </div>
+                                            </div>
+                                            <?php if (!empty($viewOrder['details'])): ?>
+                                                <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
+                                                <div style="background:#0b0b10;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
+                                            <?php endif; ?>
                                         </div>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <div style="color:#555568;font-size:13px;">Переписки пока нет.</div>
-                                    <?php endif; ?>
 
-                                    <!-- Форма нового сообщения -->
-                                    <form action="" method="POST" style="margin-top:16px;display:grid;gap:8px;">
-                                        <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                        <input type="text" name="msg_subject" placeholder="Тема" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>" style="font-size:13px;">
-                                        <textarea name="msg_text" required rows="3" placeholder="Сообщение клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;"></textarea>
-                                        <button type="submit" name="send_order_message" class="btn-panel" style="margin-top:0;">📤 Отправить клиенту</button>
-                                    </form>
-                                </div>
-
-                            </div>
-
-                            <!-- Правая колонка — действия -->
-                            <div style="display:grid;gap:12px;position:sticky;top:18px;">
-
-                                <!-- Статус-кнопки -->
-                                <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
-                                    <form method="POST" style="display:grid;gap:8px;">
-                                        <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                        <button name="order_action" value="take_work" style="border:none;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">🚀 Взять в работу</button>
-                                        <button name="order_action" value="urgent" style="border:none;border-radius:10px;padding:11px;background:rgba(239,184,74,.15);color:#efb84a;border:1px solid rgba(239,184,74,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">⚡ Сделать срочным</button>
-                                        <button name="order_action" value="ready" style="border:none;border-radius:10px;padding:11px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">✅ Отметить готовым</button>
-                                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
-                                            <button name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:none;border-radius:10px;padding:10px;background:rgba(251,113,133,.12);color:#fb7185;border:1px solid rgba(251,113,133,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">❌ Отклонить</button>
-                                            <button name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:none;border-radius:10px;padding:10px;background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">🚫 Бан</button>
+                                        <!-- Файлы -->
+                                        <?php if ($screenshotSrc !== '' || !empty($examples)): ?>
+                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
+                                            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+                                                <?php if ($screenshotSrc !== ''): ?>
+                                                <div>
+                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
+                                                    <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank">
+                                                        <img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
+                                                    </a>
+                                                </div>
+                                                <?php endif; ?>
+                                                <?php if (!empty($examples)): ?>
+                                                <div style="flex:1;">
+                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Референсы</div>
+                                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                                        <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
+                                                            <?php if ($exSrc !== ''): ?>
+                                                                <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank">
+                                                                    <img src="<?= htmlspecialchars($exSrc) ?>" style="width:100px;height:80px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'">
+                                                                </a>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                </div>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
-                                    </form>
+                                        <?php endif; ?>
+
+                                        <!-- Переписка -->
+                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Переписка</div>
+                                            <?php if (!empty($orderAppeals)): ?>
+                                                <?php foreach ($orderAppeals as $oap):
+                                                    $mstmt3 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+                                                    $mstmt3->execute([(int)$oap['id']]);
+                                                    $msgs3 = $mstmt3->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                                                ?>
+                                                <div style="margin-bottom:14px;">
+                                                    <div style="font-size:11px;color:#8a8a96;font-weight:700;margin-bottom:8px;"><?= htmlspecialchars($oap['subject'] ?: 'Обращение') ?></div>
+                                                    <?php foreach ($msgs3 as $m): ?>
+                                                        <?php $isAdmin = ($m['author'] ?? '') === 'admin'; ?>
+                                                        <div style="display:flex;gap:8px;margin-bottom:8px;<?= $isAdmin ? 'flex-direction:row-reverse;' : '' ?>">
+                                                            <div style="width:28px;height:28px;border-radius:50%;background:<?= $isAdmin ? 'rgba(249,115,22,.2)' : 'rgba(96,165,250,.2)' ?>;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">
+                                                                <?= $isAdmin ? '⚙' : '👤' ?>
+                                                            </div>
+                                                            <div style="background:<?= $isAdmin ? 'rgba(249,115,22,.06)' : 'rgba(96,165,250,.06)' ?>;border:1px solid <?= $isAdmin ? 'rgba(249,115,22,.15)' : 'rgba(96,165,250,.15)' ?>;border-radius:10px;padding:10px 12px;max-width:85%;">
+                                                                <div style="font-size:10px;color:#555568;margin-bottom:4px;"><?= $isAdmin ? 'Дизайнер' : 'Клиент' ?> · <?= date('d.m H:i', strtotime($m['created_at'])) ?></div>
+                                                                <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars($m['message'])) ?></div>
+                                                            </div>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <div style="color:#555568;font-size:13px;">Переписки пока нет.</div>
+                                            <?php endif; ?>
+
+                                            <!-- Форма нового сообщения -->
+                                            <form action="" method="POST" style="margin-top:16px;display:grid;gap:8px;">
+                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                                <input type="text" name="msg_subject" placeholder="Тема" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>" style="font-size:13px;margin:0;padding:10px 12px;">
+                                                <textarea name="msg_text" required rows="3" placeholder="Сообщение клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;margin:0;"></textarea>
+                                                <button type="submit" name="send_order_message" class="btn-panel" style="margin-top:0;">📤 Отправить клиенту</button>
+                                            </form>
+                                        </div>
+
+                                    </div>
+
+                                    <!-- Правая колонка — действия -->
+                                    <div style="display:grid;gap:12px;position:sticky;top:18px;">
+
+                                        <!-- Статус-кнопки -->
+                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
+                                            <form method="POST" style="display:grid;gap:8px;">
+                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                                <button name="order_action" value="take_work" style="border:none;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">🚀 Взять в работу</button>
+                                                <button name="order_action" value="urgent" style="border:none;border-radius:10px;padding:11px;background:rgba(239,184,74,.15);color:#efb84a;border:1px solid rgba(239,184,74,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">⚡ Сделать срочным</button>
+                                                <button name="order_action" value="ready" style="border:none;border-radius:10px;padding:11px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">✅ Отметить готовым</button>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+                                                    <button name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:none;border-radius:10px;padding:10px;background:rgba(251,113,133,.12);color:#fb7185;border:1px solid rgba(251,113,133,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">❌ Отклонить</button>
+                                                    <button name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:none;border-radius:10px;padding:10px;background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">🚫 Бан</button>
+                                                </div>
+                                            </form>
+                                        </div>
+
+                                        <!-- Написать клиенту -->
+                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
+                                            <?php if ($cleanTg): ?>
+                                                <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);color:#60a5fa;border-radius:10px;padding:10px;text-decoration:none;font-size:13px;font-weight:700;margin-bottom:10px;">
+                                                    💬 Открыть чат в Telegram
+                                                </a>
+                                            <?php endif; ?>
+                                            <form method="POST" style="display:grid;gap:8px;">
+                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                                <input type="hidden" name="order_action" value="message_client">
+                                                <textarea name="message_text" rows="3" placeholder="Сообщение через бот..." style="background:#0b0b10;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;width:100%;box-sizing:border-box;margin:0;"></textarea>
+                                                <button type="submit" style="border:none;border-radius:10px;padding:10px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">✉️ Отправить через бот</button>
+                                            </form>
+                                        </div>
+
+                                    </div>
                                 </div>
 
-                                <!-- Написать клиенту -->
-                                <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
-                                    <?php if ($cleanTg): ?>
-                                        <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);color:#60a5fa;border-radius:10px;padding:10px;text-decoration:none;font-size:13px;font-weight:700;margin-bottom:10px;">
-                                            💬 Открыть чат в Telegram
-                                        </a>
-                                    <?php endif; ?>
-                                    <form method="POST" style="display:grid;gap:8px;">
-                                        <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                        <input type="hidden" name="order_action" value="message_client">
-                                        <textarea name="message_text" rows="3" placeholder="Сообщение через бот..." style="background:#0b0b10;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;width:100%;box-sizing:border-box;"></textarea>
-                                        <button type="submit" style="border:none;border-radius:10px;padding:10px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">✉️ Отправить через бот</button>
-                                    </form>
+                                <style>
+                                @media(max-width:768px){
+                                    [style*="grid-template-columns:1fr 340px"]{grid-template-columns:1fr!important;}
+                                    [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}
+                                }
+                                </style>
+
+                            <?php else: ?>
+                                <div class="panel" style="text-align:center;padding:40px;">
+                                    <div style="font-size:32px;margin-bottom:12px;">📦</div>
+                                    <div style="color:#8a8a96;">Заказ не найден. <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#f97316;">Вернуться назад</a></div>
                                 </div>
-
-                            </div>
+                            <?php endif; ?>
                         </div>
-
-                        <style>
-                        @media(max-width:768px){
-                            #order-detail-panel [style*="grid-template-columns:1fr 340px"]{grid-template-columns:1fr!important;}
-                            #order-detail-panel [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}
-                        }
-                        </style>
-
-                    <?php else: ?>
-                        <div class="panel" style="text-align:center;padding:40px;">
-                            <div style="font-size:32px;margin-bottom:12px;">📦</div>
-                            <div style="color:#8a8a96;">Заказ не найден. <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#f97316;">Вернуться назад</a></div>
-                        </div>
-                    <?php endif; ?>
-                </div>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
@@ -1865,9 +2067,7 @@ function toggleAvatarField() {
 }
 
 function activateAdminTab(tab) {
-    const apPanel  = document.getElementById('appeals-panel');
     const ordPanel = document.getElementById('order-detail-panel');
-    if (apPanel)  apPanel.style.display  = 'none';
     if (ordPanel) ordPanel.style.display = 'none';
 
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -1886,14 +2086,11 @@ function activateAdminTab(tab) {
     else if (tab === 'price')     { show('price-add','price-manager');      if (layout) layout.classList.remove('single-column'); }
     else if (tab === 'orders')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
+    else if (tab === 'reviews')   { show('reviews'); }
+    else if (tab === 'commands')  { show('commands'); }
+    else if (tab === 'rules')     { show('rules'); }
+    else if (tab === 'appeals')   { show('appeals'); }
     else if (tab === 'avatar')    { show('avatar'); }
-    else if (tab === 'appeals')   {
-        if (apPanel) {
-            apPanel.style.display = 'block';
-            const inner = apPanel.querySelector('.panel[data-panel="appeals"]');
-            if (inner) inner.classList.remove('tab-hidden');
-        }
-    }
 }
 
 function initFileInputs() {

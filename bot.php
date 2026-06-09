@@ -1,14 +1,28 @@
 <?php
 
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/admin/bot_commands.php';
 
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
 
-$token    = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+/**
+ * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+ */
+define('BOT_ADMIN_ID', '1710365896');
+$token    = getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
 $site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
+
+/**
+ * Уведомление админа о новом отзыве
+ */
+function notifyAdminNewReview($token, $admin_id, $order_id, $username, $rating, $text) {
+    $msg = "⭐ *Новый отзыв!* (Заказ #{$order_id})\n\n";
+    $msg .= "👤 От: @{$username}\n" . str_repeat('⭐', $rating) . "\n\n";
+    $msg .= "💬 {$text}\n\n";
+    $msg .= "⚙️ [Модерация отзывов](".getenv('SITE_URL')."admin/manage_reviews.php)";
+    sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => $msg, 'parse_mode' => 'Markdown']);
+}
 
 $input  = file_get_contents('php://input');
 $update = json_decode($input, true);
@@ -630,11 +644,36 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // ── Админ-команды: ЛС, приват-пак и группы (если отправитель — админ) ──
+    // ── Обработка команд из БД и системных ──
     if ($text !== '' && $text[0] === '/') {
-        $processed = processAdminCommand($pdo, $token, (int)$chat_id, $text, $update);
-        if ($processed) {
-            exit;
+        // Проверка прав (только твой ID)
+        if ((string)$chat_id === BOT_ADMIN_ID) {
+            if ($text === '/help') {
+                $help_msg = "📖 *Команды Kostlim Bot*\n\n";
+                $help_msg .= "🎨 *Портфолио:*\n• `/admin` — открыть админ-панель\n\n";
+                
+                try {
+                    $stmt = $pdo->query("SELECT command, description FROM bot_commands ORDER BY id ASC");
+                    $db_cmds = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    if (!empty($db_cmds)) {
+                        $help_msg .= "*Из базы данных:*\n";
+                        foreach ($db_cmds as $c) {
+                            $help_msg .= "• `/" . mdEscape($c['command']) . "` — " . mdEscape($c['description']) . "\n";
+                        }
+                    }
+                } catch (Throwable $e) {}
+
+                $help_msg .= "\n⚙️ *Системные:* `/stats` `/archive` `/list_published`\n";
+                $help_msg .= "🛡 *Модерация:* `/mute` `/warn` `/ban` `/unban` `/kick`\n\n";
+                $help_msg .= "_Работают в ЛС и в приват-паке._";
+
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id'    => $chat_id,
+                    'text'       => $help_msg,
+                    'parse_mode' => 'Markdown'
+                ]);
+                exit;
+            }
         }
     }
 

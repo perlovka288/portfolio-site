@@ -48,6 +48,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->prepare("INSERT INTO reviews (order_id, tg_username, tg_first_name, tg_photo_url, rating, text) VALUES (?,?,?,?,?,?)")
                 ->execute([$order_id, $tg_username, $tg_first_name, $tg_photo_url, $rating, $text]);
+            
+            $lastId = $pdo->lastInsertId();
+            
+            // Отправляем уведомление админу через CURL в админку (или напрямую в ТГ)
+            $admin_id = getenv('ADMIN_ID') ?: "1710365896";
+            $msg = "⭐ *Новый отзыв!* (Заказ #{$order_id})\n\n";
+            $msg .= "👤 От: " . ($tg_first_name ?: "@".$tg_username) . "\n" . str_repeat('⭐', $rating) . "\n\n";
+            $msg .= "💬 " . $text;
+            
+            $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+                'chat_id' => $admin_id,
+                'text' => $msg,
+                'parse_mode' => 'Markdown'
+            ]));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_exec($ch); curl_close($ch);
+
             $success = true;
         } catch (Throwable $e) {
             $error = 'Ошибка сохранения. Попробуйте ещё раз.';
