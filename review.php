@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once 'includes/session.php';
 require_once 'config/db.php';
 
 $bot_token = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';

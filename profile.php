@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once 'includes/session.php';
 require_once 'config/db.php';
 
 $adminQuery = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();

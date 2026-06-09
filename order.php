@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once 'includes/session.php';
 require_once 'config/db.php';
 
 define('ADMIN_TG_ID', '1710365896');
