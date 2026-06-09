@@ -2,6 +2,16 @@
 require_once 'includes/session.php';
 require_once 'config/db.php';
 
+// ── Гарантируем существование таблицы правил ────────────────────────────
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (
+        id SERIAL PRIMARY KEY,
+        rule_key VARCHAR(100) UNIQUE NOT NULL,
+        rule_text TEXT NOT NULL DEFAULT '',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+} catch (Throwable $e) {}
+
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
@@ -61,6 +71,26 @@ $error_msg   = '';
 
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
 $rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
+
+// ── Загружаем правила из БД (сохранённые через админку) ──────────────────
+$orderRulesHtml = '';
+try {
+    $rulesRow = $pdo->query("SELECT rule_text FROM site_rules WHERE rule_key = 'order_terms' LIMIT 1")->fetch();
+    if ($rulesRow && !empty(trim($rulesRow['rule_text']))) {
+        // Фильтруем разрешённые теги: <b>,<i>,<br>,<a>
+        $orderRulesHtml = strip_tags($rulesRow['rule_text'], '<b><i><br><a>');
+    }
+} catch (Throwable $e) {}
+// Если в БД пусто — используем дефолтный текст
+if ($orderRulesHtml === '') {
+    $orderRulesHtml = '<ul style="padding-left:20px;margin:0;line-height:1.7;font-size:13px;color:#e0e0ec;">'
+        . '<li>Стандартный срок сдачи — <b>5 дней</b>.</li>'
+        . '<li>Срочный заказ (24 часа): <b>+50%</b> к цене.</li>'
+        . '<li>ТЗ должно быть <b>максимально подробным</b>.</li>'
+        . '<li>По вопросам: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:#f97316;font-weight:700;">@Perlo_ovka</a></li>'
+        . '<li>Деньги не возвращаются.</li>'
+        . '</ul>';
+}
 
 if (isset($_POST['accept_rules'])) {
     if (!empty($_POST['dont_ask'])) {
@@ -721,13 +751,10 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
     </div>
     <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin;">
-        <ul style="display:grid; gap:12px; color:#e0e0ec; padding-left:20px; line-height:1.6; margin:0 0 20px; font-size:13px;">
-            <li>Стандартный срок сдачи работы — <b>5 дней</b>.</li>
-            <li>При оплате <b>50%</b> от цены заказа — срок выполнения <b>24 часа</b> после создания заказа.</li>
-            <li>ТЗ должно быть <b>максимально подробным</b> — это ускорит работу и уменьшит количество правок.</li>
-            <li>По всем вопросам пишите дизайнеру в Telegram: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:var(--or); font-weight:700;">@Perlo_ovka</a>.</li>
-            <li>Деньги не возвращаются.</li>
-        </ul>
+        <!-- Правила из БД (редактируются в Админке → Правила) -->
+        <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
+            <?= $orderRulesHtml ?>
+        </div>
     </div>
     <div style="margin-bottom: 20px;">
         <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">

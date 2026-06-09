@@ -644,36 +644,12 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // ── Обработка команд из БД и системных ──
+    // ── Обработка команд из БД и системных ──────────────────────────────
+    // processAdminCommand() обрабатывает: /help /mute /warn /ban /unban /kick /stats /admin
+    // Функция определена в admin/bot_commands.php и подключается в начале bot.php
     if ($text !== '' && $text[0] === '/') {
-        // Проверка прав (только твой ID)
-        if ((string)$chat_id === BOT_ADMIN_ID) {
-            if ($text === '/help') {
-                $help_msg = "📖 *Команды Kostlim Bot*\n\n";
-                $help_msg .= "🎨 *Портфолио:*\n• `/admin` — открыть админ-панель\n\n";
-                
-                try {
-                    $stmt = $pdo->query("SELECT command, description FROM bot_commands ORDER BY id ASC");
-                    $db_cmds = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    if (!empty($db_cmds)) {
-                        $help_msg .= "*Из базы данных:*\n";
-                        foreach ($db_cmds as $c) {
-                            $help_msg .= "• `/" . mdEscape($c['command']) . "` — " . mdEscape($c['description']) . "\n";
-                        }
-                    }
-                } catch (Throwable $e) {}
-
-                $help_msg .= "\n⚙️ *Системные:* `/stats` `/archive` `/list_published`\n";
-                $help_msg .= "🛡 *Модерация:* `/mute` `/warn` `/ban` `/unban` `/kick`\n\n";
-                $help_msg .= "_Работают в ЛС и в приват-паке._";
-
-                sendTelegram($token, 'sendMessage', [
-                    'chat_id'    => $chat_id,
-                    'text'       => $help_msg,
-                    'parse_mode' => 'Markdown'
-                ]);
-                exit;
-            }
+        if (processAdminCommand($pdo, $token, $chat_id, $text, $update)) {
+            exit; // команда обработана
         }
     }
 

@@ -151,3 +151,10 @@ CREATE TABLE IF NOT EXISTS appeals_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_tg_links_session ON tg_links (session_id);
+-- Таблица правил заказа (редактируется через Админка → Правила)
+CREATE TABLE IF NOT EXISTS site_rules (
+    id SERIAL PRIMARY KEY,
+    rule_key VARCHAR(100) UNIQUE NOT NULL,
+    rule_text TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
