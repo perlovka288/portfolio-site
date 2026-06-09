@@ -9,7 +9,9 @@ if (!function_exists('imgSrc')) {
     function imgSrc(string $val, string $base = 'uploads/'): string {
         if ($val === '') return '';
         if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
-        return $base . $val;
+        $siteRoot = rtrim(getenv('SITE_URL') ?: '', '/');
+        if ($siteRoot !== '') return $siteRoot . '/' . ltrim($base . $val, '/');
+        return '/' . ltrim($base . $val, '/');
     }
 }
 

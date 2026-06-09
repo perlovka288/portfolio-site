@@ -1,3 +1,6 @@
+# ── Индексный файл (исправляет / → /index.php) ──
+DirectoryIndex index.php index.html
+
 # ── Лимиты загрузки ──
 php_value upload_max_filesize 32M
 php_value post_max_size 34M
@@ -11,9 +14,8 @@ RewriteCond %{HTTP_HOST} !localhost
 RewriteCond %{HTTP_HOST} !^127\.
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-# ── Заголовки безопасности ──
+# ── Заголовки безопасности + SameSite для куков (Safari/iOS) ──
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
-    # Разрешаем куки при кросс-контекстных переходах (Telegram → сайт)
     Header always edit Set-Cookie (.*) "$1; SameSite=None; Secure"
 </IfModule>

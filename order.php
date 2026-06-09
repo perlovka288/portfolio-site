@@ -303,11 +303,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
                 [
-                    ['text' => '⏳ Взять в работу', 'callback_data' => "adm_work_{$order_id}"],
+                    ['text' => '🚀 Взять в работу', 'callback_data' => "adm_work_{$order_id}"],
                     ['text' => '❌ Отклонить',       'callback_data' => "adm_dec_{$order_id}"],
                 ],
                 [
-                    ['text' => '🔴 Срочный (24ч)', 'callback_data' => "adm_urgent_set_{$order_id}"],
+                    ['text' => '⚡️ Срочный (24ч)', 'callback_data' => "adm_urgent_{$order_id}"],
                 ],
                 [
                     ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],

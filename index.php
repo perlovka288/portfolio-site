@@ -145,7 +145,12 @@ if ($isAdmin && $daConnected) {
 function imgSrc(string $val, string $base = 'uploads/'): string {
     if ($val === '') return '';
     if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
-    return $base . $val;
+    // Абсолютный путь от корня сайта — работает при любом URL (/index.php или /)
+    $siteRoot = rtrim(getenv('SITE_URL') ?: '', '/');
+    if ($siteRoot !== '') {
+        return $siteRoot . '/' . ltrim($base . $val, '/');
+    }
+    return '/' . ltrim($base . $val, '/');
 }
 
 $categories   = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);

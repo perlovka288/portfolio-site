@@ -35,6 +35,9 @@ if (!$update) {
 if (isset($update['callback_query'])) {
     $callback_id   = $update['callback_query']['id'];
     $cal_chat_id   = $update['callback_query']['message']['chat']['id'];
+    // ВАЖНО: для проверки прав используем from.id (кто нажал кнопку),
+    // а не chat.id (где было сообщение) — иначе кнопки не работают в группах
+    $caller_id     = (string)($update['callback_query']['from']['id'] ?? 0);
     $msg_id        = $update['callback_query']['message']['message_id'];
     $callback_data = $update['callback_query']['data'] ?? '';
 
@@ -55,7 +58,7 @@ if (isset($update['callback_query'])) {
     }
 
     // ── Только для админа ──
-    if ((string)$cal_chat_id !== $admin_id) {
+    if ($caller_id !== $admin_id) {
         sendTelegram($token, 'answerCallbackQuery', [
             'callback_query_id' => $callback_id,
             'text'              => 'Доступ закрыт',
@@ -176,6 +179,32 @@ if (isset($update['callback_query'])) {
             "🔴 *Заказ #{$order_id} отклонён.*\n\nК сожалению, дизайнер не смог принять ваш заказ. По вопросам: @Perlo_ovka"
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ отклонён']);
+        exit;
+    }
+
+    // В чёрный список (из уведомления о заказе)
+    if (strpos($callback_data, 'adm_ban_') === 0) {
+        $order_id = (int)str_replace('adm_ban_', '', $callback_data);
+        try {
+            $tg_stmt = $pdo->prepare("SELECT telegram FROM orders WHERE id = ? LIMIT 1");
+            $tg_stmt->execute([$order_id]);
+            $tg_val = trim((string)$tg_stmt->fetchColumn());
+            if ($tg_val !== '') {
+                $pdo->prepare("INSERT INTO blacklist (telegram, reason, created_at) VALUES (?, 'ban_by_admin', NOW()) ON CONFLICT DO NOTHING")
+                    ->execute([$tg_val]);
+            }
+        } catch (Throwable $e) {}
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "🚫 *Клиент из заказа #{$order_id} добавлен в чёрный список.*",
+            'parse_mode' => 'Markdown',
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🚫 В ЧС']);
         exit;
     }
 

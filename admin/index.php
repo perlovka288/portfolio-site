@@ -864,6 +864,13 @@ function imgSrc(string $val, string $baseUrl = '../uploads/'): string
 {
     if ($val === '') return '';
     if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+    $siteRoot = rtrim(getenv('SITE_URL') ?: '', '/');
+    // В admin используем относительный путь из папки admin/ если нет SITE_URL
+    if ($siteRoot !== '') {
+        // из admin baseUrl типа '../uploads/' — убираем ../ для абс. пути
+        $cleanBase = ltrim(str_replace('../', '', $baseUrl), '/');
+        return $siteRoot . '/' . $cleanBase . $val;
+    }
     return $baseUrl . $val;
 }
 
@@ -1826,8 +1833,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </div>
 
                     <!-- ════ ДЕТАЛЬ ЗАКАЗА ════ -->
-                    <div id="order-detail-panel" style="display:none;">
-                        <div class="panel" style="max-width:1100px;margin:0 auto;padding:0;background:transparent;border:none;">
+                    <div id="order-detail-panel" style="display:<?= isset($_GET['view_order']) ? 'block' : 'none' ?>;">
+                        <div class="panel" data-panel="order-detail" style="max-width:1100px;margin:0 auto;padding:0;background:transparent;border:none;">
                             <?php if (!empty($viewOrder)): ?>
                                 <?php
                                     $isUrgentView = $viewOrder['status'] === 'urgent';
@@ -2136,17 +2143,17 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleAvatarField();
     const params = new URLSearchParams(window.location.search);
     if (params.has('view_order')) {
-        activateAdminTab('orders');
-        setTimeout(() => {
-            const wrapper = document.getElementById('order-detail-panel');
-            const det = document.querySelector('.panel[data-panel="order-detail"]');
-            if (wrapper) wrapper.style.display = 'block';
-            if (det) {
-                document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
-                det.classList.remove('tab-hidden');
-                document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'orders'));
+        // Показываем таб заказов и скрываем все остальные панели кроме detail
+        document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'orders'));
+        document.querySelectorAll('.panel').forEach(p => {
+            if (p.dataset.panel && p.dataset.panel !== 'order-detail') {
+                p.classList.add('tab-hidden');
             }
-        }, 40);
+        });
+        const det = document.querySelector('.panel[data-panel="order-detail"]');
+        if (det) det.classList.remove('tab-hidden');
+        const wrapper = document.getElementById('order-detail-panel');
+        if (wrapper) wrapper.style.display = 'block';
     } else {
         activateAdminTab('overview');
     }
