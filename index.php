@@ -1,2161 +1,1136 @@
 <?php
-ob_start();
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-require_once 'auth.php';
-require_once '../config/db.php';
-require_once __DIR__ . '/psd_manager.php';
-require_once __DIR__ . '/bot_commands.php';
-ensureBotCommandTables($pdo);
+// Скрываем ошибки от пользователей
+error_reporting(E_ALL);     // Собирать все типы ошибок
+ini_set('display_errors', 0); // Не выводить их в браузер
+ini_set('log_errors', 1);     // Записывать ошибки в лог-файл сервера
+// Если вы хотите сохранять ошибки в конкретный файл в папке проекта:
+// ini_set('error_log', __DIR__ . '/php_errors.log');
 
+// ── Фикс сессий для Safari/iOS (SameSite=None + Secure) ──────────────────
+// Safari блокирует куки без этих параметров при переходах из других приложений (TG)
+require_once 'includes/session.php';
+
+require_once 'config/db.php';
+
+// ── Защищённый импорт donationalerts (не должен валить страницу) ──────────
 try {
-    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
-    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (id SERIAL PRIMARY KEY, rule_key VARCHAR(100) UNIQUE, rule_text TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);");
-} catch (PDOException $e) {
-    // ignore
-}
-
-$message = '';
-$uploadDir = '../uploads/';
-define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
-define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
-if (!defined('PRIVATE_PACK_CHAT_ID')) {
-    define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
-}
-define('PUBLIC_SITE_URL', rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/');
-define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
-define('ADMIN_TELEGRAM_ID', '1710365896');
-$telegramLastError = '';
-
-// ══════════════════════════════════════════════════════════════════
-// DonationAlerts
-// ══════════════════════════════════════════════════════════════════
-$_da_path = __DIR__ . '/../donationalerts.php';
-if (file_exists($_da_path)) {
-    require_once $_da_path;
-}
-if (!function_exists('daEnsureAccessToken')) {
-    function daEnsureAccessToken(PDO $pdo): ?string { return null; }
-}
-if (!function_exists('daGetAuthorizeUrl')) {
-    function daGetAuthorizeUrl(): string { return '#'; }
-}
-if (!function_exists('daGetDonations')) {
-    function daGetDonations(PDO $pdo, int $limit = 200): array { return []; }
-}
-if (!function_exists('daGetCurrentMonthDonationTotalUsd')) {
-    function daGetCurrentMonthDonationTotalUsd(array $donations): float { return 0.0; }
-}
-if (!function_exists('daGetCurrentMonthPayoutStats')) {
-    function daGetCurrentMonthPayoutStats(PDO $pdo): array {
-        return ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+    require_once 'donationalerts.php';
+} catch (Throwable $daErr) {
+    // Если donationalerts недоступен — работаем без него
+    if (!function_exists('daEnsureAccessToken')) {
+        function daEnsureAccessToken($pdo) { return null; }
+        function daGetDonations($pdo, $limit=200) { return []; }
+        function daGetCurrentMonthDonationTotalUsd($donations) { return 0.0; }
+        function daGetCurrentMonthPayoutStats($pdo) { return ['gross'=>0,'count'=>0,'commission'=>0,'net'=>0]; }
+        function daExchangeAuthorizationCode($pdo, $code) { return false; }
     }
 }
 
-ensureDefaultPortfolioCategories($pdo);
+// Создаём таблицу отзывов если нет
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        order_id INT NOT NULL,
+        tg_username VARCHAR(128) NOT NULL DEFAULT '',
+        tg_first_name VARCHAR(255) NOT NULL DEFAULT '',
+        tg_photo_url TEXT DEFAULT NULL,
+        rating SMALLINT NOT NULL DEFAULT 5,
+        text TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        approved BOOLEAN NOT NULL DEFAULT TRUE
+    )");
+} catch (Throwable $e) {}
 
-// ──────────────────────────────────────────────────────────────────
-// ОТЗЫВЫ - одобрение/отклонение
-// ──────────────────────────────────────────────────────────────────
-if (isset($_POST['approve_review'])) {
-    $rid = (int)($_POST['review_id'] ?? 0);
-    if ($rid > 0) {
-        $pdo->prepare("UPDATE reviews SET approved = TRUE WHERE id = ?")->execute([$rid]);
-        $message = '✅ Отзыв одобрен.';
-        // Уведомление админу в TG
-        try {
-            $rv = $pdo->prepare("SELECT * FROM reviews WHERE id = ? LIMIT 1");
-            $rv->execute([$rid]);
-            $rvRow = $rv->fetch(PDO::FETCH_ASSOC);
-            if ($rvRow && defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
-                $stars = str_repeat('⭐', (int)($rvRow['rating'] ?? 5));
-                $name  = htmlspecialchars($rvRow['tg_first_name'] ?: ('Клиент #' . $rvRow['order_id']));
-                $txt   = htmlspecialchars(mb_substr($rvRow['text'] ?? '', 0, 200));
-                $tgMsg = "✅ <b>Отзыв одобрен!</b>\n\n👤 {$name}\n{$stars}\n\n💬 <i>{$txt}</i>";
-                sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $tgMsg, 'parse_mode' => 'HTML']);
-            }
-        } catch (Throwable $e) {}
+// ── Инициализация профиля и прав (перенесено вверх для работы удаления) ──
+$linkCode = null;
+$isLinked = false;
+$tgProfile = [];
+$sid = session_id();
+try {
+    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$sid]);
+    $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
+        $isLinked  = true;
+        $tgProfile = $linkRow;
+    } elseif ($linkRow) {
+        $linkCode = $linkRow['site_code'];
     }
+} catch (Throwable $e) {}
+
+define('ADMIN_TG_ID', '1710365896');
+$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
+
+if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) $_SESSION['admin_logged'] = true;
+$isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+
+// Проверка прав через Telegram-линк
+if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
+    $isAdmin = true;
+    $_SESSION['admin_logged'] = true;
 }
 
-if (isset($_POST['reject_review'])) {
-    $rid = (int)($_POST['review_id'] ?? 0);
-    if ($rid > 0) {
-        $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([$rid]);
-        $message = '🗑️ Отзыв удален.';
-    }
+// Удаление отзыва (теперь $isAdmin определен корректно)
+if (isset($_GET['delete_review']) && $isAdmin) {
+    try { $pdo->prepare("DELETE FROM reviews WHERE id = ?")->execute([(int)$_GET['delete_review']]); } catch(Throwable $e){}
+    header('Location: index.php#reviews'); exit;
 }
 
-// Уведомление о новом отзыве (вызывается из review.php через POST с ключом notify_new_review)
-if (isset($_POST['notify_new_review_internal'])) {
-    $rid = (int)($_POST['review_id_notify'] ?? 0);
-    if ($rid > 0) {
-        try {
-            $rv = $pdo->prepare("SELECT * FROM reviews WHERE id = ? LIMIT 1");
-            $rv->execute([$rid]);
-            $rvRow = $rv->fetch(PDO::FETCH_ASSOC);
-            if ($rvRow && defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
-                $stars = str_repeat('⭐', (int)($rvRow['rating'] ?? 5));
-                $name  = $rvRow['tg_first_name'] ?: ('Клиент #' . $rvRow['order_id']);
-                $txt   = mb_substr($rvRow['text'] ?? '', 0, 300);
-                $adminUrl = PUBLIC_SITE_URL . 'admin/index.php';
-                $tgMsg = "⭐ <b>Новый отзыв!</b> (Заказ #" . (int)$rvRow['order_id'] . ")\n\n👤 {$name}\n{$stars}\n\n💬 <i>{$txt}</i>\n\n🔗 <a href=\"{$adminUrl}\">Модерировать</a>";
-                sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $tgMsg, 'parse_mode' => 'HTML']);
-            }
-        } catch (Throwable $e) {}
-    }
-    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-        header('Content-Type: application/json');
-        echo json_encode(['ok' => true]);
-        exit;
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────
-// КОМАНДЫ БОТА - сохранение
-// ──────────────────────────────────────────────────────────────────
-if (isset($_POST['save_bot_commands'])) {
-    $commands = $_POST['bot_commands'] ?? [];
-    foreach ($commands as $id => $data) {
-        $id = (int)$id;
-        $cmd = trim($data['command'] ?? '');
-        $desc = trim($data['description'] ?? '');
-        $level = trim($data['access_level'] ?? 'admin');
-        
-        if ($cmd !== '' && $id > 0) {
-            try {
-                $pdo->prepare("UPDATE bot_commands SET command = ?, description = ?, access_level = ? WHERE id = ?")
-                    ->execute([$cmd, $desc, $level, $id]);
-            } catch (Throwable $e) {}
-        }
-    }
-    
-    // Добавить новую команду если указана
-    $newCmd = trim($_POST['new_command_name'] ?? '');
-    $newDesc = trim($_POST['new_command_desc'] ?? '');
-    if ($newCmd !== '' && $newDesc !== '') {
-        try {
-            $pdo->prepare("INSERT INTO bot_commands (command, description, access_level) VALUES (?, ?, 'admin')")
-                ->execute([$newCmd, $newDesc]);
-        } catch (Throwable $e) {}
-    }
-    
-    $message = '✅ Команды бота сохранены.';
-}
-
-// ──────────────────────────────────────────────────────────────────
-// ПРАВИЛА ЗАКАЗА - сохранение
-// ──────────────────────────────────────────────────────────────────
-if (isset($_POST['save_order_rules'])) {
-    $rulesText = trim($_POST['order_rules_text'] ?? '');
+// ── AJAX: проверить статус привязки (polling) ──────────────────
+if (isset($_GET['check_linked'])) {
+    header('Content-Type: application/json');
     try {
-        $pdo->prepare("INSERT INTO site_rules (rule_key, rule_text, updated_at) VALUES (?, ?, NOW()) ON CONFLICT (rule_key) DO UPDATE SET rule_text = EXCLUDED.rule_text, updated_at = NOW()")
-            ->execute(['order_terms', $rulesText]);
-        $message = '✅ Правила заказа сохранены.';
-    } catch (Throwable $e) {
-        $message = '❌ Ошибка сохранения: ' . $e->getMessage();
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────
-// Вспомогательная функция: дедлайн заказа
-// ──────────────────────────────────────────────────────────────────
-function calcDeadline(string $created_at, bool $isUrgent = false): ?\DateTime
-{
-    try {
-        $dt = new \DateTime($created_at);
-        $dt->modify($isUrgent ? '+1 day' : '+5 days');
-        return $dt;
-    } catch (\Throwable $e) {
-        return null;
-    }
-}
-
-function deadlineBadge(string $created_at, bool $isUrgent = false): string
-{
-    $dl = calcDeadline($created_at, $isUrgent);
-    if (!$dl) return '';
-    $now = new \DateTime();
-    $diff = $now->diff($dl);
-    $overdue = $dl < $now;
-    $dateStr = $dl->format('d.m.Y H:i');
-    $color = $overdue ? '#ef4444' : ($isUrgent ? '#f97316' : '#60a5fa');
-    $bg    = $overdue ? 'rgba(239,68,68,.18)' : ($isUrgent ? 'rgba(249,115,22,.18)' : 'rgba(96,165,250,.12)');
-    $icon  = $overdue ? '🔴' : ($isUrgent ? '⚡' : '📅');
-    $label = $overdue
-        ? "ПРОСРОЧЕН ({$dateStr})"
-        : ($isUrgent ? "Срочно: {$dateStr}" : "Сдать: {$dateStr}");
-    return "<span style=\"display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;background:{$bg};color:{$color};border:1px solid {$color}33;\">{$icon} {$label}</span>";
-}
-
-// ── AJAX endpoint: добавить портфолио ────────────────────────────
-if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-    header('Content-Type: application/json; charset=utf-8');
-    ob_start();
-
-    $title        = trim($_POST['title'] ?? '');
-    $category_key = $_POST['category_key'] ?? 'preview';
-    $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
-    $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
-    $publish_tg   = !empty($_POST['publish_tg']);
-
-    $filename_main   = uploadImage('image', 'main', $uploadDir);
-    $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
-
-    if ($title === '') {
-        ob_end_clean();
-        echo json_encode(['ok' => false, 'msg' => '❌ Укажи название проекта.']);
-        exit;
-    }
-    if ($filename_main === '') {
-        ob_end_clean();
-        echo json_encode(['ok' => false, 'msg' => '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY в Render.']);
-        exit;
-    }
-
-    $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
-    $portfolioId = (int)$pdo->lastInsertId();
-
-    $postedToChannel = false;
-    $watermarkedPath = null;
-    if ($publish_tg) {
-        $watermarkedPath = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
-            'title'        => $title,
-            'category_key' => $category_key,
-            'price_rub'    => $price_rub,
-            'price_uan'    => $price_uan,
-            'image'        => $filename_main,
-            'avatar_image' => $filename_avatar,
+        $stmt = $pdo->prepare("SELECT linked, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$sid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        echo json_encode([
+            'linked'     => (!empty($row['linked']) && $row['linked'] !== 'f'),
+            'username'   => $row['tg_username'] ?? '',
+            'first_name' => $row['tg_first_name'] ?? '',
+            'photo_url'  => $row['tg_photo_url'] ?? ''
         ]);
-        if ($watermarkedPath && is_file($watermarkedPath)) {
-            $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
-            $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
-            $postedToChannel = (bool)($result['ok'] ?? false);
-        } else {
-            $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, [
-                'title'        => $title,
-                'category_key' => $category_key,
-                'price_rub'    => $price_rub,
-                'price_uan'    => $price_uan,
-                'image'        => $filename_main,
-                'avatar_image' => $filename_avatar,
-            ]);
-        }
-    }
-
-    $postedToPrivate = false;
-    if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
-        @unlink($watermarkedPath);
-    }
-
-    ob_end_clean();
-    $msg = '✅ Портфолио сохранено! ID #' . $portfolioId;
-    if ($publish_tg) {
-        $msg .= $postedToChannel
-            ? ' Пост отправлен в Telegram-канал.'
-            : ' (Telegram-канал: ' . ($telegramLastError ?: 'проверь настройки бота') . ')';
-    } else {
-        $msg .= ' Без публикации в Telegram.';
-    }
-    echo json_encode(['ok' => true, 'msg' => $msg, 'portfolio_id' => $portfolioId]);
+    } catch (Throwable $e) { echo json_encode(['linked' => false]); }
     exit;
 }
 
-// ── Уведомление клиенту о смене статуса ──────────────────────────
-function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): void
-{
-    $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
-    $stmt->execute([$orderId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) return;
-
-    $chatId = trim((string)($row['client_chat_id'] ?? ''));
-
-    if (($chatId === '' || !is_numeric($chatId)) && !empty($row['session_id'])) {
-        try {
-            $lnk = $pdo->prepare("
-                SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
-                FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1
-            ");
-            $lnk->execute([$row['session_id']]);
-            $lnk_row = $lnk->fetch(PDO::FETCH_ASSOC);
-            if (!empty($lnk_row['chat_id']) && is_numeric($lnk_row['chat_id'])) {
-                $chatId = $lnk_row['chat_id'];
-                $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")
-                    ->execute([$chatId, $orderId]);
-            }
-        } catch (Throwable $e) {}
-    }
-
-    if ($chatId === '' || !is_numeric($chatId)) return;
-
-    $statusMessages = [
-        'in_progress' => "🎨 Ваш заказ #<b>{$orderId}</b> взят в работу! Дизайнер уже начал выполнение.",
-        'urgent'      => "⚡ Ваш заказ #<b>{$orderId}</b> помечен как срочный — срок сдачи 24 часа.",
-        'ready'       => "🎉 Ваш заказ #<b>{$orderId}</b> готов! Дизайнер свяжется для передачи файлов.",
-        'declined'    => "❌ К сожалению, ваш заказ #<b>{$orderId}</b> был отклонён. Для уточнений напишите дизайнеру.",
-    ];
-
-    $text = $statusMessages[$newStatus] ?? null;
-    if (!$text) return;
-
-    $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
-    $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
-
-    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 15,
-        CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
-    ]);
-    $resp = curl_exec($ch);
-    $err  = curl_error($ch);
-    curl_close($ch);
-
-    $logLine = '[' . date('Y-m-d H:i:s') . "] notifyClient order={$orderId} status={$newStatus} chat={$chatId} err={$err} resp=" . substr((string)$resp, 0, 120) . PHP_EOL;
-    @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
-}
-
-function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
-{
-    $interval = $isUrgent ? '+1 day' : '+5 days';
-    $deadline = (new \DateTime())->modify($interval)->format('Y-m-d H:i:s');
-    try {
-        $pdo->prepare("UPDATE orders SET deadline = ? WHERE id = ?")->execute([$deadline, $orderId]);
-    } catch (\Throwable $e) {}
-}
-
-// ── Админские POST действия над заказом ──────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
-    $orderId = (int)($_POST['order_id'] ?? 0);
-    $action  = trim($_POST['order_action']);
-
-    if ($orderId > 0) {
-        try {
-            $msgAdmin = '';
-            if ($action === 'take_work') {
-                $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$orderId]);
-                setOrderDeadline($pdo, $orderId, false);
-                notifyClientOrderStatus($pdo, $orderId, 'in_progress');
-                $msgAdmin = "🚀 Заказ #{$orderId} взят в работу.";
-            } elseif ($action === 'urgent') {
-                $pdo->prepare("UPDATE orders SET status = 'urgent' WHERE id = ?")->execute([$orderId]);
-                setOrderDeadline($pdo, $orderId, true);
-                notifyClientOrderStatus($pdo, $orderId, 'urgent');
-                $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
-            } elseif ($action === 'ready') {
-                $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$orderId]);
-                notifyClientOrderStatus($pdo, $orderId, 'ready');
-                $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
-            } elseif ($action === 'decline') {
-                $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$orderId]);
-                notifyClientOrderStatus($pdo, $orderId, 'declined');
-                $msgAdmin = "❌ Заказ #{$orderId} отклонён.";
-            } elseif ($action === 'ban') {
-                $r = $pdo->prepare("SELECT telegram, client_ip FROM orders WHERE id = ? LIMIT 1");
-                $r->execute([$orderId]);
-                $ord = $r->fetch(PDO::FETCH_ASSOC) ?: [];
-                $tg  = $ord['telegram'] ?? '';
-                $ip  = $ord['client_ip'] ?? null;
-                if ($tg !== '') {
-                    $ins = $pdo->prepare("INSERT INTO blacklist (telegram, ip, reason, created_at) VALUES (?, ?, ?, NOW())");
-                    $ins->execute([$tg, $ip, 'admin_ban']);
-                }
-                $msgAdmin = "🚫 Клиент заказа #{$orderId} добавлен в чёрный список.";
-            } elseif ($action === 'message_client') {
-                $text = trim($_POST['message_text'] ?? '');
-                $stmt = $pdo->prepare("SELECT client_chat_id, telegram FROM orders WHERE id = ? LIMIT 1");
-                $stmt->execute([$orderId]);
-                $row  = $stmt->fetch(PDO::FETCH_ASSOC);
-                $chat = trim((string)($row['client_chat_id'] ?? ''));
-                if ($chat === '' || !is_numeric($chat)) {
-                    try {
-                        $sess = $pdo->prepare("SELECT session_id FROM orders WHERE id = ? LIMIT 1");
-                        $sess->execute([$orderId]);
-                        $sessRow = $sess->fetch(PDO::FETCH_ASSOC);
-                        if (!empty($sessRow['session_id'])) {
-                            $lnkQ = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-                            $lnkQ->execute([$sessRow['session_id']]);
-                            $lnkR = $lnkQ->fetch(PDO::FETCH_ASSOC);
-                            if (!empty($lnkR['chat_id']) && is_numeric($lnkR['chat_id'])) {
-                                $chat = $lnkR['chat_id'];
-                            }
-                        }
-                    } catch (Throwable $e) {}
-                }
-                if (!empty($chat) && is_numeric($chat) && $text !== '') {
-                    $res = sendTelegramRequest('sendMessage', ['chat_id' => $chat, 'text' => $text, 'parse_mode' => 'HTML']);
-                    $msgAdmin = ($res && ($res['ok'] ?? false))
-                        ? "✉️ Сообщение отправлено клиенту (chat: {$chat})."
-                        : "⚠️ Не удалось отправить (chat: {$chat}). Клиент не писал боту.";
-                } else {
-                    $msgAdmin = "⚠️ Невозможно отправить: клиент не привязал Telegram к боту.";
-                }
-            }
-
-            if (!empty($msgAdmin)) {
-                if (defined('TELEGRAM_BOT_TOKEN') && TELEGRAM_BOT_TOKEN !== '' && defined('ADMIN_TELEGRAM_ID') && ADMIN_TELEGRAM_ID !== '') {
-                    sendTelegramRequest('sendMessage', ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $msgAdmin, 'parse_mode' => 'Markdown']);
-                }
-            }
-        } catch (\Throwable $e) {
-            $message = 'Ошибка выполнения действия: ' . $e->getMessage();
-        }
-    }
-
-    header('Location: ' . $_SERVER['REQUEST_URI']); exit;
-}
-
-// ── Обработка массовой рассылки ──
-if (isset($_POST['mass_broadcast'])) {
-    $text   = trim($_POST['broadcast_text'] ?? '');
-    $photos = [];
-    
-    if (!empty($_FILES['broadcast_photos']['name'][0])) {
-        foreach ($_FILES['broadcast_photos']['tmp_name'] as $i => $tmp) {
-            if ($i >= 5) break;
-            if (!empty($tmp)) {
-                $url = uploadToImgBB($tmp, 'promo_' . $i);
-                if ($url) $photos[] = $url;
-            }
-        }
-    }
-
-    if (($text !== '' || !empty($photos)) && TELEGRAM_BOT_TOKEN !== '') {
-        $chatIds = $pdo->query("SELECT DISTINCT client_chat_id FROM orders WHERE client_chat_id IS NOT NULL AND client_chat_id != ''")->fetchAll(PDO::FETCH_COLUMN);
-        $sent = 0;
-        foreach (array_unique($chatIds) as $cid) {
-            if (!is_numeric($cid)) continue;
-            
-            if (!empty($photos)) {
-                if (count($photos) === 1) {
-                    sendTelegramRequest('sendPhoto', ['chat_id' => $cid, 'photo' => $photos[0], 'caption' => $text, 'parse_mode' => 'HTML']);
-                } else {
-                    $media = [];
-                    foreach ($photos as $idx => $url) {
-                        $item = ['type' => 'photo', 'media' => $url];
-                        if ($idx === 0) { $item['caption'] = $text; $item['parse_mode'] = 'HTML'; }
-                        $media[] = $item;
-                    }
-                    sendTelegramRequest('sendMediaGroup', ['chat_id' => $cid, 'media' => json_encode($media)]);
-                }
-            } else {
-                sendTelegramRequest('sendMessage', ['chat_id' => $cid, 'text' => $text, 'parse_mode' => 'HTML']);
-            }
-            $sent++;
-            usleep(50000);
-        }
-        $message = "✅ Рассылка завершена. Доставлено: {$sent} чел.";
-    }
-}
-
-function sendTelegramRequest(string $method, array $params, array $files = []): ?array
-{
-    global $telegramLastError;
-    $telegramLastError = '';
-
-    if (TELEGRAM_BOT_TOKEN === '') {
-        $telegramLastError = 'не задан токен бота';
-        return null;
-    }
-
-    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/' . $method);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, empty($files) ? http_build_query($params) : array_merge($params, $files));
-    $response  = curl_exec($ch);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($response === false || $response === '') {
-        $telegramLastError = $curlError !== '' ? $curlError : 'пустой ответ Telegram API';
-        return null;
-    }
-
-    $data = json_decode($response, true);
-    if (!($data['ok'] ?? false)) {
-        $telegramLastError = (string)($data['description'] ?? 'Telegram API вернул ошибку');
-    }
-    return $data;
-}
-
-function notifyAdminNewAppeal(array $ap): void
-{
-    if (TELEGRAM_BOT_TOKEN === '' || ADMIN_TELEGRAM_ID === '') return;
-    $adminUrl = PUBLIC_SITE_URL . 'admin/index.php';
-    $text = "📩 <b>Новое обращение!</b>\n\n"
-        . "👤 Клиент: <b>" . htmlspecialchars($ap['username'] ?? '') . "</b>\n"
-        . "📋 Заказ: <b>#" . (int)($ap['order_id'] ?? 0) . "</b>\n"
-        . "📌 Тема: <b>" . htmlspecialchars($ap['subject'] ?? '') . "</b>\n\n"
-        . "💬 <i>" . htmlspecialchars(mb_substr($ap['message'] ?? '', 0, 300)) . (mb_strlen($ap['message'] ?? '') > 300 ? '...' : '') . "</i>\n\n"
-        . "🔗 <a href=\"" . $adminUrl . "\">Открыть админ-панель</a>";
-
-    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-        CURLOPT_POSTFIELDS => ['chat_id' => ADMIN_TELEGRAM_ID, 'text' => $text, 'parse_mode' => 'HTML']]);
-    curl_exec($ch); curl_close($ch);
-}
-
-function defaultPortfolioCategories(): array
-{
-    return [
-        ['preview', 'Превью', 1920, 1080, 0, 10],
-        ['youtube_design', 'Оформление для YouTube', 1920, 768, 1, 20],
-        ['vk_design', 'Оформление для VK', 1920, 768, 1, 30],
-        ['banner', 'Баннеры', 1000, 1200, 0, 40],
-        ['avatar', 'Аватарки', 1000, 1000, 0, 50],
-    ];
-}
-
-function ensureDefaultPortfolioCategories(PDO $pdo): void
-{
-    $stmt = $pdo->prepare("
-        INSERT INTO portfolio_categories (category_key, title, width_px, height_px, is_design, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT (category_key) DO UPDATE SET
-            title = EXCLUDED.title, width_px = EXCLUDED.width_px, height_px = EXCLUDED.height_px,
-            is_design = EXCLUDED.is_design, sort_order = EXCLUDED.sort_order
-    ");
-    foreach (defaultPortfolioCategories() as $category) { $stmt->execute($category); }
-}
-
-function imageFromFile(string $path)
-{
-    $info = @getimagesize($path);
-    if (!$info) return null;
-    return match ($info[2]) {
-        IMAGETYPE_JPEG => imagecreatefromjpeg($path),
-        IMAGETYPE_PNG  => imagecreatefrompng($path),
-        IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? imagecreatefromwebp($path) : null,
-        IMAGETYPE_GIF  => imagecreatefromgif($path),
-        default        => null,
-    };
-}
-
-function gdFontPath(bool $regular = false): string
-{
-    $paths = $regular
-        ? [__DIR__ . '/../assets/fonts/GoogleSans-Regular.ttf', __DIR__ . '/../assets/fonts/Montserrat-Regular.ttf',
-           '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
-        : [__DIR__ . '/../assets/fonts/GoogleSans-Bold.ttf', __DIR__ . '/../assets/fonts/Montserrat-Bold.ttf',
-           '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'];
-    foreach ($paths as $path) { if (is_file($path)) return $path; }
-    return '';
-}
-
-function channelTemplatePath(): string
-{
-    $paths = [__DIR__ . '/../uploads/channel_template.png', __DIR__ . '/../uploads/channel-template.png',
-              __DIR__ . '/../assets/channel_template.png'];
-    foreach ($paths as $path) { if (is_file($path)) return $path; }
-    return '';
-}
-
-function drawFilledRoundedRect($img, int $x, int $y, int $w, int $h, int $radius, int $color): void
-{
-    imagefilledrectangle($img, $x + $radius, $y, $x + $w - $radius, $y + $h, $color);
-    imagefilledrectangle($img, $x, $y + $radius, $x + $w, $y + $h - $radius, $color);
-    imagefilledellipse($img, $x + $radius, $y + $radius, $radius * 2, $radius * 2, $color);
-    imagefilledellipse($img, $x + $w - $radius, $y + $radius, $radius * 2, $radius * 2, $color);
-    imagefilledellipse($img, $x + $radius, $y + $h - $radius, $radius * 2, $radius * 2, $color);
-    imagefilledellipse($img, $x + $w - $radius, $y + $h - $radius, $radius * 2, $radius * 2, $color);
-}
-
-function drawTextFit($img, string $text, int $x, int $y, int $maxW, int $size, int $color, string $font, int $minSize = 20): void
-{
-    $text = trim($text);
-    if ($text === '') return;
-    if ($font !== '' && function_exists('imagettftext')) {
-        while ($size > $minSize) {
-            $box = imagettfbbox($size, 0, $font, $text);
-            if (($box[2] - $box[0]) <= $maxW) break;
-            $size -= 2;
-        }
-        imagettftext($img, $size, 0, $x, $y, $color, $font, $text);
-        return;
-    }
-    $fontId = 5;
-    $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
-    $sourceH = max(1, imagefontheight($fontId));
-    $targetH = max(18, $size);
-    $targetW = (int)round($sourceW * ($targetH / $sourceH));
-    if ($targetW > $maxW) { $targetW = $maxW; $targetH = (int)round($sourceH * ($targetW / $sourceW)); }
-    $tmp = imagecreatetruecolor($sourceW, $sourceH);
-    imagealphablending($tmp, false); imagesavealpha($tmp, true);
-    $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
-    imagefill($tmp, 0, 0, $transparent);
-    imagestring($tmp, $fontId, 0, 0, $text, $color);
-    imagecopyresampled($img, $tmp, $x, $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
-    imagedestroy($tmp);
-}
-
-function drawTextCenteredFit($img, string $text, int $centerX, int $y, int $maxW, int $size, int $color, string $font, int $minSize = 20): void
-{
-    $text = trim($text);
-    if ($text === '') return;
-    if ($font !== '' && function_exists('imagettftext')) {
-        while ($size > $minSize) {
-            $box = imagettfbbox($size, 0, $font, $text);
-            if (($box[2] - $box[0]) <= $maxW) break;
-            $size -= 2;
-        }
-        $box = imagettfbbox($size, 0, $font, $text);
-        $textW = $box[2] - $box[0];
-        imagettftext($img, $size, 0, (int)round($centerX - ($textW / 2)), $y, $color, $font, $text);
-        return;
-    }
-    $fontId = 5;
-    $sourceW = max(1, imagefontwidth($fontId) * strlen($text));
-    $sourceH = max(1, imagefontheight($fontId));
-    $targetH = max(18, $size);
-    $targetW = (int)round($sourceW * ($targetH / $sourceH));
-    if ($targetW > $maxW) { $targetW = $maxW; $targetH = (int)round($sourceH * ($targetW / $sourceW)); }
-    $tmp = imagecreatetruecolor($sourceW, $sourceH);
-    imagealphablending($tmp, false); imagesavealpha($tmp, true);
-    $transparent = imagecolorallocatealpha($tmp, 0, 0, 0, 127);
-    imagefill($tmp, 0, 0, $transparent);
-    imagestring($tmp, $fontId, 0, 0, $text, $color);
-    imagecopyresampled($img, $tmp, (int)round($centerX - ($targetW / 2)), $y - $targetH, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
-    imagedestroy($tmp);
-}
-
-function copyImageCover($dst, $src, int $dx, int $dy, int $dw, int $dh): void
-{
-    $sw = imagesx($src); $sh = imagesy($src);
-    if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
-    $srcRatio = $sw / $sh; $dstRatio = $dw / $dh;
-    if ($srcRatio > $dstRatio) { $cropH = $sh; $cropW = (int)round($sh * $dstRatio); $sx = (int)round(($sw - $cropW) / 2); $sy = 0; }
-    else { $cropW = $sw; $cropH = (int)round($sw / $dstRatio); $sx = 0; $sy = (int)round(($sh - $cropH) / 2); }
-    imagecopyresampled($dst, $src, $dx, $dy, $sx, $sy, $dw, $dh, $cropW, $cropH);
-}
-
-function copyImageContain($dst, $src, int $dx, int $dy, int $dw, int $dh): void
-{
-    $sw = imagesx($src); $sh = imagesy($src);
-    if ($sw <= 0 || $sh <= 0 || $dw <= 0 || $dh <= 0) return;
-    $scale = min($dw / $sw, $dh / $sh);
-    $drawW = (int)round($sw * $scale); $drawH = (int)round($sh * $scale);
-    $drawX = $dx + (int)round(($dw - $drawW) / 2); $drawY = $dy + (int)round(($dh - $drawH) / 2);
-    imagecopyresampled($dst, $src, $drawX, $drawY, 0, 0, $drawW, $drawH, $sw, $sh);
-}
-
-function applyRoundedCorners($img, int $radius): void
-{
-    $w = imagesx($img); $h = imagesy($img);
-    $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
-    for ($y = 0; $y < $h; $y++) {
-        for ($x = 0; $x < $w; $x++) {
-            $inCorner = false; $cx = $x; $cy = $y;
-            if ($x < $radius && $y < $radius) { $cx = $radius; $cy = $radius; $inCorner = true; }
-            elseif ($x >= $w - $radius && $y < $radius) { $cx = $w - $radius - 1; $cy = $radius; $inCorner = true; }
-            elseif ($x < $radius && $y >= $h - $radius) { $cx = $radius; $cy = $h - $radius - 1; $inCorner = true; }
-            elseif ($x >= $w - $radius && $y >= $h - $radius) { $cx = $w - $radius - 1; $cy = $h - $radius - 1; $inCorner = true; }
-            if ($inCorner) { $dx = $x - $cx; $dy = $y - $cy; if (($dx * $dx + $dy * $dy) > ($radius * $radius)) imagesetpixel($img, $x, $y, $transparent); }
-        }
-    }
-}
-
-function drawCircularImage($dst, $src, int $x, int $y, int $size): void
-{
-    $avatar = imagecreatetruecolor($size, $size);
-    imagealphablending($avatar, false); imagesavealpha($avatar, true);
-    $transparent = imagecolorallocatealpha($avatar, 0, 0, 0, 127);
-    imagefill($avatar, 0, 0, $transparent);
-    imagecopyresampled($avatar, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
-    $radius = $size / 2;
-    for ($py = 0; $py < $size; $py++) {
-        for ($px = 0; $px < $size; $px++) {
-            $ddx = $px - $radius; $ddy = $py - $radius;
-            if (($ddx * $ddx + $ddy * $ddy) <= ($radius * $radius)) imagesetpixel($dst, $x + $px, $y + $py, imagecolorat($avatar, $px, $py));
-        }
-    }
-    imagedestroy($avatar);
-}
-
-function createWatermarkedImage(string $mainPath, string $avatarPath, string $title = '', int $priceRub = 0, int $priceUan = 0, array $category = []): string
-{
-    if (!extension_loaded('gd') || !is_file($mainPath)) return $mainPath;
-    $main = imageFromFile($mainPath);
-    if (!$main) return $mainPath;
-    $avatar = (is_file($avatarPath)) ? imageFromFile($avatarPath) : null;
-    $mainW = max(1, imagesx($main)); $mainH = max(1, imagesy($main));
-    $catW = (int)($category['width_px'] ?? 0); $catH = (int)($category['height_px'] ?? 0);
-    $isDesign = !empty($category['is_design']);
-    if ($catW <= 0 || $catH <= 0) { $catW = $mainW; $catH = $mainH; }
-    $outW = $catW; $outH = $catH;
-    $scale = 2; $canvasW = $outW * $scale; $canvasH = $outH * $scale;
-    $canvas = imagecreatetruecolor($canvasW, $canvasH);
-    imagealphablending($canvas, true); imagesavealpha($canvas, true);
-    $template = channelTemplatePath();
-    $templateImg = $template !== '' ? imageFromFile($template) : null;
-    if ($templateImg) { copyImageCover($canvas, $templateImg, 0, 0, $canvasW, $canvasH); imagedestroy($templateImg); }
-    else {
-        for ($y = 0; $y < $canvasH; $y++) {
-            $mix = $y / $canvasH; $r = (int)(10 + 34 * $mix); $g = (int)(10 + 12 * $mix); $b = (int)(14 + 4 * $mix);
-            imageline($canvas, 0, $y, $canvasW, $y, imagecolorallocate($canvas, $r, $g, $b));
-        }
-        $glow = imagecolorallocatealpha($canvas, 249, 115, 22, 105);
-        imagefilledellipse($canvas, (int)($canvasW * .86), (int)($canvasH * .18), (int)($canvasW * .70), (int)($canvasH * .45), $glow);
-        imagefilledellipse($canvas, (int)($canvasW * .15), (int)($canvasH * .92), (int)($canvasW * .55), (int)($canvasH * .35), $glow);
-    }
-    $padding = (int)round(min($canvasW, $canvasH) * 0.055);
-    $avatarSize = $avatar ? (int)round(min($canvasW, $canvasH) * 0.12) : 0;
-    $brandH = $avatar ? (int)round($avatarSize * 1.45) : 0;
-    $gap = $avatar ? (int)round(min($canvasW, $canvasH) * 0.026) : 0;
-    $availableW = $canvasW - ($padding * 2);
-    $availableH = $canvasH - ($padding * 2) - $brandH - $gap;
-    if ($availableH < (int)round($canvasH * .48)) $availableH = (int)round($canvasH * .48);
-    $frameScale = min($availableW / $catW, $availableH / $catH);
-    $panelW = (int)round($catW * $frameScale); $panelH = (int)round($catH * $frameScale);
-    $panelX = (int)round(($canvasW - $panelW) / 2); $panelY = $padding + (int)round(($availableH - $panelH) / 2);
-    $shadow = imagecolorallocatealpha($canvas, 0, 0, 0, 78);
-    drawFilledRoundedRect($canvas, $panelX + (8 * $scale), $panelY + (10 * $scale), $panelW, $panelH, 34 * $scale, $shadow);
-    $panel = imagecreatetruecolor($panelW, $panelH);
-    imagealphablending($panel, true); imagesavealpha($panel, true);
-    $transparent = imagecolorallocatealpha($panel, 0, 0, 0, 127);
-    imagefill($panel, 0, 0, $transparent);
-    copyImageContain($panel, $main, 0, 0, $panelW, $panelH);
-    applyRoundedCorners($panel, 26 * $scale);
-    imagecopy($canvas, $panel, $panelX, $panelY, 0, 0, $panelW, $panelH);
-    imagedestroy($panel);
-    $line = imagecolorallocatealpha($canvas, 255, 255, 255, 34);
-    imagesetthickness($canvas, max(1, 2 * $scale));
-    imagerectangle($canvas, $panelX, $panelY, $panelX + $panelW, $panelY + $panelH, $line);
-    if ($avatar && $isDesign) {
-        $avatarSize = (int)round(min($panelW, $panelH) * 0.26);
-        $avatarSize = max(80 * $scale, min($avatarSize, 190 * $scale));
-        $avatarPad = (int)round($avatarSize * 0.18);
-        $blockW = $avatarSize + ($avatarPad * 2); $blockH = $avatarSize + ($avatarPad * 2);
-        $blockX = $panelX + $panelW - $blockW - (int)round($panelW * 0.035);
-        $blockY = $panelY + $panelH - $blockH - (int)round($panelH * 0.055);
-        $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 24);
-        drawFilledRoundedRect($canvas, $blockX, $blockY, $blockW, $blockH, 24 * $scale, $blockBg);
-        drawCircularImage($canvas, $avatar, $blockX + $avatarPad, $blockY + $avatarPad, $avatarSize);
-        imagedestroy($avatar);
-    } elseif ($avatar) {
-        $blockW = (int)round($avatarSize * 1.6); $blockH = (int)round($avatarSize * 1.25);
-        $blockX = (int)round(($canvasW - $blockW) / 2); $blockY = $panelY + $panelH + $gap;
-        $blockBg = imagecolorallocatealpha($canvas, 0, 0, 0, 22);
-        drawFilledRoundedRect($canvas, $blockX, $blockY, $blockW, $blockH, 24 * $scale, $blockBg);
-        drawCircularImage($canvas, $avatar, (int)round(($canvasW - $avatarSize) / 2), $blockY + (int)round(($blockH - $avatarSize) / 2), $avatarSize);
-        imagedestroy($avatar);
-    }
-    $final = imagecreatetruecolor($outW, $outH);
-    imagecopyresampled($final, $canvas, 0, 0, 0, 0, $outW, $outH, $canvasW, $canvasH);
-    $output = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'portfolio_channel_' . uniqid('', true) . '.jpg';
-    imagejpeg($final, $output, 100);
-    imagedestroy($main); imagedestroy($canvas); imagedestroy($final);
-    return $output;
-}
-
-function downloadToTemp(string $url): string
-{
-    if ($url === '') return '';
-    $tmp = tempnam(sys_get_temp_dir(), 'imgdl_') . '.jpg';
-    $ch  = curl_init($url);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 20]);
-    $data = curl_exec($ch); curl_close($ch);
-    if ($data && file_put_contents($tmp, $data)) return $tmp;
-    return '';
-}
-
-function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bool
-{
-    global $telegramLastError;
-    $imgVal = (string)($case['image'] ?? '');
-    if (str_starts_with($imgVal, 'http://') || str_starts_with($imgVal, 'https://')) { $mainPath = downloadToTemp($imgVal); $downloaded = true; }
-    else { $mainPath = $uploadDir . basename($imgVal); $downloaded = false; }
-    if (!is_file($mainPath)) return false;
-    $rub = (int)($case['price_rub'] ?? 0); $uan = (int)($case['price_uan'] ?? 0);
-    $category = [];
-    try {
-        $catKey = (string)($case['category_key'] ?? '');
-        if ($catKey !== '') {
-            $stmt = $pdo->prepare('SELECT width_px, height_px, is_design FROM portfolio_categories WHERE category_key = ? LIMIT 1');
-            $stmt->execute([$catKey]); $category = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        }
-    } catch (\Throwable $e) {}
-    $avatarVal = (string)($case['avatar_image'] ?? '');
-    try {
-        if ($avatarVal === '' && empty($category['is_design'])) {
-            $stmt = $pdo->query('SELECT avatar FROM users LIMIT 1');
-            $avatarVal = (string)($stmt->fetchColumn() ?: '');
-        }
-    } catch (\Throwable $e) {}
-    if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) { $avatarPath = downloadToTemp($avatarVal); $avatarDownloaded = true; }
-    else { $avatarPath = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : ''; $avatarDownloaded = false; }
-    $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
-    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
-    $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($photoPath)]);
-    if ($photoPath !== $mainPath && is_file($photoPath)) unlink($photoPath);
-    if ($downloaded && is_file($mainPath)) unlink($mainPath);
-    if ($avatarDownloaded && $avatarPath !== '' && is_file($avatarPath)) unlink($avatarPath);
-    return (bool)($result['ok'] ?? false);
-}
-
-function uploadToImgBB(string $tmpPath, string $name = 'image'): string
-{
-    if (!is_file($tmpPath)) { error_log("ImgBB: file not found ($tmpPath)"); return ''; }
-    $keys = array_filter([getenv('IMGBB_API_KEY') ?: '', getenv('IMGBB_API_KEY2') ?: '', getenv('IMGBB_API_KEY3') ?: '']);
-    if (empty($keys)) { error_log("ImgBB: no API keys set"); return ''; }
-    $b64 = base64_encode(file_get_contents($tmpPath));
-    foreach ($keys as $index => $apiKey) {
-        $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
-        $res = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($res === false || $res === '') { continue; }
-        $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
-        if ($url !== '') { return $url; }
-    }
-    return '';
-}
-
-function uploadImage(string $field, string $prefix, string $uploadDir): string
-{
-    global $message;
-    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
-    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return '';
-    if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) { $message = '❌ Файл слишком большой.'; return ''; }
-    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) return '';
-    $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) return '';
-    $tmp = $_FILES[$field]['tmp_name'];
-    $url = uploadToImgBB($tmp, $prefix . '_' . time());
-    if ($url !== '') return $url;
-    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-    if (is_writable($uploadDir)) {
-        $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
-        $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) return $filename;
-    }
-    $message = '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY.';
-    return '';
-}
-
-function uploadNestedImage(string $field, int $id, string $prefix, string $uploadDir): string
-{
-    if (empty($_FILES[$field]['name'][$id]) || empty($_FILES[$field]['tmp_name'][$id])) return '';
-    $err = $_FILES[$field]['error'][$id] ?? UPLOAD_ERR_NO_FILE;
-    if ($err !== UPLOAD_ERR_OK) return '';
-    $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $ext = strtolower(pathinfo($_FILES[$field]['name'][$id], PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) return '';
-    $tmp = $_FILES[$field]['tmp_name'][$id];
-    $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
-    if ($url !== '') return $url;
-    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-    if (is_writable($uploadDir)) {
-        $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
-        $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) return $filename;
-    }
-    return '';
-}
-
-function money(int|float $value): string { return number_format((float)$value, 0, '.', ' '); }
-
-function imgSrc(string $val, string $baseUrl = '../uploads/'): string
-{
-    if ($val === '') return '';
-    if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
-    return $baseUrl . $val;
-}
-
-// ===================== UPLOAD SITE AVATAR =====================
-if (isset($_POST['upload_site_avatar'])) {
-    $newAvatar = uploadImage('site_avatar', 'avatar', $uploadDir);
-    if ($newAvatar !== '') {
-        $pdo->prepare("UPDATE users SET avatar = ? WHERE username = 'Kostlim'")->execute([$newAvatar]);
-        $message = '✅ Аватарка сайта обновлена.';
+// ── Inline-редактирование цен (только для админа) ─────────────
+if ($isAdmin && isset($_POST['inline_edit_price'])) {
+    header('Content-Type: application/json');
+    $id      = (int)($_POST['id'] ?? 0);
+    $field   = $_POST['field'] ?? '';
+    $value   = trim($_POST['value'] ?? '');
+    $allowed = ['title', 'price_rub', 'price_uan', 'description', 'features'];
+    if ($id > 0 && in_array($field, $allowed, true)) {
+        $pdo->prepare("UPDATE prices SET {$field} = ? WHERE id = ?")->execute([$value, $id]);
+        echo json_encode(['ok' => true]);
     } else {
-        if ($message === '') $message = '❌ Не удалось загрузить аватарку.';
+        echo json_encode(['ok' => false]);
     }
+    exit;
 }
 
-// ===================== PORTFOLIO =====================
-if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-    $title        = trim($_POST['title'] ?? '');
-    $category_key = $_POST['category_key'] ?? 'preview';
-    $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
-    $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
-    $publish_tg   = !empty($_POST['publish_tg']);
-    $filename_main   = uploadImage('image', 'main', $uploadDir);
-    $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
-    if ($title === '') { $message = '❌ Укажи название проекта.'; }
-    elseif ($filename_main === '') { if ($message === '') $message = '❌ Загрузи главное изображение.'; }
-    else {
-        $stmt = $pdo->prepare("INSERT INTO portfolio (title, category_key, price_rub, price_uan, image, avatar_image) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$title, $category_key, $price_rub, $price_uan, $filename_main, $filename_avatar]);
-        $portfolioId = (int)$pdo->lastInsertId();
-        $psdResult = savePortfolioPsdFiles($pdo, $portfolioId);
-        $postedToChannel = false;
-        $watermarkedPath = null;
-        if ($publish_tg) {
-            $watermarkedPath = buildWatermarkedPhotoForPortfolio($pdo, $uploadDir, [
-                'title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan,
-                'image' => $filename_main, 'avatar_image' => $filename_avatar,
-            ]);
-            if ($watermarkedPath && is_file($watermarkedPath)) {
-                $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
-                $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
-                $postedToChannel = (bool)($result['ok'] ?? false);
-            } else {
-                $postedToChannel = publishPortfolioToChannel($pdo, $uploadDir, ['title' => $title, 'category_key' => $category_key, 'price_rub' => $price_rub, 'price_uan' => $price_uan, 'image' => $filename_main, 'avatar_image' => $filename_avatar]);
-            }
-        }
-        if ($publish_tg && !empty($psdResult['has_files'])) {
-            publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $watermarkedPath);
-        }
-        if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
-            @unlink($watermarkedPath);
-        }
-        $message = '✅ Портфолио сохранено! ID #' . $portfolioId . ($publish_tg ? ($postedToChannel ? ' Пост в Telegram-канал отправлен.' : ' Telegram: ' . ($telegramLastError ?: 'проверь настройки.')) : ' Без публикации в Telegram.');
-        if (!empty($psdResult['messages'])) {
-            $message .= ' ' . implode(' ', $psdResult['messages']);
-        }
-    }
-}
-
-// ===================== APPEALS =====================
-if (isset($_POST['reply_appeal'])) {
-    $appealId = (int)($_POST['appeal_id'] ?? 0);
-    $reply    = trim($_POST['reply_text'] ?? '');
-    if ($appealId > 0 && $reply !== '') {
+// Генерация кода, если его еще нет (перенесено из середины файла)
+if (!$isLinked && !$linkCode) {
+    $attempts = 0;
+    do {
+        $code = strtoupper(substr(md5(uniqid($sid . $attempts, true)), 0, 6));
+        $attempts++;
         try {
-            $mstmt = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
-            $mstmt->execute([$appealId, $reply]);
-            $pdo->prepare("UPDATE appeals SET status = 'answered', replied_at = NOW() WHERE id = ?")->execute([$appealId]);
-        } catch (\Throwable $e) {}
+            $pdo->prepare("INSERT INTO tg_links (site_code, session_id, linked, created_at) VALUES (?, ?, FALSE, NOW())")->execute([$code, $sid]);
+            $linkCode = $code;
+            break;
+        } catch (Throwable $ins_e) {}
+    } while ($attempts < 5);
+}
 
-        $ap = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(a.telegram,''), NULLIF(o.telegram,''), '') AS client_telegram FROM appeals a LEFT JOIN orders o ON o.id = a.order_id WHERE a.id = ? LIMIT 1");
-        $ap->execute([$appealId]);
-        $ap = $ap->fetch(PDO::FETCH_ASSOC);
-
-        if ($ap && !empty($ap['client_telegram']) && TELEGRAM_BOT_TOKEN !== '') {
-            $link = PUBLIC_SITE_URL . 'profile.php?order=' . (int)$ap['order_id'];
-            $text = "✅ По вашему обращению <b>«" . htmlspecialchars($ap['subject']) . "»</b> по заказу <b>#" . (int)$ap['order_id'] . "</b> пришел ответ!\n\n"
-                  . "💬 <i>" . htmlspecialchars(mb_substr($reply, 0, 200)) . (mb_strlen($reply) > 200 ? '...' : '') . "</i>\n\n"
-                  . "🔗 <a href=\"" . $link . "\">Посмотреть в профиле</a>";
-            $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-                CURLOPT_POSTFIELDS => ['chat_id' => $ap['client_telegram'], 'text' => $text, 'parse_mode' => 'HTML']]);
-            curl_exec($ch); curl_close($ch);
-        }
-        $message = '✅ Ответ на обращение #' . $appealId . ' отправлен.';
+if (isset($_GET['code']) && trim((string)$_GET['code']) !== '') {
+    if (daExchangeAuthorizationCode($pdo, trim((string)$_GET['code']))) {
+        $redirectUrl = strtok($_SERVER['REQUEST_URI'], '?');
+        header('Location: ' . ($redirectUrl ?: '/'));
+        exit;
     }
 }
 
-if (isset($_GET['delete_portfolio_id'])) {
-    $del_id    = (int)$_GET['delete_portfolio_id'];
-    $img_stmt  = $pdo->prepare("SELECT image, avatar_image FROM portfolio WHERE id = ?");
-    $img_stmt->execute([$del_id]);
-    $work_files = $img_stmt->fetch(PDO::FETCH_ASSOC);
-    foreach (['image', 'avatar_image'] as $field) {
-        $val = $work_files[$field] ?? '';
-        if ($val === '' || str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) continue;
-        $path = $uploadDir . basename($val);
-        if (file_exists($path)) unlink($path);
-    }
-    $pdo->prepare("DELETE FROM portfolio WHERE id = ?")->execute([$del_id]);
-    $message = '🗑️ Кейс удален из портфолио.';
-}
-
-if (isset($_POST['update_portfolio_media'])) {
-    $caseId   = (int)($_POST['portfolio_id'] ?? 0);
-    $img_stmt = $pdo->prepare("SELECT image, avatar_image FROM portfolio WHERE id = ?");
-    $img_stmt->execute([$caseId]);
-    $currentFiles = $img_stmt->fetch(PDO::FETCH_ASSOC);
-    if ($currentFiles) {
-        $newMain   = uploadImage('portfolio_image', 'main', $uploadDir);
-        $newAvatar = uploadImage('portfolio_avatar', 'ava', $uploadDir);
-        if ($newMain   !== '') $pdo->prepare("UPDATE portfolio SET image = ? WHERE id = ?")->execute([$newMain, $caseId]);
-        if ($newAvatar !== '') $pdo->prepare("UPDATE portfolio SET avatar_image = ? WHERE id = ?")->execute([$newAvatar, $caseId]);
-        $message = '✅ Медиа кейса обновлены.';
-    }
-}
-
-// ===================== PRICES =====================
-if (isset($_POST['save_all_prices'])) {
-    foreach (($_POST['prices'] ?? []) as $id => $data) {
-        $id = (int)$id;
-        $newImage = uploadNestedImage('price_images', $id, 'price', $uploadDir);
-        if ($newImage !== '') {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=? WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newImage, $id]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=? WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $id]);
-        }
-    }
-    $message = '💾 Прайс-лист обновлен.';
-}
-
-if (isset($_POST['add_price_service'])) {
-    $title        = trim($_POST['service_title'] ?? '');
-    $category_key = trim($_POST['service_key'] ?? '');
-    $description  = trim($_POST['service_description'] ?? '');
-    $features     = trim($_POST['service_features'] ?? '');
-    $price_rub    = !empty($_POST['service_price_rub']) ? (int)$_POST['service_price_rub'] : 0;
-    $price_uan    = !empty($_POST['service_price_uan']) ? (int)$_POST['service_price_uan'] : 0;
-    $image        = uploadImage('service_image', 'price', $uploadDir);
-    if ($category_key === '') $category_key = 'service_' . time();
-    $category_key = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $category_key));
-    if ($title === '') { $message = '❌ Укажи название услуги.'; }
-    else {
-        $stmt = $pdo->prepare("INSERT INTO prices (category_key,title,description,price_rub,price_uan,features,image) VALUES (?,?,?,?,?,?,?)");
-        try { $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]); $message = '✅ Новая услуга добавлена в прайс.'; }
-        catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
-    }
-}
-
-if (isset($_GET['delete_price_id'])) {
-    $pdo->prepare("DELETE FROM prices WHERE id = ?")->execute([(int)$_GET['delete_price_id']]);
-    $message = '🗑️ Услуга удалена из прайса.';
-}
-
-// ===================== CATEGORIES =====================
-if (isset($_POST['add_portfolio_category'])) {
-    $catTitle    = trim($_POST['cat_title'] ?? '');
-    $catKey      = trim($_POST['cat_key'] ?? '');
-    $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 1920;
-    $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 1080;
-    $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
-    if ($catKey === '') $catKey = 'cat_' . time();
-    $catKey = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $catKey));
-    if ($catTitle === '') { $message = '❌ Укажи название категории.'; }
-    else {
-        try {
-            $pdo->prepare("INSERT INTO portfolio_categories (category_key,title,width_px,height_px,is_design,sort_order) VALUES (?,?,?,?,?,100)")
-                ->execute([$catKey, $catTitle, $catWidth, $catHeight, $catIsDesign]);
-            $message = '✅ Категория добавлена.';
-        } catch (PDOException $e) { $message = '❌ Такая категория уже существует.'; }
-    }
-}
-
-if (isset($_GET['delete_portfolio_category_id'])) {
-    $pdo->prepare("DELETE FROM portfolio_categories WHERE id = ?")->execute([(int)$_GET['delete_portfolio_category_id']]);
-    $message = '🗑️ Категория удалена.';
-}
-
-// ===================== FETCH DATA =====================
-$services   = $pdo->query("SELECT * FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
-$categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
-$categoryMap = [];
-foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
-$works = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
-
-// Отзывы
-$pendingReviews = [];
-$approvedReviews = [];
-try {
-    $pendingReviews = $pdo->query("SELECT * FROM reviews WHERE approved = FALSE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-    $approvedReviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {}
-
-// Команды бота
-$botCommands = [];
-try {
-    $botCommands = $pdo->query("SELECT * FROM bot_commands ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {}
-
-// Правила заказа
-$orderRulesText = '';
-try {
-    $rulesRow = $pdo->query("SELECT rule_text FROM site_rules WHERE rule_key = 'order_terms' LIMIT 1")->fetch();
-    $orderRulesText = $rulesRow['rule_text'] ?? '';
-} catch (Throwable $e) {}
-
-$orderStats = $pdo->query("
-    SELECT COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status='pending') AS pending,
-        COUNT(*) FILTER (WHERE status='in_progress') AS in_progress,
-        COUNT(*) FILTER (WHERE status='urgent') AS urgent,
-        COUNT(*) FILTER (WHERE status='ready') AS ready,
-        COUNT(*) FILTER (WHERE status='declined') AS declined
-    FROM orders
-")->fetch(PDO::FETCH_ASSOC) ?: [];
-
-$daAccessToken  = daEnsureAccessToken($pdo);
-$daConnected    = $daAccessToken !== null;
+$daAccessToken = daEnsureAccessToken($pdo);
+$daConnected = $daAccessToken !== null;
 $daDonationTotalUsd = 0.0;
-$daPayoutStats  = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
-if ($daConnected) {
+$daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+
+if ($isAdmin && $daConnected) {
     $daDonations = daGetDonations($pdo, 200);
     $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
     $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
 }
 
-$revenue = $pdo->query("
-    SELECT COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_rub END),0) AS rub,
-           COALESCE(SUM(CASE WHEN o.cooperation THEN 0 ELSE p.price_uan END),0) AS uan
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'
-")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
-
-$activeValue = $pdo->query("
-    SELECT COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END),0) AS rub,
-           COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END),0) AS uan
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress','urgent')
-")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
-
-$ordersPerPage  = 15;
-$orders_page    = max(1, (int)($_GET['orders_page'] ?? 1));
-$orders_status  = trim((string)($_GET['orders_status'] ?? ''));
-
-$pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at, cooperation, deadline FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
-
-$where = ''; $params = [];
-if ($orders_status !== '') { $where = "WHERE o.status = ?"; $params[] = $orders_status; }
-
-$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders o " . $where);
-$countStmt->execute($params);
-$ordersTotal      = (int)$countStmt->fetchColumn();
-$ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
-
-$offset = ($orders_page - 1) * $ordersPerPage;
-$sql = "SELECT o.id, o.username, o.telegram, o.service_key, o.status, o.created_at, o.cooperation, o.deadline,
-    CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END AS price_rub,
-    CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END AS price_uan,
-    p.title, p.price_rub AS price_rub_from_price, p.price_uan AS price_uan_from_price
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ?: '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
-$stmt = $pdo->prepare($sql);
-$execParams = $params;
-$execParams[] = $ordersPerPage;
-$execParams[] = $offset;
-$stmt->execute($execParams);
-$recentOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-$categoryLabels = [];
-foreach ($categories as $category) {
-    $size = ((int)$category['width_px']>0 && (int)$category['height_px']>0) ? " ({$category['width_px']}x{$category['height_px']})" : '';
-    $categoryLabels[$category['category_key']] = $category['title'] . $size;
+function imgSrc(string $val, string $base = 'uploads/'): string {
+    if ($val === '') return '';
+    if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+    // Используем абсолютный путь от корня — работает при любом URL
+    return '/' . ltrim($base . $val, '/');
 }
 
-$statusLabels = [
-    'pending'     => 'Новый',
-    'in_progress' => 'В процессе',
-    'urgent'      => 'Срочный',
-    'ready'       => 'Готов',
-    'declined'    => 'Отклонён',
-];
+$categories   = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+$categoryMap  = [];
+foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
+$works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
 
-$appeals = [];
-$openAppealsCount = 0;
+// Загружаем отзывы
+$reviews = [];
 try {
-    $appeals = $pdo->query("
-        SELECT a.id, a.order_id, a.username, a.subject, a.message, a.reply, a.status, a.created_at, a.replied_at, a.telegram
-        FROM appeals a ORDER BY a.status ASC, a.id DESC
-    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    $openAppealsCount = count(array_filter($appeals, fn($a) => $a['status'] === 'open'));
-} catch (\Throwable $e) {}
+    $reviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+} catch(Throwable $e) {}
+$admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+$avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
 
-$viewOrder    = null;
-$orderAppeals = [];
-if (isset($_GET['view_order'])) {
-    $vid = (int)$_GET['view_order'];
-    if ($vid > 0) {
-        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? LIMIT 1");
-        $stmt->execute([$vid]);
-        $viewOrder = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($viewOrder) {
-            try {
-                $ast = $pdo->prepare("SELECT * FROM appeals WHERE order_id = ? ORDER BY id ASC");
-                $ast->execute([$vid]);
-                $orderAppeals = $ast->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            } catch (\Throwable $e) {}
-        }
-    }
-}
-
-if (isset($_POST['send_order_message'])) {
-    $oid  = (int)($_POST['order_id'] ?? 0);
-    $subj = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
-    $body = trim($_POST['msg_text'] ?? '');
-    if ($oid > 0 && $body !== '') {
-        $ost = $pdo->prepare("SELECT id, username, telegram, client_chat_id, session_id FROM orders WHERE id = ? LIMIT 1");
-        $ost->execute([$oid]);
-        $orow = $ost->fetch(PDO::FETCH_ASSOC);
-        $sendTo = '';
-        if ($orow) {
-            $sendTo = trim((string)($orow['client_chat_id'] ?? ''));
-            if ($sendTo === '' || !is_numeric($sendTo)) {
-                if (!empty($orow['session_id'])) {
-                    try {
-                        $lq = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-                        $lq->execute([$orow['session_id']]);
-                        $lr = $lq->fetch(PDO::FETCH_ASSOC);
-                        if (!empty($lr['chat_id']) && is_numeric($lr['chat_id'])) {
-                            $sendTo = $lr['chat_id'];
-                            $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$sendTo, $oid]);
-                        }
-                    } catch (Throwable $e) {}
-                }
-            }
-        }
-        try {
-            $adminName = 'Администратор';
-            $ins = $pdo->prepare("INSERT INTO appeals (order_id, username, telegram, subject, status, created_at) VALUES (?, ?, ?, ?, 'open', NOW()) RETURNING id");
-            $ins->execute([$oid, $adminName, $sendTo, $subj]);
-            $aid = (int)$ins->fetchColumn();
-            if ($aid > 0) {
-                $m = $pdo->prepare("INSERT INTO appeals_messages (appeal_id, author, message, created_at) VALUES (?, 'admin', ?, NOW())");
-                $m->execute([$aid, $body]);
-            }
-        } catch (\Throwable $e) {}
-        if ($sendTo !== '' && TELEGRAM_BOT_TOKEN !== '') {
-            $text = "📨 <b>Сообщение по вашему заказу #{$oid}</b>\n\n" . htmlspecialchars($body);
-            sendTelegramRequest('sendMessage', ['chat_id' => $sendTo, 'text' => $text, 'parse_mode' => 'HTML']);
-        }
-        header('Location: ' . $_SERVER['PHP_SELF'] . '?view_order=' . $oid . '&msg=sent'); exit;
-    }
-}
-
-$currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-$currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
-$imgbbKeys         = array_filter([getenv('IMGBB_API_KEY')?: '', getenv('IMGBB_API_KEY2')?: '', getenv('IMGBB_API_KEY3')?: '']);
-$imgbbKeyCount     = count($imgbbKeys);
-$imgbbKeySet       = $imgbbKeyCount > 0;
+$settings     = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
+$themePreset  = $settings['theme_preset']  ?? 'onyx';
+$themeShape   = $settings['theme_shape']   ?? 'soft';
+$themeDensity = $settings['theme_density'] ?? 'normal';
+$themeEffects = $settings['theme_effects'] ?? 'glow';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kostlim Admin</title>
-    <link rel="stylesheet" href="../style.css">
-    <style>
-        * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #111116; border-radius: 99px; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#fb923c,#f97316); border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: #fb923c; }
-        body { background: #08080b; color: #fff; font-family: Montserrat, Arial, sans-serif; }
-        .admin-shell { max-width: 1480px; margin: 0 auto; padding: 24px; }
-        .admin-top { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 22px; }
-        .admin-title h1 { font-size: 28px; line-height: 1.1; margin: 0 0 6px; }
-        .admin-title p { color: #8a8a96; margin: 0; }
-        .admin-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-        .admin-meta span { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #242432; background: #111116; color: #d8d8e8; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
-        .admin-meta span.ok   { border-color: rgba(34,197,94,.5);  background: rgba(34,197,94,.1);  color: #86efac; }
-        .admin-meta span.warn { border-color: rgba(249,115,22,.5); background: rgba(249,115,22,.1); color: #fdba74; }
-        .admin-link-top { color: #fff; text-decoration: none; border: 1px solid #242432; border-radius: 10px; padding: 11px 18px; background: #111116; font-size: 13px; font-weight: 700; transition: .2s; }
-        .admin-link-top:hover { border-color: #f97316; background: rgba(249,115,22,.1); }
-        .notice { border: 1px solid rgba(249,115,22,.45); background: rgba(249,115,22,.10); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
-        .notice.success { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.10); color: #86efac; }
-        .notice.error   { border-color: rgba(239,68,68,.45);  background: rgba(239,68,68,.10);  color: #fca5a5; }
-        .admin-board { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 18px; align-items: start; }
-        .admin-tabs { position: sticky; top: 18px; display: grid; gap: 9px; background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 12px; }
-        .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #d8d8e8; font-weight: 900; text-align: left; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
-        .admin-tab:hover { background: #171720; border-color: #2a2a38; }
-        .admin-tab.active { color: #fff; background: linear-gradient(135deg,#f97316,#ea580c); box-shadow: 0 12px 28px rgba(249,115,22,.28); border-color: transparent; }
-        .admin-content { min-width: 0; }
-        .stats-grid { display: grid; grid-template-columns: repeat(6, minmax(150px,1fr)); gap: 12px; margin-bottom: 18px; }
-        .stat-card { background: #111116; border: 1px solid #20202c; border-radius: 12px; padding: 16px; min-height: 92px; }
-        .stat-card span { color: #8a8a96; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-        .stat-card strong { display: block; font-size: 25px; margin-top: 10px; }
-        .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg,rgba(249,115,22,.18),#111116); }
-        .stat-card.warn strong { color: #f97316; }
-        .admin-layout { display: grid; grid-template-columns: 380px minmax(0,1fr); gap: 18px; align-items: start; }
-        .admin-layout.single-column { grid-template-columns: 1fr; }
-        .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
-        .panel h2 { font-size: 16px; margin-bottom: 14px; }
-        .avatar-preview-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
-        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #f97316; background: #0b0b10; flex-shrink: 0; }
-        .avatar-preview-info { color: #8a8a96; font-size: 12px; line-height: 1.6; }
-        .avatar-preview-info strong { display: block; color: #d8d8e8; margin-bottom: 2px; font-size: 13px; }
-        label { display: block; color: #d9d9e4; font-size: 12px; font-weight: 800; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
-        input:not([type="file"]):not([type="checkbox"]), select, textarea { width: 100%; background: #171720; color: #fff; border: 1px solid #2a2a38; border-radius: 9px; padding: 11px 12px; outline: none; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
-        input:not([type="file"]):not([type="checkbox"]):focus, select:focus, textarea:focus { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,.18), 0 0 14px rgba(249,115,22,.22); }
-        textarea { min-height: 64px; resize: vertical; }
-        select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
-        input[type="file"].styled-hidden { display: none; }
-        .file-upload-wrap { display: flex; align-items: center; gap: 10px; width: 100%; }
-        .file-upload-btn { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; background: #1e1e2a; border: 1px solid #2a2a38; border-radius: 9px; padding: 9px 16px; color: #d8d8e8; font-size: 12px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; flex-shrink: 0; user-select: none; }
-        .file-upload-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
-        .file-upload-btn svg { flex-shrink: 0; }
-        .file-upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8a8a96; font-size: 12px; font-style: italic; }
-        .file-upload-name.has-file { color: #86efac; font-style: normal; font-weight: 700; }
-        .mini-file-wrap { display: flex; flex-direction: column; gap: 6px; }
-        .mini-file-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: #1a1a24; border: 1px solid #2a2a38; border-radius: 7px; padding: 7px 12px; color: #c8c8d8; font-size: 11px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; user-select: none; }
-        .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
-        .mini-file-name { font-size: 10px; color: #8a8a96; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
-        .mini-file-name.has-file { color: #86efac; font-style: normal; }
-        .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
-        .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
-        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
-        .tab-hidden { display: none !important; }
-        #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
-        #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
-        #admin-toast.success { background: #0f2b1a; border: 1px solid rgba(34,197,94,.5); color: #86efac; }
-        #admin-toast.error   { background: #2b0f0f; border: 1px solid rgba(239,68,68,.5);  color: #fca5a5; }
-        #admin-toast.loading { background: #1a1a24; border: 1px solid rgba(249,115,22,.5); color: #fdba74; }
-        .admin-table-wrap { overflow-x: auto; border: 1px solid #20202c; border-radius: 12px; }
-        table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        th, td { padding: 12px; border-bottom: 1px solid #20202c; text-align: left; vertical-align: middle; }
-        th { color: #8a8a96; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
-        td { color: #efeff7; font-size: 13px; }
-        tr:last-child td { border-bottom: 0; }
-        tr:hover td { background: rgba(255,255,255,.015); }
-        .thumb-pair { display: flex; align-items: center; gap: 8px; }
-        .case-thumb-wrap { position: relative; display: inline-block; user-select: none; }
-        .case-thumb-wrap::after { content: ''; position: absolute; inset: 0; z-index: 2; cursor: default; }
-        .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0b0b10; pointer-events: none; user-select: none; -webkit-user-drag: none; display: block; }
-        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; pointer-events: none; user-select: none; -webkit-user-drag: none; }
-        .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
-        .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
-        .status.pending     { background: rgba(249,115,22,.18); color: #fb923c; }
-        .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
-        .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
-        .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
-        .status.declined    { background: rgba(239,68,68,.15); color: #fca5a5; }
-        tr.order-row.status-ready td       { background: rgba(34,197,94,.08); }
-        tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
-        tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
-        tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
-        tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
-        tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
-        .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
-        @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
-        .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
-        .delete-link:hover { background: rgba(255,107,118,.12); border-color: #ff6b76; }
-        .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
-        .mini-media-form button { border: 0; border-radius: 8px; padding: 8px 12px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; transition: .2s; }
-        .mini-media-form button:hover { opacity: .85; }
-        .btn-panel { width: 100%; margin-top: 14px; border: none; border-radius: 10px; padding: 13px 16px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase; font-family: Montserrat,sans-serif; letter-spacing: 1px; font-size: 13px; box-shadow: 0 8px 24px rgba(249,115,22,.30); transition: .2s; position: relative; }
-        .btn-panel:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 28px rgba(249,115,22,.55), 0 12px 30px rgba(249,115,22,.25); }
-        .btn-panel:disabled { opacity: .6; cursor: not-allowed; transform: none; }
-        .btn-panel .btn-spinner { display: none; }
-        .btn-panel.loading .btn-text { display: none; }
-        .btn-panel.loading .btn-spinner { display: inline-flex; align-items: center; gap: 8px; }
-        .review-card { background: #0b0b10; border: 1px solid #20202c; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
-        .review-card.pending { border-color: rgba(249,115,22,.35); background: rgba(249,115,22,.04); }
-        .review-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-        .review-header .name { font-weight: 800; color: #fff; }
-        .review-header .rating { font-size: 14px; font-weight: 700; color: #f97316; }
-        .review-actions { display: flex; gap: 6px; }
-        .review-btn { border: none; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; transition: .2s; }
-        .review-btn.approve { background: rgba(34,197,94,.2); color: #86efac; border: 1px solid rgba(34,197,94,.35); }
-        .review-btn.approve:hover { background: rgba(34,197,94,.35); }
-        .review-btn.reject { background: rgba(239,68,68,.2); color: #fca5a5; border: 1px solid rgba(239,68,68,.35); }
-        .review-btn.reject:hover { background: rgba(239,68,68,.35); }
-        .cmd-row { display: grid; grid-template-columns: 100px 1fr 100px 60px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px; background: #0b0b10; border-radius: 8px; }
-        @media (max-width: 1100px) { .admin-board { grid-template-columns: 1fr; } .admin-tabs { position: static; grid-template-columns: repeat(2,1fr); } .stats-grid { grid-template-columns: repeat(2,1fr); } .admin-layout { grid-template-columns: 1fr; } }
-        @media (max-width: 640px) { .admin-shell { padding: 16px; } .admin-top { align-items: flex-start; flex-direction: column; } .admin-tabs { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr; } .two-cols { grid-template-columns: 1fr; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kostlim Design | Портфолио</title>
+<link rel="stylesheet" href="style.css">
+<style>
+body::before {
+    content:'';position:fixed;top:-120px;left:50%;transform:translateX(-50%);
+    width:700px;height:400px;background:radial-gradient(ellipse at center,rgba(249,115,22,0.13) 0%,transparent 70%);
+    pointer-events:none;z-index:0;
+}
+body::after {
+    content:'';position:fixed;bottom:-100px;right:-100px;width:500px;height:500px;
+    background:radial-gradient(ellipse at center,rgba(249,115,22,0.07) 0%,transparent 65%);
+    pointer-events:none;z-index:0;
+}
+
+/* ══════════════════════════════════════════
+   МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG
+══════════════════════════════════════════ */
+.tg-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.tg-modal-overlay.active {
+    display: flex;
+}
+.tg-modal {
+    background: #111116;
+    border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 20px;
+    padding: 32px 28px;
+    max-width: 420px;
+    width: 100%;
+    position: relative;
+    box-shadow: 0 0 60px rgba(249,115,22,0.2), 0 30px 80px rgba(0,0,0,0.6);
+    animation: modalIn .25s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes modalIn {
+    from { opacity:0; transform:scale(.92) translateY(12px); }
+    to   { opacity:1; transform:scale(1)   translateY(0); }
+}
+.tg-modal-close {
+    position: absolute;
+    top: 14px; right: 16px;
+    background: none; border: none;
+    color: #555568; font-size: 22px;
+    cursor: pointer; line-height: 1;
+    transition: color .2s;
+}
+.tg-modal-close:hover { color: #fff; }
+
+.tg-modal-icon {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, rgba(249,115,22,0.25), rgba(249,115,22,0.1));
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 18px;
+    border: 1px solid rgba(249,115,22,0.35);
+}
+.tg-modal h2 {
+    text-align: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 8px;
+}
+.tg-modal-sub {
+    text-align: center;
+    color: #8a8a96;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-bottom: 24px;
+}
+
+/* Шаги */
+.tg-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 24px;
+}
+.tg-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+.tg-step-num {
+    width: 26px; height: 26px; flex-shrink: 0;
+    background: rgba(249,115,22,0.18);
+    border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 900; color: #fb923c;
+}
+.tg-step-text {
+    color: #d0d0e0;
+    font-size: 13px;
+    line-height: 1.5;
+    padding-top: 3px;
+}
+.tg-step-text b { color: #fff; }
+
+/* Код */
+.tg-code-box {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.tg-code-val {
+    font-family: monospace;
+    font-size: 18px;
+    font-weight: 900;
+    color: #fb923c;
+    letter-spacing: 4px;
+    user-select: all;
+}
+.tg-copy-btn {
+    background: rgba(249,115,22,0.18);
+    border: 1px solid rgba(249,115,22,0.4);
+    border-radius: 7px;
+    padding: 6px 14px;
+    color: #fdba74;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: .2s;
+    white-space: nowrap;
+    font-family: inherit;
+}
+.tg-copy-btn:hover { background: rgba(249,115,22,0.35); color: #fff; }
+
+/* Кнопки */
+.tg-bot-open-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    color: #fff;
+    text-decoration: none;
+    padding: 13px;
+    border-radius: 10px;
+    font-weight: 900;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 0 20px rgba(249,115,22,0.4);
+    transition: opacity .2s, transform .2s;
+    margin-bottom: 10px;
+}
+.tg-bot-open-btn:hover { opacity: .9; transform: translateY(-1px); }
+
+.tg-skip-btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    background: none;
+    border: 1px solid #2a2a3a;
+    border-radius: 10px;
+    padding: 12px;
+    color: #666678;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color .2s, color .2s;
+    font-family: inherit;
+}
+.tg-skip-btn:hover { border-color: #444456; color: #8a8a96; }
+
+/* Статус ожидания */
+.tg-waiting {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(249,115,22,0.07);
+    border: 1px solid rgba(249,115,22,0.2);
+    border-radius: 9px;
+    color: #fdba74;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+.tg-waiting.show { display: flex; }
+.tg-spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(249,115,22,0.3);
+    border-top-color: #f97316;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Уже привязан — зелёная версия */
+.tg-modal.linked-state {
+    border-color: rgba(34,197,94,0.4);
+    box-shadow: 0 0 60px rgba(34,197,94,0.15), 0 30px 80px rgba(0,0,0,0.6);
+}
+.tg-modal.linked-state .tg-modal-icon {
+    background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.08));
+    border-color: rgba(34,197,94,0.35);
+}
+
+/* ══ Портфолио ══ */
+.portfolio-stage { margin-top: 34px; padding-bottom: 70px; position:relative; z-index:1; }
+.portfolio-grid { display:grid; grid-template-columns:repeat(3,minmax(260px,1fr)); gap:28px; align-items:start; }
+.portfolio-card { background:transparent; display:flex; flex-direction:column; gap:12px; }
+.portfolio-media {
+    position:relative; width:100%; aspect-ratio:16/9; overflow:hidden;
+    border-radius:22px; background:var(--card); border:1px solid var(--border);
+    transition:border-color var(--t),box-shadow var(--t);
+}
+.portfolio-media::after {
+    content:''; position:absolute; inset:0; z-index:2; background:transparent; cursor:default;
+}
+.portfolio-media img {
+    width:100%; height:100%; object-fit:cover; display:block;
+    transition:transform .5s cubic-bezier(.4,0,.2,1);
+    pointer-events:none; user-select:none; -webkit-user-select:none; -webkit-user-drag:none; -moz-user-select:none;
+}
+.portfolio-card:hover .portfolio-media { border-color:var(--border-accent); box-shadow:0 0 32px rgba(249,115,22,0.22); }
+.portfolio-card:hover .portfolio-media img { transform:scale(1.04); }
+.design-card .portfolio-media { aspect-ratio:16/7; min-height:160px; }
+.custom-ratio .portfolio-media { aspect-ratio: var(--card-ratio, 16/9); }
+.design-banner { object-fit:cover; object-position:center top; }
+.design-avatar-frame {
+    position:absolute; bottom:10px; right:14px; width:80px; height:80px;
+    border-radius:50%; border:2.5px solid var(--border-accent);
+    overflow:hidden; background:var(--card); z-index:3;
+    box-shadow:0 0 16px rgba(249,115,22,0.35);
+}
+.design-avatar { width:100%; height:100%; object-fit:cover; }
+.portfolio-meta { padding:0 4px; }
+.portfolio-title { color:var(--text); font-size:13px; font-weight:700; margin-bottom:6px; }
+.portfolio-price { color:var(--text2); font-size:12px; margin-bottom:10px; }
+.order-pill {
+    display:inline-flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg,var(--accent2),var(--accent));
+    color:#fff; border:none; padding:9px 22px; border-radius:30px;
+    font-size:12px; font-weight:900; letter-spacing:1.5px; text-transform:uppercase;
+    text-decoration:none; cursor:pointer;
+    box-shadow:0 0 16px rgba(249,115,22,0.3);
+    transition:opacity .2s, transform .2s, box-shadow .2s;
+}
+.order-pill:hover { opacity:.9; transform:translateY(-2px); box-shadow:0 0 28px rgba(249,115,22,0.5); }
+.tabs-container { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:28px; position:relative; z-index:1; }
+.tab-btn {
+    background:#111118; border:1px solid #1e1e2c; color:#8a8a96;
+    padding:8px 18px; border-radius:30px; font-size:12px; font-weight:700;
+    cursor:pointer; transition:.2s; font-family:inherit;
+}
+.tab-btn.active,.tab-btn:hover { background:rgba(249,115,22,0.12); border-color:rgba(249,115,22,0.4); color:#fb923c; }
+/* ══ TG-профиль в хедере ══ */
+.tg-user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px 5px 5px;
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 30px;
+    text-decoration: none;
+    color: #86efac;
+    font-size: 12px;
+    font-weight: 700;
+    transition: background .2s, border-color .2s;
+    max-width: 160px;
+}
+.tg-user-chip:hover {
+    background: rgba(34,197,94,0.18);
+    border-color: rgba(34,197,94,0.5);
+}
+.tg-user-ava {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1.5px solid rgba(34,197,94,0.4);
+}
+.tg-user-ava-fallback {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: rgba(34,197,94,0.2);
+    border: 1.5px solid rgba(34,197,94,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    color: #86efac;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+.tg-user-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tg-admin-tag {
+    font-size: 9px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fb923c;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.35);
+    border-radius: 4px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+    line-height: 14px;
+}
+.tg-link-trigger-btn {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.da-stats-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 22px 0 14px;
+}
+.da-connect-panel,
+.da-stat-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 18px 20px;
+    min-width: 220px;
+    flex: 1 1 220px;
+}
+.da-connect-panel h2,
+.da-stat-card span {
+    display: block;
+    color: #f8f8f2;
+    font-size: 11px;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+.da-connect-panel p {
+    color: #c7c7d8;
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.da-connect-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px 16px;
+    background: #f97316;
+    color: #111827;
+    border-radius: 12px;
+    font-weight: 800;
+    text-decoration: none;
+}
+.da-stat-card strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 22px;
+    color: #fff;
+}
+@media(max-width:700px){
+    .tg-user-chip { max-width: 120px; font-size: 11px; }
+    .tg-user-name { max-width: 70px; }
+}
+
+@media(max-width:700px){
+    .header-right{flex-wrap:wrap;justify-content:center;}
+    .portfolio-grid{grid-template-columns:1fr;gap:20px;}
+    .portfolio-media{border-radius:16px;}
+    .order-pill{font-size:11px;padding:10px 20px;}
+    .design-card .portfolio-media{aspect-ratio:16/7;min-height:140px;}
+    .design-avatar-frame{right:12px;width:70px;height:70px;border-width:2px;}
+    .tg-modal { padding: 24px 18px; }
+    .tg-code-val { font-size: 15px; letter-spacing: 2px; }
+}
+</style>
 </head>
-<body>
+<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
 
-<div id="admin-toast"></div>
+<!-- ══════════════════════════════════════════
+     МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG
+══════════════════════════════════════════ -->
+<?php if (!$isLinked): ?>
+<!-- ══════════════════════════════════════════
+     МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG (только когда не привязан)
+══════════════════════════════════════════ -->
+<div class="tg-modal-overlay" id="tgModalOverlay">
+  <div class="tg-modal" id="tgModal">
+    <button class="tg-modal-close" onclick="closeTgModal()" title="Закрыть">×</button>
 
-<main class="admin-shell">
-    <div class="admin-top">
-        <div class="admin-title">
-            <h1>⚙️ Админ-панель Kostlim Design</h1>
-            <p>Портфолио, прайс, заказы и деньги в одном месте.</p>
-            <div class="admin-meta">
-                <span>Kostlim</span>
-                <span><?= htmlspecialchars(ADMIN_EMAIL) ?></span>
-                <span>TG ID: <?= htmlspecialchars(ADMIN_TELEGRAM_ID) ?></span>
-                <?php if ($imgbbKeySet): ?>
-                    <span class="ok">✅ ImgBB: <?= $imgbbKeyCount ?> <?= $imgbbKeyCount === 1 ? 'ключ' : ($imgbbKeyCount < 5 ? 'ключа' : 'ключей') ?></span>
-                <?php else: ?>
-                    <span class="warn">⚠️ IMGBB_API_KEY не задан!</span>
-                <?php endif; ?>
-            </div>
-        </div>
-        <a href="../index.php" class="admin-link-top">← На сайт</a>
+    <!-- ── НЕ ПРИВЯЗАН ── -->
+    <div class="tg-modal-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+    </div>
+    <h2>Привяжи Telegram</h2>
+    <p class="tg-modal-sub">Чтобы получать уведомления о заказах прямо в бот — выполни 2 шага.</p>
+
+    <div class="tg-steps">
+      <div class="tg-step">
+        <div class="tg-step-num">1</div>
+        <div class="tg-step-text">Скопируй свой персональный код:</div>
+      </div>
     </div>
 
-    <?php if ($message !== ''): ?>
-        <div class="notice <?= str_starts_with($message,'✅')||str_starts_with($message,'💾') ? 'success' : (str_starts_with($message,'❌') ? 'error' : '') ?>">
-            <?= htmlspecialchars($message) ?>
-        </div>
-    <?php endif; ?>
-
-    <div class="admin-board">
-        <nav class="admin-tabs" aria-label="Разделы">
-            <button type="button" class="admin-tab active" data-tab="overview"   onclick="activateAdminTab('overview')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Обзор</button>
-            <button type="button" class="admin-tab"        data-tab="portfolio"  onclick="activateAdminTab('portfolio')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 2l-4 5-4-5"/></svg> Портфолио</button>
-            <button type="button" class="admin-tab"        data-tab="price"      onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
-            <button type="button" class="admin-tab"        data-tab="orders"     onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Заказы</button>
-            <button type="button" class="admin-tab"        data-tab="reviews"    onclick="activateAdminTab('reviews')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Отзывы<?php if (!empty($pendingReviews)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= count($pendingReviews) ?></span><?php endif; ?></button>
-            <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
-            <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
-            <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
-            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
-            <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
-        </nav>
-
-        <div class="admin-content">
-            <section class="stats-grid">
-                <div class="stat-card accent"><span>Заработано</span><strong><?= money($revenue['rub']??0) ?> ₽</strong><span><?= money($revenue['uan']??0) ?> ₴</span></div>
-                <div class="stat-card"><span>В активе</span><strong><?= money($activeValue['rub']??0) ?> ₽</strong><span><?= money($activeValue['uan']??0) ?> ₴</span></div>
-                <div class="stat-card"><span>Всего заказов</span><strong><?= (int)($orderStats['total']??0) ?></strong></div>
-                <div class="stat-card"><span>Новые</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
-                <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
-                <div class="stat-card"><span>В процессе</span><strong><?= (int)($orderStats['in_progress']??0) ?></strong></div>
-                <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
-            </section>
-
-            <section class="stats-grid">
-                <?php if (!$daConnected): ?>
-                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
-                    <div class="stat-card"><span>Донатов за месяц</span><strong>$0.00</strong></div>
-                    <div class="stat-card"><span>Выведено за месяц</span><strong>$0.00</strong></div>
-                    <div class="stat-card"><span>Комиссия</span><strong>$0.00</strong></div>
-                <?php else: ?>
-                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Подключено</strong><span>Токен сохранён</span></div>
-                    <div class="stat-card"><span>Донатов за месяц</span><strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong></div>
-                    <div class="stat-card"><span>Выведено за месяц</span><strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong></div>
-                    <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
-                <?php endif; ?>
-            </section>
-
-            <!-- ════════════════════════════════════════════════════════════
-                 ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ
-            ════════════════════════════════════════════════════════════ -->
-
-            <div class="admin-layout">
-                <aside>
-                    <!-- ════ ОТЗЫВЫ ════ -->
-                    <div class="panel" data-panel="reviews">
-                        <h2>⭐ Отзывы на проверку</h2>
-                        <?php if (empty($pendingReviews)): ?>
-                            <div style="color:#555568;font-size:13px;">Все отзывы одобрены! 🎉</div>
-                        <?php else: ?>
-                            <?php foreach ($pendingReviews as $rv): ?>
-                                <div class="review-card pending">
-                                    <div class="review-header">
-                                        <span class="name"><?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?></span>
-                                        <span class="rating"><?= str_repeat('★', (int)$rv['rating']) . str_repeat('☆', 5 - (int)$rv['rating']) ?></span>
-                                        <div class="review-actions" style="margin-left:auto;">
-                                            <form method="POST" style="margin:0;">
-                                                <input type="hidden" name="review_id" value="<?= (int)$rv['id'] ?>">
-                                                <button type="submit" name="approve_review" class="review-btn approve">✅ Одобрить</button>
-                                            </form>
-                                            <form method="POST" style="margin:0;">
-                                                <input type="hidden" name="review_id" value="<?= (int)$rv['id'] ?>">
-                                                <button type="submit" name="reject_review" onclick="return confirm('Удалить отзыв?')" class="review-btn reject">🗑️ Отклонить</button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                    <div style="color:#d8d8e8;font-size:13px;line-height:1.55;word-break:break-word;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-
-                        <hr style="border:none;border-top:1px solid #20202c;margin:14px 0;"/>
-                        <h2 style="margin-top:18px;">✅ Одобренные</h2>
-                        <?php if (empty($approvedReviews)): ?>
-                            <div style="color:#555568;font-size:13px;">Нет одобренных отзывов.</div>
-                        <?php else: ?>
-                            <?php foreach (array_slice($approvedReviews, 0, 5) as $rv): ?>
-                                <div class="review-card" style="background:rgba(34,197,94,.05);border-color:rgba(34,197,94,.25);">
-                                    <div class="review-header">
-                                        <span class="name"><?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?></span>
-                                        <span class="rating" style="color:#86efac;"><?= str_repeat('★', (int)$rv['rating']) ?></span>
-                                    </div>
-                                    <div style="color:#c8c8d8;font-size:12px;line-height:1.5;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- ════ КОМАНДЫ БОТА ════ -->
-                    <div class="panel" data-panel="commands">
-                        <h2>🤖 Команды бота</h2>
-                        <form method="POST">
-                            <div style="display:grid;gap:8px;margin-bottom:12px;">
-                                <?php foreach ($botCommands as $cmd): ?>
-                                    <div class="cmd-row">
-                                        <input type="text" name="bot_commands[<?= (int)$cmd['id'] ?>][command]" value="<?= htmlspecialchars($cmd['command'] ?? '') ?>" style="margin:0;">
-                                        <textarea name="bot_commands[<?= (int)$cmd['id'] ?>][description]" rows="1" style="margin:0;"><?= htmlspecialchars($cmd['description'] ?? '') ?></textarea>
-                                        <select name="bot_commands[<?= (int)$cmd['id'] ?>][access_level]" style="margin:0;">
-                                            <option value="admin" <?= ($cmd['access_level'] ?? '') === 'admin' ? 'selected' : '' ?>>admin</option>
-                                            <option value="user" <?= ($cmd['access_level'] ?? '') === 'user' ? 'selected' : '' ?>>user</option>
-                                        </select>
-                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.parentElement.style.display='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#fca5a5;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-
-                            <hr style="border:none;border-top:1px solid #20202c;margin:12px 0;"/>
-                            <h3 style="font-size:12px;color:#8a8a96;text-transform:uppercase;margin:12px 0 8px;">Добавить новую</h3>
-                            <div style="display:grid;gap:6px;margin-bottom:12px;">
-                                <input type="text" name="new_command_name" placeholder="/command" style="margin:0;padding:8px 10px;">
-                                <textarea name="new_command_desc" rows="1" placeholder="Описание" style="margin:0;padding:8px 10px;"></textarea>
-                            </div>
-
-                            <button type="submit" name="save_bot_commands" class="btn-panel" style="margin-top:8px;">💾 Сохранить команды</button>
-                        </form>
-                    </div>
-
-                    <!-- ════ ПРАВИЛА ЗАКАЗА ════ -->
-                    <div class="panel" data-panel="rules">
-                        <h2>📋 Правила заказа</h2>
-                        <form method="POST">
-                            <label>Текст правил (HTML поддерживается)</label>
-                            <textarea name="order_rules_text" rows="6" style="margin-bottom:12px;font-family:monospace;font-size:11px;"><?= htmlspecialchars($orderRulesText) ?></textarea>
-                            <div style="color:#8a8a96;font-size:11px;margin-bottom:12px;line-height:1.6;">💡 Эти правила будут отображаться при оформлении заказа. Поддерживаются HTML теги: &lt;b&gt;, &lt;i&gt;, &lt;br&gt;, &lt;a href=""&gt;</div>
-                            <button type="submit" name="save_order_rules" class="btn-panel" style="margin-top:8px;">💾 Сохранить правила</button>
-                        </form>
-                    </div>
-
-                    <!-- ════ ПОРТФОЛИО ════ -->
-                    <section class="panel" data-panel="portfolio-add">
-                        <h2>📁 Добавить в портфолио</h2>
-                        <form id="portfolio-form" enctype="multipart/form-data">
-                            <label>Название проекта</label>
-                            <input type="text" name="title" required placeholder="Например: сет Naruto">
-                            <label>Категория графики</label>
-                            <select name="category_key" id="category_select" onchange="toggleAvatarField()">
-                                <?php foreach ($categories as $category): ?>
-                                    <option value="<?= htmlspecialchars($category['category_key']) ?>">
-                                        <?= htmlspecialchars($category['title']) ?>
-                                        <?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> (<?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?>)<?php endif; ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <div class="two-cols">
-                                <div><label>Цена в рублях</label><input type="number" name="price_rub" value="0" min="0"></div>
-                                <div><label>Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
-                            </div>
-                            <label>Главное изображение / шапка</label>
-                            <input type="file" name="image" accept="image/*" required>
-                            <label class="tg-checkbox"><input type="checkbox" name="publish_tg" value="1" checked> Публиковать в Telegram-канал</label>
-                            <div id="avatar_upload_block" style="display:none;">
-                                <label>Аватарка к оформлению</label>
-                                <input type="file" name="avatar_image" accept="image/*">
-                                <div class="avatar-hint">Для категории "Оформление" шапка широкая, аватарка — круглое превью.</div>
-                            </div>
-                            <button type="submit" class="btn-panel" id="portfolio-submit-btn">
-                                <span class="btn-text">Загрузить в кейсы</span>
-                                <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем на ImgBB...</span>
-                            </button>
-                        </form>
-                        <style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
-                    </section>
-
-                    <!-- ════ КАТЕГОРИИ ════ -->
-                    <section class="panel" data-panel="categories">
-                        <h2>🧩 Создать категорию</h2>
-                        <form action="" method="POST">
-                            <label>Название категории</label>
-                            <input type="text" name="cat_title" required placeholder="Например: Пост VK">
-                            <label>Ключ категории</label>
-                            <input type="text" name="cat_key" placeholder="vk_post">
-                            <div class="avatar-hint">Латиница без пробелов.</div>
-                            <div class="two-cols">
-                                <div><label>Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
-                                <div><label>Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
-                            </div>
-                            <label style="display:flex;gap:8px;align-items:center;margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;"> Это оформление с аватаркой</label>
-                            <button type="submit" name="add_portfolio_category" class="btn-panel">Добавить категорию</button>
-                        </form>
-                        <div style="margin-top:14px;display:grid;gap:8px;">
-                            <?php foreach ($categories as $category): ?>
-                                <div style="display:flex;justify-content:space-between;gap:10px;color:#d8d8e8;font-size:12px;border-top:1px solid #242432;padding-top:8px;">
-                                    <span><?= htmlspecialchars($category['title']) ?><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> · <?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?><?php endif; ?></span>
-                                    <a class="delete-link" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">Удалить</a>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </section>
-
-                    <!-- ════ ЗАКАЗЫ ════ -->
-                    <section class="panel" data-panel="orders">
-                        <h2>🧾 Заказы</h2>
-                        <?php if (!empty($pendingOrders)): ?>
-                            <div style="margin-bottom:14px;padding:14px;border:1px solid rgba(249,115,22,.25);background:rgba(249,115,22,.08);border-radius:12px;">
-                                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                                    <strong>Новые заказы:</strong>
-                                    <span style="background:#f97316;color:#111827;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:800;"><?= count($pendingOrders) ?></span>
-                                </div>
-                                <div style="margin-top:12px;display:grid;gap:10px;">
-                                    <?php foreach ($pendingOrders as $pord): ?>
-                                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:#0f0f14;">
-                                            <div style="min-width:0;overflow:hidden;">
-                                                <div style="font-size:13px;color:#f8f8fa;">Заказ #<?= (int)$pord['id'] ?> — <?= htmlspecialchars($pord['username'] ?: 'Клиент') ?></div>
-                                                <div style="color:#8a8a96;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
-                                            </div>
-                                            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-                                                <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;margin-top:0;">Открыть</a>
-                                                <form method="POST" style="margin:0;">
-                                                    <input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>">
-                                                    <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;padding:8px 12px;margin-top:0;">Принять</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                            <form method="GET" style="display:flex;gap:8px;align-items:center;">
-                                <label style="color:#8a8a96;font-size:13px;text-transform:none;margin:0;">Статус:</label>
-                                <select name="orders_status" onchange="this.form.submit()">
-                                    <option value="">Все</option>
-                                    <?php foreach ($statusLabels as $sk => $sv): ?>
-                                        <option value="<?= htmlspecialchars($sk) ?>" <?= $orders_status === $sk ? 'selected' : '' ?>><?= htmlspecialchars($sv) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </form>
-                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
-                        </div>
-                        <div class="admin-table-wrap">
-                            <table style="min-width:520px;">
-                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус / Срок</th><th>Сумма</th><th>Действие</th></tr></thead>
-                                <tbody>
-                                    <?php foreach ($recentOrders as $order): ?>
-                                        <?php
-                                            $isUrgent = $order['status'] === 'urgent';
-                                            $deadlineHtml = '';
-                                            if (!empty($order['deadline'])) {
-                                                $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
-                                            } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
-                                                $deadlineHtml = deadlineBadge($order['created_at'], $isUrgent);
-                                            }
-                                        ?>
-                                        <tr class="order-row status-<?= htmlspecialchars($order['status']) ?>">
-                                            <td>#<?= (int)$order['id'] ?></td>
-                                            <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
-                                            <td>
-                                                <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
-                                                <?php if ($deadlineHtml): ?><br><div style="margin-top:4px;"><?= $deadlineHtml ?></div><?php endif; ?>
-                                            </td>
-                                            <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
-                                            <td style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                                                <?php if (!empty($order['cooperation'])): ?>
-                                                    <span style="color:#fb923c;font-size:12px;padding:4px 8px;border:1px solid rgba(251,146,60,.2);border-radius:8px;">Сотрудничество</span>
-                                                <?php endif; ?>
-                                                <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;margin-top:0;padding:8px 12px;">Открыть</a>
-                                                <?php if ($order['status'] === 'pending'): ?>
-                                                    <form method="POST" style="margin:0;">
-                                                        <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                                        <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;margin-top:0;padding:8px 12px;">Принять</button>
-                                                    </form>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                        <?php if ($ordersTotalPages > 1): ?>
-                            <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
-                                <?php for ($p = 1; $p <= $ordersTotalPages; $p++): ?>
-                                    <a href="<?= $_SERVER['PHP_SELF'] . '?orders_page=' . $p . ($orders_status !== '' ? '&orders_status=' . urlencode($orders_status) : '') ?>" class="btn-panel" style="width:auto;padding:8px 12px;margin-top:0;<?= $p === $orders_page ? '' : 'opacity:0.7;' ?>"><?= $p ?></a>
-                                <?php endfor; ?>
-                            </div>
-                        <?php endif; ?>
-                    </section>
-
-                    <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
-                    <section class="panel" data-panel="price-add">
-                        <h2>➕ Добавить услугу в прайс</h2>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <label>Название услуги</label>
-                            <input type="text" name="service_title" required placeholder="Например: Баннер для постов">
-                            <label>Ключ услуги</label>
-                            <input type="text" name="service_key" placeholder="post_banner">
-                            <div class="two-cols">
-                                <div><label>Цена в рублях</label><input type="number" name="service_price_rub" value="0" min="0"></div>
-                                <div><label>Цена в гривнах</label><input type="number" name="service_price_uan" value="0" min="0"></div>
-                            </div>
-                            <label>Описание</label>
-                            <textarea name="service_description" placeholder="Коротко, что входит в услугу"></textarea>
-                            <label>Фичи</label>
-                            <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
-                            <label>Обложка услуги</label>
-                            <input type="file" name="service_image" accept="image/*">
-                            <button type="submit" name="add_price_service" class="btn-panel">Добавить услугу</button>
-                        </form>
-                    </section>
-
-                    <!-- ════ АВАТАРКА САЙТА ════ -->
-                    <section class="panel" data-panel="avatar">
-                        <h2>🖼️ Аватарка сайта</h2>
-                        <div class="avatar-preview-wrap">
-                            <?php $avatarSrc = imgSrc($currentAvatarFile, '../uploads/'); ?>
-                            <img src="<?= htmlspecialchars($avatarSrc ?: 'https://i.imgur.com/w9NThbA.png') ?>" class="avatar-preview-img" alt="Аватарка" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
-                            <div class="avatar-preview-info">
-                                <strong>Текущая аватарка</strong>
-                                <?= htmlspecialchars($currentAvatarFile ?: 'не задана') ?><br>
-                                Водяной знак на постах в Telegram.
-                            </div>
-                        </div>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <label>Новая аватарка сайта</label>
-                            <input type="file" name="site_avatar" accept="image/*" required>
-                            <div class="avatar-hint">Форматы: jpg, png, webp, gif. Рекомендуется 512×512.</div>
-                            <button type="submit" name="upload_site_avatar" class="btn-panel">Загрузить аватарку</button>
-                        </form>
-                    </section>
-                </aside>
-
-                <section>
-                    <!-- ════ МЕНЕДЖЕР ЦЕН ════ -->
-                    <div class="panel" data-panel="price-manager">
-                        <h2>💲 Менеджер цен и прайс-листа</h2>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <div class="admin-table-wrap">
-                                <table>
-                                    <thead><tr><th>Обложка</th><th>Услуга</th><th>Описание и фичи</th><th>Цены</th><th></th></tr></thead>
-                                    <tbody>
-                                        <?php foreach ($services as $service): $id = (int)$service['id']; ?>
-                                            <tr>
-                                                <td>
-                                                    <?php if (!empty($service['image'])): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div><?php else: ?><span style="color:#666674;font-size:11px;">Нет обложки</span><?php endif; ?>
-                                                    <div style="margin-top:8px;"><input type="file" name="price_images[<?= $id ?>]" accept="image/*"></div>
-                                                </td>
-                                                <td>
-                                                    <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
-                                                    <div style="color:#8a8a96;margin-top:6px;font-size:11px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
-                                                </td>
-                                                <td>
-                                                    <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
-                                                    <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Фичи через |" style="margin-top:8px;">
-                                                </td>
-                                                <td>
-                                                    <input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>">
-                                                    <input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>" style="margin-top:8px;">
-                                                </td>
-                                                <td><a class="delete-link" href="?delete_price_id=<?= $id ?>" onclick="return confirm('Удалить услугу?')">Удалить</a></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <button type="submit" name="save_all_prices" class="btn-panel" style="background:#22c55e;">Сохранить весь прайс</button>
-                        </form>
-                    </div>
-
-                    <!-- ════ УПРАВЛЕНИЕ КЕЙСАМИ ════ -->
-                    <div class="panel" data-panel="portfolio-list">
-                        <h2>🎬 Управление кейсами</h2>
-                        <div class="admin-table-wrap">
-                            <table>
-                                <thead><tr><th>Превью</th><th>Название</th><th>Категория</th><th>Цена</th><th>Действие</th></tr></thead>
-                                <tbody>
-                                    <?php foreach ($works as $work): ?>
-                                        <?php $img = $work['image']??''; $ava = $work['avatar_image']??''; $cat = $work['category_key']??'preview'; ?>
-                                        <tr>
-                                            <td>
-                                                <div class="thumb-pair">
-                                                    <?php if ($img !== ''): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="case-thumb" alt="" draggable="false"></div><?php endif; ?>
-                                                    <?php if ($ava !== ''): ?><img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-ava" alt="" draggable="false"><?php endif; ?>
-                                                </div>
-                                            </td>
-                                            <td><strong><?= htmlspecialchars($work['title']??'Без названия') ?></strong></td>
-                                            <td><?= htmlspecialchars($categoryLabels[$cat]??$cat) ?></td>
-                                            <td><?= (int)($work['price_rub']??0) ?> ₽ / <?= (int)($work['price_uan']??0) ?> ₴</td>
-                                            <td>
-                                                <form action="" method="POST" enctype="multipart/form-data" class="mini-media-form">
-                                                    <input type="hidden" name="portfolio_id" value="<?= (int)$work['id'] ?>">
-                                                    <input type="file" name="portfolio_image" accept="image/*" title="Заменить главное изображение">
-                                                    <input type="file" name="portfolio_avatar" accept="image/*" title="Заменить аватарку">
-                                                    <button type="submit" name="update_portfolio_media">Обновить медиа</button>
-                                                    <a class="delete-link" href="?delete_portfolio_id=<?= (int)$work['id'] ?>" onclick="return confirm('Удалить кейс?')">Удалить</a>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- ════ ОБРАЩЕНИЯ ════ -->
-                    <div class="panel" data-panel="appeals">
-                        <h2>📩 Обращения клиентов
-                            <?php if ($openAppealsCount > 0): ?>
-                                <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
-                            <?php endif; ?>
-                        </h2>
-                        <?php if (empty($appeals)): ?>
-                            <p style="color:#8a8a96;">Обращений пока нет.</p>
-                        <?php else: ?>
-                        <div style="display:grid;gap:14px;">
-                        <?php foreach ($appeals as $ap): ?>
-                            <?php $isOpen = $ap['status'] === 'open'; ?>
-                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : '#111116' ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : '#20202c' ?>;">
-                                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-                                    <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
-                                    <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
-                                    <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
-                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : 'background:rgba(34,197,94,.15);color:#86efac;' ?>">
-                                        <?= $isOpen ? '⏳ Ожидает ответа' : '✅ Отвечено' ?>
-                                    </span>
-                                    <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
-                                    <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
-                                </div>
-                                <?php
-                                    $mstmt2 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                    $mstmt2->execute([(int)$ap['id']]);
-                                    $msgs2 = $mstmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                                ?>
-                                <?php if (!empty($msgs2)): ?>
-                                    <?php foreach ($msgs2 as $m): ?>
-                                        <?php if (($m['author'] ?? '') === 'admin'): ?>
-                                            <div style="background:rgba(34,197,94,.07);border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:10px 13px;margin-bottom:12px;color:#d8d8e8;">
-                                                <div style="font-size:11px;font-weight:800;color:#86efac;margin-bottom:5px;">Ответ администратора · <?= date('d.m.Y H:i', strtotime($m['created_at'])) ?></div>
-                                                <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
-                                            </div>
-                                        <?php else: ?>
-                                            <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
-                                        <?php endif; ?>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
-                                <?php endif; ?>
-                                <form action="" method="POST" style="display:grid;gap:8px;">
-                                    <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
-                                    <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
-                                    <div><button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button></div>
-                                </form>
-                            </div>
-                        <?php endforeach; ?>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- ════ ДЕТАЛЬ ЗАКАЗА ════ -->
-                    <div id="order-detail-panel" style="display:<?= isset($_GET['view_order']) ? 'block' : 'none' ?>;">
-                        <div class="panel" data-panel="order-detail" style="max-width:1100px;margin:0 auto;padding:0;background:transparent;border:none;">
-                            <?php if (!empty($viewOrder)): ?>
-                                <?php
-                                    $isUrgentView = $viewOrder['status'] === 'urgent';
-                                    $dlBadge = '';
-                                    if (!empty($viewOrder['deadline'])) {
-                                        $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
-                                    } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
-                                        $dlBadge = deadlineBadge($viewOrder['created_at'], $isUrgentView);
-                                    }
-                                    $cleanTg = trim($viewOrder['telegram'] ?? '');
-                                    $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
-                                    $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
-                                    $examples = [];
-                                    $raw = $viewOrder['example_photo'] ?? '';
-                                    if ($raw !== '') {
-                                        $dec = json_decode($raw, true);
-                                        $examples = is_array($dec) ? $dec : [$raw];
-                                    }
-                                ?>
-
-                                <!-- Шапка заказа -->
-                                <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
-                                    <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#8a8a96;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:5px;">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> Назад
-                                    </a>
-                                    <span style="color:#2a2a38;">|</span>
-                                    <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#8a8a96;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
-                                    <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></span>
-                                    <?php if ($dlBadge): echo $dlBadge; endif; ?>
-                                    <?php if (!empty($viewOrder['cooperation'])): ?>
-                                        <span style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>
-                                    <?php endif; ?>
-                                </div>
-
-                                <!-- Двухколоночный layout -->
-                                <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;">
-
-                                    <!-- Левая колонка -->
-                                    <div style="display:grid;gap:14px;">
-
-                                        <!-- Инфо о клиенте + ТЗ -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-                                                <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Клиент</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['username'] ?? '—') ?></div>
-                                                </div>
-                                                <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Telegram</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;">
-                                                        <?php if ($cleanTg): ?>
-                                                            <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="color:#60a5fa;text-decoration:none;">@<?= htmlspecialchars($cleanTg) ?></a>
-                                                        <?php else: ?>—<?php endif; ?>
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
-                                                </div>
-                                                <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
-                                                </div>
-                                            </div>
-                                            <?php if (!empty($viewOrder['details'])): ?>
-                                                <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
-                                                <div style="background:#0b0b10;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
-                                            <?php endif; ?>
-                                        </div>
-
-                                        <!-- Файлы -->
-                                        <?php if ($screenshotSrc !== '' || !empty($examples)): ?>
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
-                                            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
-                                                <?php if ($screenshotSrc !== ''): ?>
-                                                <div>
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
-                                                    <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank">
-                                                        <img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
-                                                    </a>
-                                                </div>
-                                                <?php endif; ?>
-                                                <?php if (!empty($examples)): ?>
-                                                <div style="flex:1;">
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Референсы</div>
-                                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                                        <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
-                                                            <?php if ($exSrc !== ''): ?>
-                                                                <a href="<?= htmlspecialchars($exSrc) ?>" target="_blank">
-                                                                    <img src="<?= htmlspecialchars($exSrc) ?>" style="width:100px;height:80px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'">
-                                                                </a>
-                                                            <?php endif; ?>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                </div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                        <?php endif; ?>
-
-                                        <!-- Переписка -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Переписка</div>
-                                            <?php if (!empty($orderAppeals)): ?>
-                                                <?php foreach ($orderAppeals as $oap):
-                                                    $mstmt3 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-                                                    $mstmt3->execute([(int)$oap['id']]);
-                                                    $msgs3 = $mstmt3->fetchAll(PDO::FETCH_ASSOC) ?: [];
-                                                ?>
-                                                <div style="margin-bottom:14px;">
-                                                    <div style="font-size:11px;color:#8a8a96;font-weight:700;margin-bottom:8px;"><?= htmlspecialchars($oap['subject'] ?: 'Обращение') ?></div>
-                                                    <?php foreach ($msgs3 as $m): ?>
-                                                        <?php $isAdmin = ($m['author'] ?? '') === 'admin'; ?>
-                                                        <div style="display:flex;gap:8px;margin-bottom:8px;<?= $isAdmin ? 'flex-direction:row-reverse;' : '' ?>">
-                                                            <div style="width:28px;height:28px;border-radius:50%;background:<?= $isAdmin ? 'rgba(249,115,22,.2)' : 'rgba(96,165,250,.2)' ?>;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;">
-                                                                <?= $isAdmin ? '⚙' : '👤' ?>
-                                                            </div>
-                                                            <div style="background:<?= $isAdmin ? 'rgba(249,115,22,.06)' : 'rgba(96,165,250,.06)' ?>;border:1px solid <?= $isAdmin ? 'rgba(249,115,22,.15)' : 'rgba(96,165,250,.15)' ?>;border-radius:10px;padding:10px 12px;max-width:85%;">
-                                                                <div style="font-size:10px;color:#555568;margin-bottom:4px;"><?= $isAdmin ? 'Дизайнер' : 'Клиент' ?> · <?= date('d.m H:i', strtotime($m['created_at'])) ?></div>
-                                                                <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars($m['message'])) ?></div>
-                                                            </div>
-                                                        </div>
-                                                    <?php endforeach; ?>
-                                                </div>
-                                                <?php endforeach; ?>
-                                            <?php else: ?>
-                                                <div style="color:#555568;font-size:13px;">Переписки пока нет.</div>
-                                            <?php endif; ?>
-
-                                            <!-- Форма нового сообщения -->
-                                            <form action="" method="POST" style="margin-top:16px;display:grid;gap:8px;">
-                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                                <input type="text" name="msg_subject" placeholder="Тема" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>" style="font-size:13px;margin:0;padding:10px 12px;">
-                                                <textarea name="msg_text" required rows="3" placeholder="Сообщение клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;margin:0;"></textarea>
-                                                <button type="submit" name="send_order_message" class="btn-panel" style="margin-top:0;">📤 Отправить клиенту</button>
-                                            </form>
-                                        </div>
-
-                                    </div>
-
-                                    <!-- Правая колонка — действия -->
-                                    <div style="display:grid;gap:12px;position:sticky;top:18px;">
-
-                                        <!-- Статус-кнопки -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
-                                            <form method="POST" style="display:grid;gap:8px;">
-                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                                <button name="order_action" value="take_work" style="border:none;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">🚀 Взять в работу</button>
-                                                <button name="order_action" value="urgent" style="border:none;border-radius:10px;padding:11px;background:rgba(239,184,74,.15);color:#efb84a;border:1px solid rgba(239,184,74,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">⚡ Сделать срочным</button>
-                                                <button name="order_action" value="ready" style="border:none;border-radius:10px;padding:11px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;">✅ Отметить готовым</button>
-                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
-                                                    <button name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:none;border-radius:10px;padding:10px;background:rgba(251,113,133,.12);color:#fb7185;border:1px solid rgba(251,113,133,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">❌ Отклонить</button>
-                                                    <button name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:none;border-radius:10px;padding:10px;background:rgba(124,58,237,.15);color:#a78bfa;border:1px solid rgba(124,58,237,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;">🚫 Бан</button>
-                                                </div>
-                                            </form>
-                                        </div>
-
-                                        <!-- Написать клиенту -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
-                                            <?php if ($cleanTg): ?>
-                                                <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);color:#60a5fa;border-radius:10px;padding:10px;text-decoration:none;font-size:13px;font-weight:700;margin-bottom:10px;">
-                                                    💬 Открыть чат в Telegram
-                                                </a>
-                                            <?php endif; ?>
-                                            <form method="POST" style="display:grid;gap:8px;">
-                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                                <input type="hidden" name="order_action" value="message_client">
-                                                <textarea name="message_text" rows="3" placeholder="Сообщение через бот..." style="background:#0b0b10;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;width:100%;box-sizing:border-box;margin:0;"></textarea>
-                                                <button type="submit" style="border:none;border-radius:10px;padding:10px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">✉️ Отправить через бот</button>
-                                            </form>
-                                        </div>
-
-                                    </div>
-                                </div>
-
-                                <style>
-                                @media(max-width:768px){
-                                    [style*="grid-template-columns:1fr 340px"]{grid-template-columns:1fr!important;}
-                                    [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}
-                                }
-                                </style>
-
-                            <?php else: ?>
-                                <div class="panel" style="text-align:center;padding:40px;">
-                                    <div style="font-size:32px;margin-bottom:12px;">📦</div>
-                                    <div style="color:#8a8a96;">Заказ не найден. <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#f97316;">Вернуться назад</a></div>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </section>
-            </div>
-        </div>
+    <div class="tg-code-box">
+      <?php if ($linkCode): ?>
+      <span class="tg-code-val" id="modalCode">/customer_<?= htmlspecialchars($linkCode) ?></span>
+      <button class="tg-copy-btn" id="copyCodeBtn" onclick="copyModalCode()">Копировать</button>
+      <?php else: ?>
+      <span class="tg-code-val" style="font-size:12px;color:#8a8a96;">Обнови страницу — код генерируется</span>
+      <?php endif; ?>
     </div>
+
+    <div class="tg-steps">
+      <div class="tg-step">
+        <div class="tg-step-num">2</div>
+        <div class="tg-step-text">Открой бота и отправь ему этот код — он автоматически всё привяжет.<br><span style="color:#6b6b7a;font-size:11px;">Или просто нажми кнопку ниже — код отправится автоматически через deep link.</span></div>
+      </div>
+    </div>
+
+    <a href="https://t.me/kostlimdznbot?start=link_<?= htmlspecialchars($linkCode ?? '') ?>"
+       class="tg-bot-open-btn" id="openBotBtn"
+       onclick="openTgBotLink(event, this.href)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      Открыть @kostlimdznbot
+    </a>
+
+    <div class="tg-waiting" id="tgWaiting">
+      <div class="tg-spinner"></div>
+      Ожидаю привязку…
+    </div>
+
+    <button class="tg-skip-btn" onclick="closeTgModal()">Закрыть</button>
+  </div>
+</div>
+<?php endif; ?>
+
+<header>
+    <div class="header-left" style="display:flex;align-items:center;gap:10px;">
+        <?php if ($avatar !== ''): ?>
+            <img src="<?= htmlspecialchars(imgSrc($avatar)) ?>" class="avatar-mini" alt="Kostlim">
+        <?php else: ?>
+            <img src="https://i.imgur.com/w9NThbA.png" class="avatar-mini" alt="Kostlim">
+        <?php endif; ?>
+
+        <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </a>
+
+        <?php if ($isAdmin): ?>
+        <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+        <?php endif; ?>
+    </div>
+
+    <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
+
+    <div class="header-right" style="display:flex;align-items:center;gap:10px;">
+        <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
+        <a href="#reviews" class="nav-link nav-reviews" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});"><span class="icon"></span>Отзывы</a>
+
+        <?php if ($isLinked && !empty($tgProfile)): ?>
+        <!-- ── TG ПРОФИЛЬ (привязан) ── -->
+        <a href="profile.php" class="tg-user-chip" title="Личный профиль">
+            <?php if (!empty($tgProfile['tg_photo_url'])): ?>
+                <img src="<?= htmlspecialchars($tgProfile['tg_photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <span class="tg-user-ava-fallback" style="display:none;">
+                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+                </span>
+            <?php else: ?>
+                <span class="tg-user-ava-fallback">
+                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+                </span>
+            <?php endif; ?>
+            <span class="tg-user-name">
+                <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
+            </span>
+            <?php if ($isAdmin): ?>
+                <span class="tg-admin-tag">admin</span>
+            <?php endif; ?>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
+        </a>
+        <?php else: ?>
+        <!-- ── КНОПКА ПРИВЯЗКИ ── -->
+        <button class="nav-link nav-bot tg-link-trigger-btn" onclick="openTgModal()" title="Привязать Telegram">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Привязать TG
+        </button>
+        <?php endif; ?>
+    </div>
+</header>
+
+<main class="container portfolio-stage">
+
+    <!-- ── Категории-фильтры ── -->
+    <div class="tabs-container">
+        <button class="tab-btn active" onclick="filterPortfolio('all', event)">Все работы</button>
+        <?php foreach ($categories as $category): ?>
+            <button class="tab-btn" onclick="filterPortfolio('cat-<?= htmlspecialchars($category['category_key']) ?>', event)">
+                <?= htmlspecialchars($category['title']) ?>
+            </button>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- ── Сетка работ ── -->
+    <section class="portfolio-grid">
+        <?php foreach ($works as $work): ?>
+        <?php
+            $img_file  = $work['image'] ?? '';
+            $ava_file  = $work['avatar_image'] ?? '';
+            $key       = strtolower($work['category_key'] ?? '');
+            $category  = $categoryMap[$key] ?? null;
+            $cat_class = 'cat-' . $key;
+            $isDesign  = !empty($category['is_design']) || in_array($key, ['design','design_pack','banner_avatar'], true);
+            $width     = (int)($category['width_px'] ?? 0);
+            $height    = (int)($category['height_px'] ?? 0);
+            $ratioStyle = (!$isDesign && $width > 0 && $height > 0) ? "--card-ratio:{$width}/{$height};" : '';
+            $sizeText   = ($width > 0 && $height > 0) ? "{$width}x{$height}" : '';
+        ?>
+        <article class="portfolio-card filter-item <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
+            <div class="portfolio-media">
+                <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
+                     class="<?= $isDesign ? 'design-banner' : '' ?>"
+                     alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
+                     draggable="false"
+                     onerror="this.style.opacity='0.3'">
+                <?php if ($isDesign && $ava_file !== ''): ?>
+                    <div class="design-avatar-frame">
+                        <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
+                    </div>
+                <?php endif; ?>
+            </div>
+            <div class="portfolio-meta">
+                <div class="portfolio-title">
+                    <?= htmlspecialchars($work['title'] ?? 'Без названия') ?>
+                    <?php if ($sizeText !== ''): ?>
+                        <span style="display:block;color:var(--text2);font-size:11px;margin-top:3px;"><?= htmlspecialchars($sizeText) ?> px</span>
+                    <?php endif; ?>
+                </div>
+                <div class="portfolio-price"><?= (int)($work['price_rub'] ?? 0) ?>₽/<?= (int)($work['price_uan'] ?? 0) ?>грн</div>
+                <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
+                <button class="order-pill"
+                    onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
+                    ЗАКАЗАТЬ
+                </button>
+            </div>
+        </article>
+        <?php endforeach; ?>
+    </section>
 </main>
 
-<script>
-function showToast(msg, type = 'success', duration = 5000) {
-    const t = document.getElementById('admin-toast');
-    t.textContent = msg;
-    t.className   = 'show ' + type;
-    clearTimeout(t._timer);
-    t._timer = setTimeout(() => { t.classList.remove('show'); }, duration);
+<!-- ══════════════════ СЕКЦИЯ ОТЗЫВОВ ══════════════════ -->
+<section id="reviews" style="max-width:1200px;margin:0 auto;padding:60px 20px 40px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:32px;">
+        <div>
+            <h2 style="margin:0 0 6px;font-size:26px;font-weight:900;">⭐ Отзывы клиентов</h2>
+            <?php
+                $avgRating = 0; $totalReviews = count($reviews);
+                if ($totalReviews > 0) $avgRating = round(array_sum(array_column($reviews,'rating')) / $totalReviews, 1);
+            ?>
+            <?php if ($totalReviews > 0): ?>
+            <div style="display:flex;align-items:center;gap:8px;color:#8a8a96;font-size:14px;">
+                <span style="color:#f97316;font-size:18px;text-shadow:0 0 12px rgba(249,115,22,0.6);letter-spacing:2px;font-weight:bold;"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
+                <strong style="color:#fff;"><?= $avgRating ?></strong>
+                <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
+            </div>
+            <?php endif; ?>
+        </div>
+        <a href="review.php" id="leaveReviewBtn" onclick="return handleReviewClick(event)" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(249,115,22,.3);">
+            ✍️ Оставить отзыв
+        </a>
+    </div>
+
+    <?php if (empty($reviews)): ?>
+        <div style="text-align:center;padding:60px 20px;color:#555568;">
+            <div style="font-size:40px;margin-bottom:12px;">💬</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:6px;">Пока нет отзывов</div>
+            <div style="font-size:13px;">Будьте первым, кто оставит отзыв!</div>
+        </div>
+    <?php else: ?>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+        <?php foreach ($reviews as $rv): ?>
+            <div style="background:#111116;border:1px solid #20202c;border-radius:16px;padding:20px;position:relative;transition:.2s;" onmouseover="this.style.borderColor='rgba(249,115,22,.3)'" onmouseout="this.style.borderColor='#20202c'">
+                <?php if ($isAdmin): ?>
+                    <a href="?delete_review=<?= (int)$rv['id'] ?>" onclick="return confirm('Удалить отзыв?')" style="position:absolute;top:12px;right:12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:4px 8px;color:#ef4444;font-size:11px;font-weight:700;text-decoration:none;">✕ Удалить</a>
+                <?php endif; ?>
+                <!-- Профиль -->
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                    <?php if (!empty($rv['tg_photo_url'])): ?>
+                        <img src="<?= htmlspecialchars($rv['tg_photo_url']) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);" onerror="this.style.display='none'">
+                    <?php else: ?>
+                        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
+                            <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
+                        </div>
+                    <?php endif; ?>
+                    <div style="min-width:0;">
+                        <div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                            <?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?>
+                        </div>
+                        <?php if (!empty($rv['tg_username'])): ?>
+                        <div style="font-size:12px;color:#8a8a96;">@<?= htmlspecialchars($rv['tg_username']) ?></div>
+                        <?php endif; ?>
+                    </div>
+                    <!-- Звёзды -->
+                    <div style="margin-left:auto;flex-shrink:0;">
+                        <?php for($s=1;$s<=5;$s++): ?>
+                            <span style="font-size:18px;color:<?= $s <= $rv['rating'] ? '#f97316' : '#2a2a38' ?>;<?= $s <= $rv['rating'] ? 'text-shadow:0 0 12px rgba(249,115,22,0.6);font-weight:bold;' : '' ?>">★</span>
+                        <?php endfor; ?>
+                    </div>
+                </div>
+                <!-- Текст -->
+                <div style="font-size:13px;color:#c8c8d8;line-height:1.65;word-break:break-word;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
+                <!-- Дата -->
+                <div style="margin-top:12px;font-size:11px;color:#555568;"><?= date('d.m.Y', strtotime($rv['created_at'])) ?></div>
+            </div>
+        <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</section>
+
+<footer>
+    <div class="container">© <?= date('Y') ?> Kostlim Design</div>
+</footer>
+
+<?php if (!$isLinked): ?>
+<!-- ══ ВСПЛЫВАЮЩАЯ ПЛАШКА ПРИВЯЗКИ TG ══ -->
+<div class="tg-float-banner" id="tgFloatBanner">
+    <button class="tg-float-close" id="tgFloatClose" title="Закрыть">×</button>
+    <div class="tg-float-inner">
+        <div class="tg-float-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </div>
+        <div class="tg-float-text">
+            <div class="tg-float-title">Привяжи Telegram</div>
+            <div class="tg-float-sub">Получай уведомления о заказах и&nbsp;личный профиль с&nbsp;историей</div>
+        </div>
+    </div>
+    <div class="tg-float-perks">
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            Статусы заказов в боте
+        </div>
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            Личный профиль на сайте
+        </div>
+        <div class="tg-float-perk">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            История всех заказов
+        </div>
+    </div>
+    <button class="tg-float-btn" onclick="openTgModal(); document.getElementById('tgFloatBanner').classList.remove('show');">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Привязать Telegram
+    </button>
+</div>
+
+<style>
+.tg-float-banner {
+    position: fixed;
+    bottom: 28px;
+    right: 24px;
+    width: 270px;
+    background: #0f0f14;
+    border: 1px solid rgba(249,115,22,0.35);
+    border-radius: 18px;
+    padding: 18px 16px 16px;
+    box-shadow: 0 0 40px rgba(249,115,22,0.15), 0 20px 60px rgba(0,0,0,0.7);
+    z-index: 8000;
+    transform: translateY(20px) scale(0.96);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .35s cubic-bezier(.34,1.56,.64,1), opacity .3s ease;
+}
+.tg-float-banner.show {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+}
+/* Оранжевое свечение сверху */
+.tg-float-banner::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: 20px; right: 20px; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(249,115,22,0.7), transparent);
+    border-radius: 2px;
 }
 
-document.getElementById('portfolio-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const btn  = document.getElementById('portfolio-submit-btn');
-    const form = this;
+.tg-float-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: none; border: none;
+    color: #44445a; font-size: 18px;
+    cursor: pointer; line-height: 1;
+    transition: color .2s;
+    padding: 2px 4px;
+}
+.tg-float-close:hover { color: #888; }
 
-    btn.disabled = true;
-    btn.classList.add('loading');
-    showToast('⏳ Загружаем на ImgBB... Это может занять 10–30 сек.', 'loading', 60000);
-    const fd = new FormData(form);
-    fd.append('add_portfolio', '1');
-    try {
-        const resp = await fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-        const data = await resp.json();
-        showToast(data.msg, data.ok ? 'success' : 'error', 7000);
-        if (data.ok) { form.reset(); document.querySelectorAll('.file-upload-name, .mini-file-name').forEach(el => { el.textContent = 'Файл не выбран'; el.classList.remove('has-file'); }); }
-    } catch (err) {
-        showToast('❌ Ошибка соединения. Попробуй ещё раз.', 'error', 7000);
-    } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
+.tg-float-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-right: 18px;
+}
+.tg-float-icon {
+    width: 42px; height: 42px; flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(249,115,22,0.2), rgba(249,115,22,0.06));
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+}
+.tg-float-title {
+    font-size: 14px;
+    font-weight: 900;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+.tg-float-sub {
+    font-size: 11px;
+    color: #8a8a96;
+    line-height: 1.45;
+}
+
+.tg-float-perks {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+.tg-float-perk {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: #c0c0d0;
+    font-weight: 600;
+}
+
+.tg-float-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 0 18px rgba(249,115,22,0.35);
+    transition: opacity .2s, transform .2s;
+}
+.tg-float-btn:hover { opacity: .88; transform: translateY(-1px); }
+
+@media(max-width: 480px) {
+    .tg-float-banner {
+        width: calc(100vw - 32px);
+        right: 16px;
+        bottom: 20px;
+        border-radius: 16px;
     }
-});
-
-function toggleAvatarField() {
-    const category = document.getElementById('category_select').value;
-    const block    = document.getElementById('avatar_upload_block');
-    const designCategories = <?= json_encode(array_values(array_filter(array_map(fn($c) => !empty($c['is_design']) ? $c['category_key'] : null, $categories))), JSON_UNESCAPED_UNICODE) ?>;
-    block.style.display = designCategories.includes(category) ? 'block' : 'none';
 }
+</style>
 
-function activateAdminTab(tab) {
-    const ordPanel = document.getElementById('order-detail-panel');
-    if (ordPanel) ordPanel.style.display = 'none';
+<script>
+(function() {
+    var banner  = document.getElementById('tgFloatBanner');
+    var closeBtn = document.getElementById('tgFloatClose');
+    if (!banner) return;
 
-    document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    const stats  = document.querySelector('.stats-grid');
-    const layout = document.querySelector('.admin-layout');
-    if (stats)  stats.classList.add('tab-hidden');
-    if (layout) layout.classList.add('single-column');
-    document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
+    // Не показываем если пользователь уже закрывал (до конца сессии)
+    if (sessionStorage.getItem('tgBannerClosed')) return;
 
-    const show = (...names) => names.forEach(n => {
-        document.querySelectorAll(`.panel[data-panel="${n}"]`).forEach(el => el.classList.remove('tab-hidden'));
+    // Показываем через 4 секунды
+    var showTimer = setTimeout(function() {
+        banner.classList.add('show');
+    }, 4000);
+
+    closeBtn.addEventListener('click', function() {
+        banner.classList.remove('show');
+        sessionStorage.setItem('tgBannerClosed', '1');
+        clearTimeout(showTimer);
     });
+})();
+</script>
+<?php endif; ?>
 
-    if (tab === 'overview')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
-    else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); if (layout) layout.classList.remove('single-column'); }
-    else if (tab === 'price')     { show('price-add','price-manager');      if (layout) layout.classList.remove('single-column'); }
-    else if (tab === 'orders')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
-    else if (tab === 'categories'){ show('categories'); }
-    else if (tab === 'reviews')   { show('reviews'); }
-    else if (tab === 'commands')  { show('commands'); }
-    else if (tab === 'rules')     { show('rules'); }
-    else if (tab === 'appeals')   { show('appeals'); }
-    else if (tab === 'avatar')    { show('avatar'); }
+<script>
+// ── Статус привязки (из PHP) ──
+var IS_LINKED = <?= $isLinked ? 'true' : 'false' ?>;
+var pendingOrderService = '';
+var pollInterval = null;
+
+// ── Открыть бота TG (фикс для iOS Safari — target=_blank там глючит) ──
+function openTgBotLink(e, url) {
+    e.preventDefault();
+    startPolling();
+    // На iOS Safari используем location.href чтобы Telegram открылся корректно
+    var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isIOS) {
+        window.location.href = url;
+    } else {
+        window.open(url, '_blank');
+    }
 }
 
-function initFileInputs() {
-    document.querySelectorAll('input[type="file"]').forEach(input => {
-        if (input.dataset.styled) return;
-        input.dataset.styled = '1';
-        input.classList.add('styled-hidden');
-        const isMini = input.closest('.mini-media-form') !== null;
-        const wrap   = document.createElement('div');
-        wrap.className = isMini ? 'mini-file-wrap' : 'file-upload-wrap';
-        const label  = document.createElement('label');
-        label.htmlFor = input.id || (input.id = 'fi_' + Math.random().toString(36).slice(2));
-        label.className = isMini ? 'mini-file-btn' : 'file-upload-btn';
-        label.style.margin = '0';
-        label.innerHTML = `<svg width="${isMini?12:14}" height="${isMini?12:14}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Выбрать файл`;
-        const nameSpan = document.createElement('span');
-        nameSpan.className = isMini ? 'mini-file-name' : 'file-upload-name';
-        nameSpan.textContent = 'Файл не выбран';
-        input.addEventListener('change', () => {
-            const name = input.files[0]?.name || 'Файл не выбран';
-            const hasFile = !!input.files[0];
-            nameSpan.textContent = hasFile ? name : 'Файл не выбран';
-            nameSpan.classList.toggle('has-file', hasFile);
-        });
-        input.parentNode.insertBefore(wrap, input);
-        wrap.appendChild(input);
-        wrap.appendChild(label);
-        wrap.appendChild(nameSpan);
+// ── Открыть модалку привязки TG (по кнопке в хедере) ──
+function openTgModal() {
+    document.getElementById('tgModalOverlay').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// ── Нажатие «ЗАКАЗАТЬ» — всегда идём на order.php, TG не блокирует ──
+function handleOrder(serviceKey) {
+    pendingOrderService = serviceKey;
+    window.location.href = 'order.php?service=' + encodeURIComponent(serviceKey);
+}
+
+// ── Закрыть модалку ──
+function closeTgModal() {
+    document.getElementById('tgModalOverlay').classList.remove('active');
+    document.body.style.overflow = '';
+    stopPolling();
+}
+
+function handleReviewClick(e) {
+    if (!IS_LINKED) {
+        e.preventDefault();
+        openTgModal();
+        return false;
+    }
+    return true;
+}
+
+// ── Закрыть по клику на оверлей ──
+var _overlay = document.getElementById('tgModalOverlay');
+if (_overlay) {
+    _overlay.addEventListener('click', function(e) {
+        if (e.target === this) closeTgModal();
     });
 }
 
-function initAntiTheft() {
+// ── Копировать код ──
+function copyModalCode() {
+    var el = document.getElementById('modalCode');
+    if (!el) return;
+    var text = el.textContent.trim();
+    navigator.clipboard.writeText(text).then(function() {
+        var btn = document.getElementById('copyCodeBtn');
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
+    }).catch(function() {
+        var tmp = document.createElement('textarea');
+        tmp.value = text; document.body.appendChild(tmp);
+        tmp.select(); document.execCommand('copy'); document.body.removeChild(tmp);
+        var btn = document.getElementById('copyCodeBtn');
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
+    });
+}
+
+// ── Polling: ждём привязку ──
+function startPolling() {
+    var w = document.getElementById('tgWaiting');
+    if (w) w.classList.add('show');
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(checkLinked, 3000);
+}
+
+function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    var w = document.getElementById('tgWaiting');
+    if (w) w.classList.remove('show');
+}
+
+function checkLinked() {
+    fetch('index.php?check_linked=1')
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+            if (data.linked) {
+                stopPolling();
+                IS_LINKED = true;
+                var modal = document.getElementById('tgModal');
+                var displayName = data.first_name || (data.username ? '@' + data.username : 'Ты');
+                var photoHtml = data.photo_url
+                    ? '<img src="' + data.photo_url + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(34,197,94,0.5);margin:0 auto 14px;display:block;" onerror="this.style.display=\'none\'">'
+                    : '<div class="tg-modal-icon" style="background:linear-gradient(135deg,rgba(34,197,94,0.2),rgba(34,197,94,0.08));border-color:rgba(34,197,94,0.35);"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#86efac" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>';
+                modal.innerHTML =
+                    photoHtml +
+                    '<h2>✅ Привязано!</h2>' +
+                    '<p class="tg-modal-sub"><b>' + displayName + '</b>, Telegram успешно связан с сайтом! Теперь в хедере появится твой профиль.</p>' +
+                    '<a href="profile.php" class="tg-bot-open-btn" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 0 20px rgba(34,197,94,0.4);">' +
+                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Мой профиль</a>' +
+                    '<button class="tg-skip-btn" onclick="location.reload()">Закрыть и обновить</button>';
+                // Перезагружаем страницу через 2 сек чтобы показать профиль в хедере
+                setTimeout(function(){ window.location.reload(); }, 2000);
+            }
+        })
+        .catch(function(){});
+}
+
+// ── Фильтрация портфолио ──
+function filterPortfolio(category, event) {
+    document.querySelectorAll('.tab-btn').forEach(function(btn){ btn.classList.remove('active'); });
+    event.currentTarget.classList.add('active');
+    document.querySelectorAll('.filter-item').forEach(function(item) {
+        item.style.display = (category === 'all' || item.classList.contains(category)) ? 'flex' : 'none';
+    });
+}
+
+// ── Антивор ──
+(function() {
     document.addEventListener('contextmenu', function(e) {
-        const t = e.target;
-        if (t.tagName === 'IMG' && (t.classList.contains('case-thumb') || t.classList.contains('case-ava') || t.classList.contains('price-thumb'))) { e.preventDefault(); return false; }
+        if (e.target.closest('.portfolio-media') || e.target.classList.contains('design-avatar')) {
+            e.preventDefault(); return false;
+        }
     }, true);
     document.addEventListener('dragstart', function(e) {
-        if (e.target.tagName === 'IMG') { const c = e.target.classList; if (c.contains('case-thumb') || c.contains('case-ava') || c.contains('price-thumb')) e.preventDefault(); }
+        if (e.target.tagName === 'IMG' && e.target.closest('.portfolio-media')) {
+            e.preventDefault(); return false;
+        }
     }, true);
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    toggleAvatarField();
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('view_order')) {
-        // Показываем таб заказов и скрываем все остальные панели кроме detail
-        document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'orders'));
-        document.querySelectorAll('.panel').forEach(p => {
-            if (p.dataset.panel && p.dataset.panel !== 'order-detail') {
-                p.classList.add('tab-hidden');
-            }
-        });
-        const det = document.querySelector('.panel[data-panel="order-detail"]');
-        if (det) det.classList.remove('tab-hidden');
-        const wrapper = document.getElementById('order-detail-panel');
-        if (wrapper) wrapper.style.display = 'block';
-    } else {
-        activateAdminTab('overview');
-    }
-    initFileInputs();
-    initAntiTheft();
-    document.querySelectorAll('.admin-tab').forEach(btn => {
-        btn.addEventListener('click', () => setTimeout(initFileInputs, 50));
-    });
-});
+})();
 </script>
 </body>
 </html>
