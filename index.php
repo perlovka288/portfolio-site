@@ -638,7 +638,7 @@ body::after {
 
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
         <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
-        <a href="#reviews" class="nav-link" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});" style="font-size:13px;font-weight:700;color:#d8d8e8;text-decoration:none;padding:7px 12px;border-radius:8px;transition:.2s;" onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">⭐ Отзывы</a>
+        <a href="#reviews" class="nav-link nav-reviews" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});"><span class="icon"></span>Отзывы</a>
 
         <?php if ($isLinked && !empty($tgProfile)): ?>
         <!-- ── TG ПРОФИЛЬ (привязан) ── -->
