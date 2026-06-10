@@ -106,14 +106,14 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
         if ($existRow) {
             // Обновляем существующую
             $pdo->prepare("UPDATE tg_links SET tg_id=CAST(? AS VARCHAR), tg_username=?, tg_first_name=?, linked=TRUE WHERE session_id=?")
-                ->execute([(string)$tg_id, $uname ? '@'.$uname : '', $fname, $sid]);
+                ->execute([(string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname, $sid]);
         } else {
             // Создаём новую — сначала генерируем site_code
             $code = strtoupper(substr(md5(uniqid($sid.$tg_id, true)), 0, 6));
             $pdo->prepare("INSERT INTO tg_links (site_code, session_id, tg_id, tg_username, tg_first_name, linked, created_at)
                            VALUES (?, ?, CAST(? AS VARCHAR), ?, ?, TRUE, NOW())
                            ON CONFLICT (site_code) DO NOTHING")
-                ->execute([$code, $sid, (string)$tg_id, $uname ? '@'.$uname : '', $fname]);
+                ->execute([$code, $sid, (string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname]);
         }
 
         // 3. Привязываем client_chat_id к заказам где указан username

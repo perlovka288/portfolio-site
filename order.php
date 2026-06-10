@@ -338,48 +338,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ])]);
             curl_exec($ch); curl_close($ch);
 
-            // Отправляем фото альбомом (sendMediaGroup) — все файлы одним сообщением
+            // Потом отдельно отправляем фото (через upload, не по URL — надёжнее на Render)
             $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
-                $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
+                $photos_to_send[] = $target_dir . $pay_screenshot;
             }
             foreach ($example_imgs as $ref) {
                 if ($ref !== '' && file_exists($target_dir . $ref)) {
-                    $photos_to_send[] = ['path' => $target_dir . $ref, 'label' => 'Референс'];
+                    $photos_to_send[] = $target_dir . $ref;
                 }
             }
-            if (!empty($photos_to_send)) {
-                if (count($photos_to_send) === 1) {
-                    // Один файл — обычное sendPhoto
-                    $p = $photos_to_send[0];
-                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
-                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_POSTFIELDS => [
-                            'chat_id' => $my_chat_id,
-                            'photo'   => new CURLFile(realpath($p['path'])),
-                            'caption' => "📎 {$p['label']} к заказу #{$order_id}",
-                        ]]);
-                    curl_exec($ch); curl_close($ch);
-                } else {
-                    // Несколько файлов — sendMediaGroup (альбом)
-                    $mediaPayload = [];
-                    $postFields   = ['chat_id' => $my_chat_id];
-                    foreach ($photos_to_send as $i => $p) {
-                        $key = 'photo' . $i;
-                        $postFields[$key] = new CURLFile(realpath($p['path']));
-                        $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
-                        // caption только у первого элемента (ограничение TG)
-                        if ($i === 0) {
-                            $mediaItem['caption'] = "📎 Файлы к заказу #{$order_id}";
-                        }
-                        $mediaPayload[] = $mediaItem;
+            if (count($photos_to_send) === 1) {
+                // Одно фото — sendPhoto
+                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POSTFIELDS => [
+                        'chat_id' => $my_chat_id,
+                        'photo'   => new CURLFile(realpath($photos_to_send[0])),
+                        'caption' => '📎 Файл к заказу #' . $order_id,
+                    ]]);
+                curl_exec($ch); curl_close($ch);
+            } elseif (count($photos_to_send) > 1) {
+                // Несколько фото — sendMediaGroup (альбом), caption только на первом
+                $post = ['chat_id' => $my_chat_id];
+                $mediaPayload = [];
+                foreach ($photos_to_send as $i => $photo_path) {
+                    $key = 'photo' . $i;
+                    $post[$key] = new CURLFile(realpath($photo_path));
+                    $item_media = ['type' => 'photo', 'media' => 'attach://' . $key];
+                    if ($i === 0) {
+                        $item_media['caption'] = '📎 Файлы к заказу #' . $order_id;
                     }
-                    $postFields['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
-                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
-                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_POSTFIELDS => $postFields]);
-                    curl_exec($ch); curl_close($ch);
+                    $mediaPayload[] = $item_media;
                 }
+                $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POSTFIELDS => $post]);
+                curl_exec($ch); curl_close($ch);
             }
         }
 

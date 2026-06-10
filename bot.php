@@ -773,7 +773,7 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
     $username   = $user['username'] ?? '';
     $first_name = $user['first_name'] ?? '';
 
-    // Получаем фото профиля через getProfilePhotos
+    // Получаем фото профиля через getProfilePhotos и сохраняем локально (URL TG истекает)
     $photo_url = '';
     try {
         $photosResp = sendTelegram($token, 'getUserProfilePhotos', [
@@ -788,7 +788,20 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
                 $fileData = json_decode($fileResp, true);
                 $filePath = $fileData['result']['file_path'] ?? '';
                 if ($filePath) {
-                    $photo_url = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+                    $tgFileUrl = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+                    // Сохраняем аватарку локально чтобы URL не истекал
+                    $avatarDir = __DIR__ . '/uploads/avatars/';
+                    if (!is_dir($avatarDir)) @mkdir($avatarDir, 0755, true);
+                    $ext = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'jpg';
+                    $localName = 'tg_' . $tg_id . '.' . $ext;
+                    $localPath = $avatarDir . $localName;
+                    $imgData = @file_get_contents($tgFileUrl);
+                    if ($imgData !== false && strlen($imgData) > 100) {
+                        file_put_contents($localPath, $imgData);
+                        $photo_url = 'uploads/avatars/' . $localName;
+                    } else {
+                        $photo_url = $tgFileUrl; // fallback на TG URL
+                    }
                 }
             }
         }

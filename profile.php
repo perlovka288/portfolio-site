@@ -340,7 +340,7 @@ function renderAppealMessages(PDO $pdo, int $aid): string
 
 $displayName = $profile ? (
     !empty($profile['tg_first_name']) ? $profile['tg_first_name'] :
-    (!empty($profile['tg_username'])  ? '@' . $profile['tg_username'] : 'Гость')
+    (!empty($profile['tg_username'])  ? '@' . ltrim($profile['tg_username'], '@') : 'Гость')
 ) : 'Гость';
 
 $activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
@@ -532,7 +532,7 @@ body::before {
         <?php if ($profile): ?>
         <span class="tg-user-chip" style="cursor:default;">
             <?php if (!empty($profile['tg_photo_url'])): ?>
-                <img src="<?= htmlspecialchars($profile['tg_photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
             <?php else: ?>
                 <span class="tg-user-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
@@ -577,7 +577,7 @@ body::before {
 <div class="profile-hero">
     <div class="profile-ava-wrap">
         <?php if (!empty($profile['tg_photo_url'])): ?>
-            <img src="<?= htmlspecialchars($profile['tg_photo_url']) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
             <div class="profile-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
         <?php else: ?>
             <div class="profile-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
@@ -686,6 +686,12 @@ body::before {
 
                 <!-- Форма обращения — ВНУТРИ expanded -->
                 <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
+                    <?php $hasOpenAppeal = !empty(array_filter($orderAppeals, fn($a) => in_array($a['status'], ['open','answered']))); ?>
+                    <?php if ($hasOpenAppeal): ?>
+                        <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:12px 14px;font-size:13px;color:#fdba74;">
+                            ⚠️ У тебя уже есть открытое обращение по этому заказу. Дождись ответа или создай новое после закрытия.
+                        </div>
+                    <?php else: ?>
                     <form method="POST">
                         <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
                         <label>Тема обращения</label>
@@ -694,6 +700,7 @@ body::before {
                         <textarea name="appeal_message" required rows="4" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                         <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить обращение</button>
                     </form>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Тред обращений по этому заказу -->
@@ -703,8 +710,8 @@ body::before {
                     <?php foreach ($orderAppeals as $ap): ?>
                     <div class="appeal-thread-item">
                         <div class="appeal-thread-subject">
-                            <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
-                            📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                            <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : ($ap['status'] === 'closed' ? '#ef4444' : '#22c55e') ?>;"></span>
+                            📩 <?= htmlspecialchars($ap['subject'] ?? '') ?><?php if ($ap['status'] === 'closed'): ?> <span style="font-size:10px;background:rgba(239,68,68,.15);color:#f87171;border-radius:4px;padding:1px 6px;margin-left:4px;">🔒 закрыто</span><?php endif; ?>
                             <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                         </div>
                         <?= renderAppealMessages($pdo, (int)$ap['id']) ?>
@@ -776,6 +783,12 @@ body::before {
 
             <!-- Форма обращения — ВНУТРИ expanded, правильно -->
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
+                <?php $hasOpenAppeal2 = !empty(array_filter($orderAppeals, fn($a) => in_array($a['status'], ['open','answered']))); ?>
+                <?php if ($hasOpenAppeal2): ?>
+                    <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:12px 14px;font-size:13px;color:#fdba74;">
+                        ⚠️ Уже есть открытое обращение. Дождись ответа или создай новое после закрытия.
+                    </div>
+                <?php else: ?>
                 <form method="POST">
                     <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
                     <label>Тема обращения</label>
@@ -784,6 +797,7 @@ body::before {
                     <textarea name="appeal_message" required rows="3" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                     <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить</button>
                 </form>
+                <?php endif; ?>
             </div>
 
             <!-- Тред обращений -->
@@ -793,8 +807,8 @@ body::before {
                 <?php foreach ($orderAppeals as $ap): ?>
                 <div class="appeal-thread-item">
                     <div class="appeal-thread-subject">
-                        <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
-                        📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                        <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : ($ap['status'] === 'closed' ? '#ef4444' : '#22c55e') ?>;"></span>
+                        📩 <?= htmlspecialchars($ap['subject'] ?? '') ?><?php if ($ap['status'] === 'closed'): ?> <span style="font-size:10px;background:rgba(239,68,68,.15);color:#f87171;border-radius:4px;padding:1px 6px;margin-left:4px;">🔒 закрыто</span><?php endif; ?>
                         <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                     </div>
                     <?= renderAppealMessages($pdo, (int)$ap['id']) ?>
