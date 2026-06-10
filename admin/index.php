@@ -2168,6 +2168,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (det) det.classList.remove('tab-hidden');
         const wrapper = document.getElementById('order-detail-panel');
         if (wrapper) wrapper.style.display = 'block';
+        // Растягиваем на всю ширину — скрываем aside, убираем грид
+        const layout = document.querySelector('.admin-layout');
+        if (layout) layout.classList.add('single-column');
+        const sidebarEl = document.querySelector('.admin-layout aside');
+        if (sidebarEl) sidebarEl.style.display = 'none';
     } else {
         activateAdminTab('overview');
     }
