@@ -44,8 +44,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tg_username  = $tgProfile['tg_username']  ?? '';
         $tg_first_name = $tgProfile['tg_first_name'] ?? $name;
         $tg_photo_url = $tgProfile['tg_photo_url']  ?? '';
+        $tg_id_val    = (string)($tgProfile['tg_id'] ?? '');
 
-        try {
+        // Cooldown 5 minutes for non-admins
+        $isAdminReview = ($tg_id_val === '1710365896' || $tg_id_val === (getenv('ADMIN_ID') ?: '1710365896'));
+        if (!$isAdminReview) {
+            try {
+                $cdStmt = $pdo->prepare("SELECT created_at FROM reviews WHERE tg_username = ? ORDER BY id DESC LIMIT 1");
+                $cdStmt->execute([$tg_username]);
+                $lastReview = $cdStmt->fetch(PDO::FETCH_ASSOC);
+                if ($lastReview) {
+                    $secsPassed = time() - strtotime($lastReview['created_at']);
+                    if ($secsPassed < 300) {
+                        $minsLeft = ceil((300 - $secsPassed) / 60);
+                        $error = "⏳ Подождите ещё {$minsLeft} мин. перед следующим отзывом.";
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
+        if (!$error) try {
             $pdo->prepare("INSERT INTO reviews (order_id, tg_username, tg_first_name, tg_photo_url, rating, text) VALUES (?,?,?,?,?,?)")
                 ->execute([$order_id, $tg_username, $tg_first_name, $tg_photo_url, $rating, $text]);
             
@@ -71,6 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $e) {
             $error = 'Ошибка сохранения. Попробуйте ещё раз.';
         }
+        } // end if(!$error)
     }
 }
 ?>
@@ -80,6 +99,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Оставить отзыв — Kostlim Design</title>
+<?php
+// Dynamic favicon from site avatar
+$_favicon_url = '';
+try {
+    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+    if (!empty($_fav_row['avatar'])) {
+        $v = $_fav_row['avatar'];
+        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
+            $_favicon_url = $v;
+        } else {
+            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
+        }
+    }
+} catch (Throwable $e) {}
+?>
+<?php if ($_favicon_url): ?>
+<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
+<?php else: ?>
+<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
+<?php endif; ?>
     <link rel="stylesheet" href="style.css">
     <style>
         body { background:#08080b; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }

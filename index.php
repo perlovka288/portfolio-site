@@ -177,6 +177,26 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kostlim Design | Портфолио</title>
+<?php
+// Dynamic favicon from site avatar
+$_favicon_url = '';
+try {
+    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+    if (!empty($_fav_row['avatar'])) {
+        $v = $_fav_row['avatar'];
+        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
+            $_favicon_url = $v;
+        } else {
+            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
+        }
+    }
+} catch (Throwable $e) {}
+?>
+<?php if ($_favicon_url): ?>
+<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
+<?php else: ?>
+<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
+<?php endif; ?>
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {

@@ -116,19 +116,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
     }
 
-    try {
-        $stmt = $pdo->prepare("SELECT created_at FROM orders WHERE client_ip = ? ORDER BY id DESC LIMIT 1");
-        $stmt->execute([$user_ip]);
-        $last_order = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($last_order) {
-            $seconds_passed = time() - strtotime($last_order['created_at']);
-            if ($seconds_passed < COOLDOWN_SECONDS) {
-                $minutes_left = ceil((COOLDOWN_SECONDS - $seconds_passed) / 60);
-                $error_msg = "⏳ Слишком много заявок. Подождите ещё {$minutes_left} мин. перед новым заказом.";
-                goto render_page;
+    // Cooldown check — skip for admin
+    $sessionTgId = (string)($_SESSION['tg_chat_id'] ?? '');
+    $adminTgId   = getenv('ADMIN_ID') ?: ADMIN_TG_ID;
+    $isAdminOrder = (!empty($_SESSION['admin_logged']) || $sessionTgId === $adminTgId);
+
+    if (!$isAdminOrder) {
+        try {
+            $stmt = $pdo->prepare("SELECT created_at FROM orders WHERE client_ip = ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$user_ip]);
+            $last_order = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($last_order) {
+                $seconds_passed = time() - strtotime($last_order['created_at']);
+                if ($seconds_passed < COOLDOWN_SECONDS) {
+                    $minutes_left = ceil((COOLDOWN_SECONDS - $seconds_passed) / 60);
+                    $error_msg = "⏳ Слишком много заявок. Подождите ещё {$minutes_left} мин. перед новым заказом.";
+                    goto render_page;
+                }
             }
-        }
-    } catch (PDOException $e) {}
+        } catch (PDOException $e) {}
+    }
 
     $captcha_token = $_POST['cf-turnstile-response'] ?? '';
     if (empty($captcha_token)) {
@@ -338,44 +345,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ])]);
             curl_exec($ch); curl_close($ch);
 
-            // Потом отдельно отправляем фото (через upload, не по URL — надёжнее на Render)
+            // Отправляем фото альбомом (sendMediaGroup) — все файлы одним сообщением
             $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
-                $photos_to_send[] = $target_dir . $pay_screenshot;
+                $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
             }
             foreach ($example_imgs as $ref) {
                 if ($ref !== '' && file_exists($target_dir . $ref)) {
-                    $photos_to_send[] = $target_dir . $ref;
+                    $photos_to_send[] = ['path' => $target_dir . $ref, 'label' => 'Референс'];
                 }
             }
-            if (count($photos_to_send) === 1) {
-                // Одно фото — sendPhoto
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => [
-                        'chat_id' => $my_chat_id,
-                        'photo'   => new CURLFile(realpath($photos_to_send[0])),
-                        'caption' => '📎 Файл к заказу #' . $order_id,
-                    ]]);
-                curl_exec($ch); curl_close($ch);
-            } elseif (count($photos_to_send) > 1) {
-                // Несколько фото — sendMediaGroup (альбом), caption только на первом
-                $post = ['chat_id' => $my_chat_id];
-                $mediaPayload = [];
-                foreach ($photos_to_send as $i => $photo_path) {
-                    $key = 'photo' . $i;
-                    $post[$key] = new CURLFile(realpath($photo_path));
-                    $item_media = ['type' => 'photo', 'media' => 'attach://' . $key];
-                    if ($i === 0) {
-                        $item_media['caption'] = '📎 Файлы к заказу #' . $order_id;
+            if (!empty($photos_to_send)) {
+                if (count($photos_to_send) === 1) {
+                    // Один файл — обычное sendPhoto
+                    $p = $photos_to_send[0];
+                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POSTFIELDS => [
+                            'chat_id' => $my_chat_id,
+                            'photo'   => new CURLFile(realpath($p['path'])),
+                            'caption' => "📎 {$p['label']} к заказу #{$order_id}",
+                        ]]);
+                    curl_exec($ch); curl_close($ch);
+                } else {
+                    // Несколько файлов — sendMediaGroup (альбом)
+                    $mediaPayload = [];
+                    $postFields   = ['chat_id' => $my_chat_id];
+                    foreach ($photos_to_send as $i => $p) {
+                        $key = 'photo' . $i;
+                        $postFields[$key] = new CURLFile(realpath($p['path']));
+                        $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
+                        // caption только у первого элемента (ограничение TG)
+                        if ($i === 0) {
+                            $mediaItem['caption'] = "📎 Файлы к заказу #{$order_id}";
+                        }
+                        $mediaPayload[] = $mediaItem;
                     }
-                    $mediaPayload[] = $item_media;
+                    $postFields['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POSTFIELDS => $postFields]);
+                    curl_exec($ch); curl_close($ch);
                 }
-                $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => $post]);
-                curl_exec($ch); curl_close($ch);
             }
         }
 
@@ -412,6 +423,26 @@ render_page:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
+<?php
+// Dynamic favicon from site avatar
+$_favicon_url = '';
+try {
+    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
+    if (!empty($_fav_row['avatar'])) {
+        $v = $_fav_row['avatar'];
+        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
+            $_favicon_url = $v;
+        } else {
+            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
+        }
+    }
+} catch (Throwable $e) {}
+?>
+<?php if ($_favicon_url): ?>
+<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
+<?php else: ?>
+<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
+<?php endif; ?>
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer>
 // ── TG Banner polling ──
