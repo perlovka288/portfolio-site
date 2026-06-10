@@ -16,6 +16,7 @@ $private_chat  = getenv('PRIVATE_CHAT_ID') ?: "-1003781426510";
 $admin_id      = getenv('ADMIN_ID')     ?: "1710365896";
 $imgbb_key     = getenv('IMGBB_KEY')    ?: "";
 $site_url      = "https://portfolio-site-boo5.onrender.com/";
+$bot-url           = "https://web.telegram.org/k/#@kostlimdznbot";
 $avatar_url    = getenv('AVATAR_URL')   ?: "https://i.ibb.co/twWTVGHn/avatar-1780311261.jpg";
 
 // Защита (совместимо с auth.php)
@@ -559,11 +560,11 @@ function getPortfolioCategoryFrame(PDO $pdo, string $category): array
 // ═══════════════════════════════════════════════════════════════
 // ФУНКЦИЯ: Публикация в Telegram-канал
 // ═══════════════════════════════════════════════════════════════
-function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url) {
+function postToChannel($token, $channel_id, $title, $price_rub, $price_uah, $image_url, $site_url, $bot-url ) {
     try {
         $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uah}₴\n\n"
             . "💬 Оценить данную работу можно в комментариях.\n\n"
-            . '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars($site_url, ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
+            . '🚀 Заказать дизайн можно тут - <a href="' . htmlspecialchars($bot-url , ENT_QUOTES, 'UTF-8') . '">Kostlim Design</a>';
 
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
         curl_setopt($ch, CURLOPT_POST, true);
