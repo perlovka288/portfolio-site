@@ -91,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         } // end if(!$error)
     }
-}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
