@@ -799,9 +799,8 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
                     if ($imgData !== false && strlen($imgData) > 100) {
                         file_put_contents($localPath, $imgData);
                         $photo_url = 'uploads/avatars/' . $localName;
-                    } else {
-                        $photo_url = $tgFileUrl; // fallback на TG URL
                     }
+                    // Не сохраняем TG URL — он истекает через ~1 час, будет показана буква-заглушка
                 }
             }
         }
@@ -1319,14 +1318,86 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $price_stmt->execute([$item['service_key']]);
     $price_info = $price_stmt->fetch(PDO::FETCH_ASSOC);
 
-    sendOrderPhotos($token, $admin_id, $item);
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'                  => $admin_id,
-        'text'                     => buildOrderCard($item, $price_info ?: [], $site_url),
-        'parse_mode'               => 'Markdown',
-        'disable_web_page_preview' => true,
-        'reply_markup'             => json_encode(orderKeyboard($item['id'], $item['status'], $item['telegram']), JSON_UNESCAPED_UNICODE),
-    ]);
+    $cardText = buildOrderCard($item, $price_info ?: [], $site_url);
+    $keyboard = orderKeyboard($item['id'], $item['status'], $item['telegram']);
+
+    // Собираем фото
+    $photos = [];
+    foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
+        if (empty($item[$field])) continue;
+        $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
+        if (is_file($path)) {
+            $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => $label, 'is_local' => true];
+        } elseif (str_starts_with((string)$item[$field], 'http')) {
+            $photos[] = ['file' => $item[$field], 'label' => $label, 'is_local' => false];
+        }
+    }
+
+    if (empty($photos)) {
+        // Нет фото — сразу текст с кнопками
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'                  => $admin_id,
+            'text'                     => $cardText,
+            'parse_mode'               => 'Markdown',
+            'disable_web_page_preview' => true,
+            'reply_markup'             => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        ]);
+    } elseif (count($photos) === 1) {
+        // Одно фото — текст в caption + кнопки
+        $p = $photos[0];
+        // Telegram caption limit 1024, при превышении — фото отдельно, текст отдельно
+        $caption = mb_strlen($cardText) <= 1024 ? $cardText : '';
+        if ($p['is_local']) {
+            $fields = [
+                'chat_id'    => $admin_id,
+                'photo'      => $p['file'],
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+            ];
+            if ($caption) $fields['caption'] = $caption;
+            $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => $fields]);
+            curl_exec($ch); curl_close($ch);
+        } else {
+            $params = ['chat_id' => $admin_id, 'photo' => $p['file'], 'parse_mode' => 'Markdown', 'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE)];
+            if ($caption) $params['caption'] = $caption;
+            sendTelegram($token, 'sendPhoto', $params);
+        }
+        if (!$caption) {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $admin_id, 'text' => $cardText, 'parse_mode' => 'Markdown',
+                'disable_web_page_preview' => true,
+                'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+            ]);
+        }
+    } else {
+        // Несколько фото — mediaGroup без кнопок (ограничение TG), потом текст+кнопки
+        $hasLocal = array_filter($photos, fn($p) => $p['is_local']);
+        if ($hasLocal) {
+            $post = ['chat_id' => $admin_id];
+            $mediaPayload = [];
+            foreach ($photos as $i => $p) {
+                $key = 'photo' . $i;
+                $post[$key] = $p['file'];
+                $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$key}"];
+            }
+            $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+            $ch = curl_init("https://api.telegram.org/bot{$token}/sendMediaGroup");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => $post]);
+            curl_exec($ch); curl_close($ch);
+        } else {
+            $mediaPayload = array_map(fn($p) => ['type' => 'photo', 'media' => $p['file']], $photos);
+            sendTelegram($token, 'sendMediaGroup', ['chat_id' => $admin_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
+        }
+        // Текст + кнопки отдельным сообщением
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'                  => $admin_id,
+            'text'                     => $cardText,
+            'parse_mode'               => 'Markdown',
+            'disable_web_page_preview' => true,
+            'reply_markup'             => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        ]);
+    }
 }
 
 function buildOrderCard($item, $price_info, $site_url) {
