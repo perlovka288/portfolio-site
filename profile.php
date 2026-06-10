@@ -12,6 +12,10 @@ if (!function_exists('imgSrc')) {
     function imgSrc(string $val, string $base = 'uploads/'): string {
         if ($val === '') return '';
         if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+        // Если в БД уже записан путь с uploads/ — не дублируем префикс
+        if (str_starts_with($val, 'uploads/') || str_starts_with($val, '/uploads/')) {
+            return '/' . ltrim($val, '/');
+        }
         return '/' . ltrim($base . $val, '/');
     }
 }
@@ -186,7 +190,8 @@ try {
                             $_imgData = @file_get_contents($_tgUrl);
                             if ($_imgData !== false && strlen($_imgData) > 100) {
                                 file_put_contents($_avatarDir . $_localFile, $_imgData);
-                                $_newPhotoUrl = 'uploads/avatars/' . $_localFile;
+                                // Сохраняем только относительный путь от uploads/ — imgSrc() сама добавит uploads/
+                                $_newPhotoUrl = 'avatars/' . $_localFile;
                             } else {
                                 $_newPhotoUrl = $_tgUrl;
                             }
