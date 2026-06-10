@@ -338,25 +338,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ])]);
             curl_exec($ch); curl_close($ch);
 
-            // Потом отдельно отправляем фото (через upload, не по URL — надёжнее на Render)
+            // Отправляем фото альбомом (sendMediaGroup) — все файлы одним сообщением
             $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
-                $photos_to_send[] = $target_dir . $pay_screenshot;
+                $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
             }
             foreach ($example_imgs as $ref) {
                 if ($ref !== '' && file_exists($target_dir . $ref)) {
-                    $photos_to_send[] = $target_dir . $ref;
+                    $photos_to_send[] = ['path' => $target_dir . $ref, 'label' => 'Референс'];
                 }
             }
-            foreach ($photos_to_send as $photo_path) {
-                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
-                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_POSTFIELDS => [
-                        'chat_id' => $my_chat_id,
-                        'photo'   => new CURLFile(realpath($photo_path)),
-                        'caption' => '📎 Файл к заказу #' . $order_id,
-                    ]]);
-                curl_exec($ch); curl_close($ch);
+            if (!empty($photos_to_send)) {
+                if (count($photos_to_send) === 1) {
+                    // Один файл — обычное sendPhoto
+                    $p = $photos_to_send[0];
+                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POSTFIELDS => [
+                            'chat_id' => $my_chat_id,
+                            'photo'   => new CURLFile(realpath($p['path'])),
+                            'caption' => "📎 {$p['label']} к заказу #{$order_id}",
+                        ]]);
+                    curl_exec($ch); curl_close($ch);
+                } else {
+                    // Несколько файлов — sendMediaGroup (альбом)
+                    $mediaPayload = [];
+                    $postFields   = ['chat_id' => $my_chat_id];
+                    foreach ($photos_to_send as $i => $p) {
+                        $key = 'photo' . $i;
+                        $postFields[$key] = new CURLFile(realpath($p['path']));
+                        $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
+                        // caption только у первого элемента (ограничение TG)
+                        if ($i === 0) {
+                            $mediaItem['caption'] = "📎 Файлы к заказу #{$order_id}";
+                        }
+                        $mediaPayload[] = $mediaItem;
+                    }
+                    $postFields['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POSTFIELDS => $postFields]);
+                    curl_exec($ch); curl_close($ch);
+                }
             }
         }
 

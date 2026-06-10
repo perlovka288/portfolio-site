@@ -592,7 +592,7 @@ body::before {
             <?php if ($isAdmin): ?><span style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;color:#fb923c;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.35);border-radius:5px;padding:2px 7px;vertical-align:middle;margin-left:6px;">admin</span><?php endif; ?>
         </div>
         <?php if (!empty($profile['tg_username'])): ?>
-            <div class="profile-username">@<?= htmlspecialchars($profile['tg_username']) ?></div>
+            <div class="profile-username">@<?= htmlspecialchars(ltrim($profile['tg_username'], '@')) ?></div>
         <?php endif; ?>
         <div class="profile-meta">
             <div class="profile-stat"><div class="profile-stat-num"><?= count($orders) ?></div><div class="profile-stat-label">Всего</div></div>
