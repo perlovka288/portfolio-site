@@ -1,3 +1,27 @@
+# ✅ ИСПРАВЛЕННЫЙ .htaccess с скрытием .php и улучшениями
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteBase /
+
+# ──────────────────────────────────────────────────────────
+# ✅ СКРЫВАЕМ .php РАСШИРЕНИЕ из URL
+# ──────────────────────────────────────────────────────────
+
+# Если файл/папка существует - ничего не делаем
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Переписываем запросы без .php в файлы с .php (невидимо)
+# Например: /order → /order.php, но URL остаётся /order
+RewriteRule ^([a-zA-Z0-9_-]+)/?$ $1.php [QSA,L]
+RewriteRule ^([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)/?$ $1.php?$2 [QSA,L]
+
+# GET параметры передаём как есть (QSA = Query String Append)
+# Например: /order?service=preview остаётся /order?service=preview
+
+</IfModule>
+
 # ── Индексный файл ──
 DirectoryIndex index.php index.html
 
@@ -7,10 +31,30 @@ php_value post_max_size 34M
 php_value memory_limit 128M
 php_value max_execution_time 60
 
-# ── SameSite куки для Safari/iOS ──
-# НЕ делаем HTTPS-редирект — Render уже терминирует TLS на своём прокси,
-# Apache внутри контейнера всегда видит HTTP → редирект зацикливается.
+# ── Безопасность ──
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    # ── SameSite куки для Safari/iOS ──
     Header always edit Set-Cookie (.*) "$1; SameSite=None; Secure"
+</IfModule>
+
+# ── Защита от доступа к чувствительным файлам ──
+<FilesMatch "^(\.env|composer\.json|\.git|config|database)">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── Кэширование статических файлов ──
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType font/woff2 "access plus 1 year"
 </IfModule>

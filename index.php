@@ -193,9 +193,27 @@ try {
 } catch (Throwable $e) {}
 ?>
 <?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
+<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>" sizes="any">
+<link rel="apple-touch-icon" href="<?= htmlspecialchars($_favicon_url) ?>">
+<link rel="shortcut icon" href="<?= htmlspecialchars($_favicon_url) ?>">
+<style>
+  /* ✅ Скругляем favicon для всех браузеров */
+  link[rel~="icon"], 
+  link[rel~="apple-touch-icon"],
+  link[rel~="shortcut"] {
+    border-radius: 50% !important;
+  }
+  /* Если favicon квадратный - скругляем его через маску */
+  @supports (mask-image: url()) {
+    link[rel~="icon"] {
+      -webkit-mask-image: radial-gradient(circle, black 50%, transparent 100%);
+      mask-image: radial-gradient(circle, black 50%, transparent 100%);
+    }
+  }
+</style>
 <?php else: ?>
 <link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
+<link rel="apple-touch-icon" href="https://i.imgur.com/w9NThbA.png">
 <?php endif; ?>
 <link rel="stylesheet" href="style.css">
 <style>

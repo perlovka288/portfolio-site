@@ -297,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             );
         }
 
-        // Уведомить администратора
+        // ✅ ИСПРАВЛЕНО: Объединяем ТЕКСТ + МЕДИА в ОДНО сообщение в Telegram
         if (!empty($my_chat_id)) {
             $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
             $price_stmt->execute([$service_key]);
@@ -306,19 +306,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $p_rub         = $price_info['price_rub'] ?? 0;
             $p_uan         = $price_info['price_uan'] ?? 0;
 
-            // ✅ УЛУЧШЕННОЕ: Сначала отправляем основное сообщение с ТЗ и всеми деталями
-            $msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}</b>\n\n";
-            $msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
-            $msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
-            $msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
+            // ✅ Формируем ПОЛНЫЙ текст ТЗ
+            $full_msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}</b>\n\n";
+            $full_msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
+            $full_msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
+            $full_msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
             if ($cooperation) {
-                $msg_text .= "💼 <b>Сотрудничество:</b> Да (цена 0₽ / 0₴)\n";
+                $full_msg_text .= "💼 <b>Сотрудничество:</b> Да\n";
+                $full_msg_text .= "💰 <b>Стоимость:</b> 0₽ / 0₴\n";
             } else {
-                $msg_text .= "💰 <b>Стоимость:</b> {$p_rub}₽ / {$p_uan}₴\n";
+                $full_msg_text .= "💰 <b>Стоимость:</b> {$p_rub}₽ / {$p_uan}₴\n";
             }
-            $msg_text .= "\n📝 <b>ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n";
-            $msg_text .= "<pre>" . htmlspecialchars($details) . "</pre>\n";
-            $msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
+            $full_msg_text .= "\n📝 <b>ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n";
+            $full_msg_text .= "<pre>" . htmlspecialchars($details) . "</pre>\n";
+            $full_msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
 
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
@@ -335,18 +336,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ],
             ]];
 
-            // Сначала отправляем основное сообщение с текстом и кнопками
-            $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POSTFIELDS => http_build_query([
-                    'chat_id'      => $my_chat_id,
-                    'text'         => $msg_text,
-                    'parse_mode'   => 'HTML',
-                    'reply_markup' => json_encode($keyboard),
-                ])]);
-            curl_exec($ch); curl_close($ch);
-
-            // ✅ УЛУЧШЕННОЕ: Отправляем фото альбомом (sendMediaGroup) с лучшим форматированием
+            // ✅ Отправляем МЕДИА с ТЕКСТОМ в caption (ОДНО сообщение!)
             $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
                 $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
@@ -356,30 +346,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                     $photos_to_send[] = ['path' => $target_dir . $ref, 'label' => 'Референс'];
                 }
             }
+
             if (!empty($photos_to_send)) {
+                // ✅ ЕСТЬ ФОТО - отправляем с текстом в caption
                 if (count($photos_to_send) === 1) {
-                    // Один файл — обычное sendPhoto
+                    // Одно фото + весь текст в caption
                     $p = $photos_to_send[0];
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
                         CURLOPT_POSTFIELDS => [
                             'chat_id' => $my_chat_id,
                             'photo'   => new CURLFile(realpath($p['path'])),
-                            'caption' => "📎 <b>" . htmlspecialchars($p['label']) . "</b> к заказу <b>#{$order_id}</b>",
+                            'caption' => $full_msg_text . "\n\n📎 " . htmlspecialchars($p['label']),
                             'parse_mode' => 'HTML',
+                            'reply_markup' => json_encode($keyboard),
                         ]]);
                     curl_exec($ch); curl_close($ch);
                 } else {
-                    // Несколько файлов — sendMediaGroup (альбом)
+                    // Несколько фото + текст в caption первого
                     $mediaPayload = [];
-                    $postFields   = ['chat_id' => $my_chat_id];
+                    $postFields   = ['chat_id' => $my_chat_id, 'reply_markup' => json_encode($keyboard)];
                     foreach ($photos_to_send as $i => $p) {
                         $key = 'photo' . $i;
                         $postFields[$key] = new CURLFile(realpath($p['path']));
                         $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
-                        // caption только у первого элемента (ограничение TG)
+                        // ✅ Весь текст + фото в caption первого элемента
                         if ($i === 0) {
-                            $mediaItem['caption'] = "📎 <b>Файлы к заказу #{$order_id}</b>";
+                            $mediaItem['caption'] = $full_msg_text;
                             $mediaItem['parse_mode'] = 'HTML';
                         }
                         $mediaPayload[] = $mediaItem;
@@ -390,6 +383,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         CURLOPT_POSTFIELDS => $postFields]);
                     curl_exec($ch); curl_close($ch);
                 }
+            } else {
+                // ✅ НЕТ ФОТО - отправляем только текст с кнопками
+                $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POSTFIELDS => http_build_query([
+                        'chat_id'      => $my_chat_id,
+                        'text'         => $full_msg_text,
+                        'parse_mode'   => 'HTML',
+                        'reply_markup' => json_encode($keyboard),
+                    ])]);
+                curl_exec($ch); curl_close($ch);
             }
         }
 
