@@ -569,7 +569,7 @@ body::before {
         <?php if ($profile): ?>
         <span class="tg-user-chip" style="cursor:default;">
             <?php if (!empty($profile['tg_photo_url'])): ?>
-                <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '', '') ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
             <?php else: ?>
                 <span class="tg-user-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
@@ -614,7 +614,7 @@ body::before {
 <div class="profile-hero">
     <div class="profile-ava-wrap">
         <?php if (!empty($profile['tg_photo_url'])): ?>
-            <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '', '') ?? '')) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
             <div class="profile-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
         <?php else: ?>
             <div class="profile-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
