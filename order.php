@@ -306,18 +306,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $p_rub         = $price_info['price_rub'] ?? 0;
             $p_uan         = $price_info['price_uan'] ?? 0;
 
-            $msg_text  = "⚡️ НОВЫЙ ЗАКАЗ #{$order_id} ⚡️\n\n";
-            $msg_text .= "👤 Клиент: " . htmlspecialchars($username) . "\n";
-            $msg_text .= "📞 Связь: "  . htmlspecialchars($telegram_raw) . "\n";
-            $msg_text .= "🎨 Услуга: " . htmlspecialchars($service_title) . "\n";
+            // ✅ УЛУЧШЕННОЕ: Сначала отправляем основное сообщение с ТЗ и всеми деталями
+            $msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}</b>\n\n";
+            $msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
+            $msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
+            $msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
             if ($cooperation) {
-                $msg_text .= "💼 Сотрудничество: да (при принятии цена 0₽ / 0₴)\n";
-                $msg_text .= "💰 Стоимость: 0₽ / 0₴\n";
+                $msg_text .= "💼 <b>Сотрудничество:</b> Да (цена 0₽ / 0₴)\n";
             } else {
-                $msg_text .= "💰 Стоимость: {$p_rub}₽ / {$p_uan}₴\n";
+                $msg_text .= "💰 <b>Стоимость:</b> {$p_rub}₽ / {$p_uan}₴\n";
             }
-            $msg_text .= "📝 ТЗ: "     . htmlspecialchars($details) . "\n";
-            $msg_text .= "🌐 IP: {$user_ip}";
+            $msg_text .= "\n📝 <b>ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n";
+            $msg_text .= "<pre>" . htmlspecialchars($details) . "</pre>\n";
+            $msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
 
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
@@ -340,12 +341,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 CURLOPT_POSTFIELDS => http_build_query([
                     'chat_id'      => $my_chat_id,
                     'text'         => $msg_text,
-                    'parse_mode'   => 'Markdown',
+                    'parse_mode'   => 'HTML',
                     'reply_markup' => json_encode($keyboard),
                 ])]);
             curl_exec($ch); curl_close($ch);
 
-            // Отправляем фото альбомом (sendMediaGroup) — все файлы одним сообщением
+            // ✅ УЛУЧШЕННОЕ: Отправляем фото альбомом (sendMediaGroup) с лучшим форматированием
             $photos_to_send = [];
             if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
                 $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
@@ -364,7 +365,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         CURLOPT_POSTFIELDS => [
                             'chat_id' => $my_chat_id,
                             'photo'   => new CURLFile(realpath($p['path'])),
-                            'caption' => "📎 {$p['label']} к заказу #{$order_id}",
+                            'caption' => "📎 <b>" . htmlspecialchars($p['label']) . "</b> к заказу <b>#{$order_id}</b>",
+                            'parse_mode' => 'HTML',
                         ]]);
                     curl_exec($ch); curl_close($ch);
                 } else {
@@ -377,7 +379,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
                         // caption только у первого элемента (ограничение TG)
                         if ($i === 0) {
-                            $mediaItem['caption'] = "📎 Файлы к заказу #{$order_id}";
+                            $mediaItem['caption'] = "📎 <b>Файлы к заказу #{$order_id}</b>";
+                            $mediaItem['parse_mode'] = 'HTML';
                         }
                         $mediaPayload[] = $mediaItem;
                     }
