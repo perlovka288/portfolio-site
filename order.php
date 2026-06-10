@@ -2,6 +2,9 @@
 require_once 'includes/session.php';
 require_once 'config/db.php';
 
+// AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
+processTgAutoLink($pdo);
+
 // ── Гарантируем существование таблицы правил ────────────────────────────
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (
@@ -200,6 +203,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $client_chat_id = null;
         try {
             $sid_now = session_id();
+
+            // Метод 0 (приоритет): tg_chat_id из сессии (автопривязка через ?tg_token=...)
+            if (!empty($_SESSION['tg_chat_id'])) {
+                $client_chat_id = (int)$_SESSION['tg_chat_id'];
+                // Сразу пишем в orders
+                if ($client_chat_id) {
+                    $pdo->prepare("UPDATE orders SET client_chat_id=? WHERE id=?")->execute([$client_chat_id, $order_id]);
+                }
+            }
 
             // Метод 1: по session_id текущей сессии
             if ($sid_now !== '') {

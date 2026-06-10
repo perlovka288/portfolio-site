@@ -12,6 +12,9 @@ require_once 'includes/session.php';
 
 require_once 'config/db.php';
 
+// AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
+processTgAutoLink($pdo);
+
 // ── Защищённый импорт donationalerts (не должен валить страницу) ──────────
 try {
     require_once 'donationalerts.php';

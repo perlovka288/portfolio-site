@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fatal error on every request
 
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
@@ -303,11 +304,26 @@ if (isset($update['message'])) {
             } catch (Throwable $e) {}
         }
 
+        // AUTO-LINK: generate a signed site URL with tg_id so when client visits - TG is auto-linked
+        $auto_tg_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        $site_link = rtrim($site_url, '/') . '/?tg_token=' . $auto_tg_token;
+
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nЗдесь можно посмотреть портфолио, узнать актуальный прайс, отправить ТЗ и проверить статус заказа.",
             'parse_mode'   => 'Markdown',
             'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+        ]);
+        // Send site button separately
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $chat_id,
+            'text'         => "🌐 Перейди на сайт — твой Telegram привяжется *автоматически*:",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '🎨 Открыть Kostlim Design', 'url' => $site_link],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
@@ -338,11 +354,19 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // Портфолио
+    // Портфолио — отправляем ссылку с автопривязкой TG
     if ($text_key === 'смотреть portfolio' || $text_key === 'portfolio' || $text_key === 'портфолио') {
+        $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        $auto_url   = rtrim($site_url, '/') . '/?tg_token=' . $auto_token;
         sendTelegram($token, 'sendMessage', [
-            'chat_id' => $chat_id,
-            'text'    => "🎨 Портфолио Kostlim Design:\n{$site_url}",
+            'chat_id'    => $chat_id,
+            'text'       => "🎨 *Kostlim Design — портфолио и заказы*\n\nНажми кнопку — твой Telegram привяжется автоматически:",
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '🌐 Открыть сайт', 'url' => $auto_url],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
@@ -387,11 +411,19 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // Сделать заказ
+    // Сделать заказ — ссылка с автопривязкой TG
     if ($text_key === 'сделать заказ' || $text_key === 'заказ') {
+        $auto_token  = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        $order_url   = rtrim($site_url, '/') . '/order.php?tg_token=' . $auto_token;
         sendTelegram($token, 'sendMessage', [
-            'chat_id' => $chat_id,
-            'text'    => "🤖 Форма отправки ТЗ:\n{$site_url}order.php",
+            'chat_id'    => $chat_id,
+            'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную:",
+            'parse_mode' => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '📝 Оформить заказ', 'url' => $order_url],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
@@ -682,16 +714,11 @@ if (isset($update['message'])) {
         }
     }
 
-    // В ЛС бот реагирует только на команды — игнорируем обычные сообщения
-    $chat_type = $update['message']['chat']['type'] ?? 'private';
-    if ($chat_type === 'private' && !isBotAdmin($update)) {
-        exit;
-    }
-
-    // Неизвестная команда
+    // Неизвестный текст — показываем меню клиенту
     sendTelegram($token, 'sendMessage', [
         'chat_id'      => $chat_id,
-        'text'         => "Не понял команду. Нажми /menu, чтобы открыть кнопки.",
+        'text'         => "Используй кнопки меню 👇",
+        'parse_mode'   => 'Markdown',
         'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
     ]);
 }
@@ -1519,4 +1546,96 @@ function sendTelegramFile($token, $method, $params = []) {
         botLog("telegram file error method={$method} error={$error} response={$res}");
     }
     return $res;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-LINK SYSTEM — автопривязка TG при переходе на сайт
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Генерирует одноразовый токен для автопривязки TG.
+ * Сохраняет tg_id + данные пользователя в tg_auto_links.
+ * Токен действителен 72 часа.
+ */
+function autoLinkGenerateToken(PDO $pdo, int $tg_chat_id, array $from): string {
+    $token = bin2hex(random_bytes(16)); // 32 символа
+    $tg_username   = $from['username']   ?? '';
+    $tg_first_name = $from['first_name'] ?? '';
+    $tg_last_name  = $from['last_name']  ?? '';
+
+    try {
+        // Создаём таблицу если нет
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tg_auto_links (
+            id         SERIAL PRIMARY KEY,
+            token      VARCHAR(64) NOT NULL UNIQUE,
+            tg_id      BIGINT NOT NULL,
+            tg_username   VARCHAR(120) DEFAULT '',
+            tg_first_name VARCHAR(120) DEFAULT '',
+            tg_last_name  VARCHAR(120) DEFAULT '',
+            used       BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '72 hours'
+        )");
+
+        // Помечаем старые токены этого пользователя как использованные
+        $pdo->prepare("UPDATE tg_auto_links SET used=TRUE WHERE tg_id=? AND used=FALSE")
+            ->execute([$tg_chat_id]);
+
+        // Вставляем новый токен
+        $pdo->prepare("INSERT INTO tg_auto_links (token, tg_id, tg_username, tg_first_name, tg_last_name)
+                       VALUES (?, ?, ?, ?, ?)")
+            ->execute([$token, $tg_chat_id, $tg_username, $tg_first_name, $tg_last_name]);
+
+        botLog("autoLink token generated for tg_id={$tg_chat_id}");
+    } catch (Throwable $e) {
+        botLog("autoLink generate error: " . $e->getMessage());
+        // Возвращаем просто tg_id как fallback (менее безопасно но рабочее)
+        return 'tgid_' . $tg_chat_id;
+    }
+
+    return $token;
+}
+
+/**
+ * Проверяет токен и возвращает данные TG пользователя.
+ * Вызывается со стороны сайта (index.php/order.php).
+ */
+function autoLinkResolveToken(PDO $pdo, string $token): ?array {
+    if (strlen($token) < 8) return null;
+
+    // Fallback — прямой tg_id
+    if (str_starts_with($token, 'tgid_')) {
+        $tg_id = (int)substr($token, 5);
+        if ($tg_id > 0) return ['tg_id' => $tg_id, 'tg_username' => '', 'tg_first_name' => ''];
+        return null;
+    }
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tg_auto_links (
+            id         SERIAL PRIMARY KEY,
+            token      VARCHAR(64) NOT NULL UNIQUE,
+            tg_id      BIGINT NOT NULL,
+            tg_username   VARCHAR(120) DEFAULT '',
+            tg_first_name VARCHAR(120) DEFAULT '',
+            tg_last_name  VARCHAR(120) DEFAULT '',
+            used       BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '72 hours'
+        )");
+
+        $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name, tg_last_name
+                               FROM tg_auto_links
+                               WHERE token=? AND used=FALSE AND expires_at > NOW()
+                               LIMIT 1");
+        $stmt->execute([$token]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+
+        // НЕ помечаем как used сразу — пользователь может обновить страницу
+        // Токен живёт 72ч, потом сам истекает
+        return $row;
+    } catch (Throwable $e) {
+        botLog("autoLink resolve error: " . $e->getMessage());
+        return null;
+    }
 }

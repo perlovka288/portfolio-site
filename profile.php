@@ -2,6 +2,9 @@
 require_once 'includes/session.php';
 require_once 'config/db.php';
 
+// AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
+processTgAutoLink($pdo);
+
 $adminQuery = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $siteAvatar = (!empty($adminQuery['avatar'])) ? $adminQuery['avatar'] : '';
 
