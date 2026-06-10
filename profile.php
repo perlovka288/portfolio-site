@@ -162,6 +162,43 @@ try {
         $tg_id       = $row['tg_id'] ?? '';
         $tg_username = $row['tg_username'] ?? '';
 
+        // ── Lazy avatar refresh: re-fetch if empty or expired TG URL ──
+        $_photoVal = $row['tg_photo_url'] ?? '';
+        $_needsRefresh = ($_photoVal === '' || str_starts_with($_photoVal, 'https://api.telegram.org'));
+        if ($_needsRefresh && $tg_id !== '') {
+            try {
+                $_botToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+                $_photosResp = @file_get_contents("https://api.telegram.org/bot{$_botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1");
+                $_photosData = $_photosResp ? json_decode($_photosResp, true) : null;
+                if (!empty($_photosData['result']['photos'][0])) {
+                    $_fileId = $_photosData['result']['photos'][0][0]['file_id'] ?? '';
+                    if ($_fileId) {
+                        $_fileResp = @file_get_contents("https://api.telegram.org/bot{$_botToken}/getFile?file_id={$_fileId}");
+                        $_fileData = $_fileResp ? json_decode($_fileResp, true) : null;
+                        $_filePath = $_fileData['result']['file_path'] ?? '';
+                        if ($_filePath) {
+                            $_tgUrl = "https://api.telegram.org/file/bot{$_botToken}/{$_filePath}";
+                            // Save locally so URL doesn't expire
+                            $_avatarDir = __DIR__ . '/uploads/avatars/';
+                            if (!is_dir($_avatarDir)) @mkdir($_avatarDir, 0755, true);
+                            $_ext = pathinfo($_filePath, PATHINFO_EXTENSION) ?: 'jpg';
+                            $_localFile = "tg_{$tg_id}.{$_ext}";
+                            $_imgData = @file_get_contents($_tgUrl);
+                            if ($_imgData !== false && strlen($_imgData) > 100) {
+                                file_put_contents($_avatarDir . $_localFile, $_imgData);
+                                $_newPhotoUrl = 'uploads/avatars/' . $_localFile;
+                            } else {
+                                $_newPhotoUrl = $_tgUrl;
+                            }
+                            // Update DB
+                            $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ?")->execute([$_newPhotoUrl, $sid]);
+                            $profile['tg_photo_url'] = $_newPhotoUrl;
+                        }
+                    }
+                }
+            } catch (Throwable $_e) {}
+        }
+
         $params  = [];
         $clauses = [];
         if ($tg_id !== '') {
@@ -340,7 +377,7 @@ function renderAppealMessages(PDO $pdo, int $aid): string
 
 $displayName = $profile ? (
     !empty($profile['tg_first_name']) ? $profile['tg_first_name'] :
-    (!empty($profile['tg_username'])  ? '@' . $profile['tg_username'] : 'Гость')
+    (!empty($profile['tg_username'])  ? '@' . ltrim($profile['tg_username'], '@') : 'Гость')
 ) : 'Гость';
 
 $activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
@@ -365,26 +402,6 @@ $cancelledId     = (int)($_GET['cancelled'] ?? 0);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Профиль | Kostlim Design</title>
-<?php
-// Dynamic favicon from site avatar
-$_favicon_url = '';
-try {
-    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-    if (!empty($_fav_row['avatar'])) {
-        $v = $_fav_row['avatar'];
-        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
-            $_favicon_url = $v;
-        } else {
-            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
-        }
-    }
-} catch (Throwable $e) {}
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {
@@ -552,7 +569,7 @@ body::before {
         <?php if ($profile): ?>
         <span class="tg-user-chip" style="cursor:default;">
             <?php if (!empty($profile['tg_photo_url'])): ?>
-                <img src="<?= htmlspecialchars($profile['tg_photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
             <?php else: ?>
                 <span class="tg-user-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
@@ -597,7 +614,7 @@ body::before {
 <div class="profile-hero">
     <div class="profile-ava-wrap">
         <?php if (!empty($profile['tg_photo_url'])): ?>
-            <img src="<?= htmlspecialchars($profile['tg_photo_url']) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="profile-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
             <div class="profile-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
         <?php else: ?>
             <div class="profile-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></div>
@@ -706,6 +723,12 @@ body::before {
 
                 <!-- Форма обращения — ВНУТРИ expanded -->
                 <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
+                    <?php $hasOpenAppeal = !empty(array_filter($orderAppeals, fn($a) => in_array($a['status'], ['open','answered']))); ?>
+                    <?php if ($hasOpenAppeal): ?>
+                        <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:12px 14px;font-size:13px;color:#fdba74;">
+                            ⚠️ У тебя уже есть открытое обращение по этому заказу. Дождись ответа или создай новое после закрытия.
+                        </div>
+                    <?php else: ?>
                     <form method="POST">
                         <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
                         <label>Тема обращения</label>
@@ -714,6 +737,7 @@ body::before {
                         <textarea name="appeal_message" required rows="4" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                         <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить обращение</button>
                     </form>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Тред обращений по этому заказу -->
@@ -723,8 +747,8 @@ body::before {
                     <?php foreach ($orderAppeals as $ap): ?>
                     <div class="appeal-thread-item">
                         <div class="appeal-thread-subject">
-                            <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
-                            📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                            <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : ($ap['status'] === 'closed' ? '#ef4444' : '#22c55e') ?>;"></span>
+                            📩 <?= htmlspecialchars($ap['subject'] ?? '') ?><?php if ($ap['status'] === 'closed'): ?> <span style="font-size:10px;background:rgba(239,68,68,.15);color:#f87171;border-radius:4px;padding:1px 6px;margin-left:4px;">🔒 закрыто</span><?php endif; ?>
                             <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                         </div>
                         <?= renderAppealMessages($pdo, (int)$ap['id']) ?>
@@ -796,6 +820,12 @@ body::before {
 
             <!-- Форма обращения — ВНУТРИ expanded, правильно -->
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">
+                <?php $hasOpenAppeal2 = !empty(array_filter($orderAppeals, fn($a) => in_array($a['status'], ['open','answered']))); ?>
+                <?php if ($hasOpenAppeal2): ?>
+                    <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:8px;padding:12px 14px;font-size:13px;color:#fdba74;">
+                        ⚠️ Уже есть открытое обращение. Дождись ответа или создай новое после закрытия.
+                    </div>
+                <?php else: ?>
                 <form method="POST">
                     <input type="hidden" name="appeal_order_id" value="<?= $oid ?>">
                     <label>Тема обращения</label>
@@ -804,6 +834,7 @@ body::before {
                     <textarea name="appeal_message" required rows="3" placeholder="Опиши вопрос или пожелание подробно..." minlength="10"></textarea>
                     <button type="submit" name="send_appeal" class="btn-appeal-submit">📤 Отправить</button>
                 </form>
+                <?php endif; ?>
             </div>
 
             <!-- Тред обращений -->
@@ -813,8 +844,8 @@ body::before {
                 <?php foreach ($orderAppeals as $ap): ?>
                 <div class="appeal-thread-item">
                     <div class="appeal-thread-subject">
-                        <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : '#22c55e' ?>;"></span>
-                        📩 <?= htmlspecialchars($ap['subject'] ?? '') ?>
+                        <span class="appeal-status-dot" style="background:<?= $ap['status'] === 'open' ? '#f97316' : ($ap['status'] === 'closed' ? '#ef4444' : '#22c55e') ?>;"></span>
+                        📩 <?= htmlspecialchars($ap['subject'] ?? '') ?><?php if ($ap['status'] === 'closed'): ?> <span style="font-size:10px;background:rgba(239,68,68,.15);color:#f87171;border-radius:4px;padding:1px 6px;margin-left:4px;">🔒 закрыто</span><?php endif; ?>
                         <span style="margin-left:auto;font-size:10px;color:#555568;font-weight:400;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                     </div>
                     <?= renderAppealMessages($pdo, (int)$ap['id']) ?>

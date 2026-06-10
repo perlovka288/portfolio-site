@@ -930,6 +930,17 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
 }
 
 // ===================== APPEALS =====================
+// Закрыть обращение — клиент сможет только создать новое
+if (isset($_POST['close_appeal'])) {
+    $closeId = (int)($_POST['appeal_id'] ?? 0);
+    if ($closeId > 0) {
+        try {
+            $pdo->prepare("UPDATE appeals SET status = 'closed' WHERE id = ?")->execute([$closeId]);
+            $message = '🔒 Обращение #' . $closeId . ' закрыто.';
+        } catch (\Throwable $e) {}
+    }
+}
+
 if (isset($_POST['reply_appeal'])) {
     $appealId = (int)($_POST['appeal_id'] ?? 0);
     $reply    = trim($_POST['reply_text'] ?? '');
@@ -1234,26 +1245,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kostlim Admin</title>
-<?php
-// Dynamic favicon from site avatar
-$_favicon_url = '';
-try {
-    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-    if (!empty($_fav_row['avatar'])) {
-        $v = $_fav_row['avatar'];
-        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
-            $_favicon_url = $v;
-        } else {
-            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
-        }
-    }
-} catch (Throwable $e) {}
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
     <link rel="stylesheet" href="../style.css">
     <style>
         * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
@@ -1811,13 +1802,13 @@ try {
                         <div style="display:grid;gap:14px;">
                         <?php foreach ($appeals as $ap): ?>
                             <?php $isOpen = $ap['status'] === 'open'; ?>
-                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : '#111116' ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : '#20202c' ?>;">
+                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.04)' : '#111116') ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.2)' : '#20202c') ?>;">
                                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
                                     <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
                                     <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
                                     <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
-                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : 'background:rgba(34,197,94,.15);color:#86efac;' ?>">
-                                        <?= $isOpen ? '⏳ Ожидает ответа' : '✅ Отвечено' ?>
+                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : ($ap['status'] === 'closed' ? 'background:rgba(239,68,68,.15);color:#f87171;' : 'background:rgba(34,197,94,.15);color:#86efac;') ?>">
+                                        <?= $isOpen ? '⏳ Ожидает ответа' : ($ap['status'] === 'closed' ? '🔒 Закрыто' : '✅ Отвечено') ?>
                                     </span>
                                     <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
                                     <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
@@ -1841,10 +1832,13 @@ try {
                                 <?php else: ?>
                                     <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
                                 <?php endif; ?>
-                                <form action="" method="POST" style="display:grid;gap:8px;">
+                                <form action="" method="POST" style="display:grid;gap:8px;<?= $ap['status'] === 'closed' ? 'opacity:.45;pointer-events:none;' : '' ?>">
                                     <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
                                     <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
-                                    <div><button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button></div>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                        <button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button>
+                                        <button type="submit" name="close_appeal" onclick="return confirm('Закрыть обращение? Клиент сможет создать только новое.')" style="border:1px solid rgba(239,68,68,.4);border-radius:9px;padding:10px 18px;background:rgba(239,68,68,.1);color:#f87171;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">🔒 Закрыть</button>
+                                    </div>
                                 </form>
                             </div>
                         <?php endforeach; ?>
