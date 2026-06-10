@@ -702,7 +702,8 @@ body::after {
         <!-- ── TG ПРОФИЛЬ (привязан) ── -->
         <a href="profile.php" class="tg-user-chip" title="Личный профиль">
             <?php if (!empty($tgProfile['tg_photo_url'])): ?>
-                <img src="<?= htmlspecialchars($tgProfile['tg_photo_url']) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+               <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
+     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                 <span class="tg-user-ava-fallback" style="display:none;">
                     <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
                 </span>
@@ -826,7 +827,9 @@ body::after {
                 <!-- Профиль -->
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
                     <?php if (!empty($rv['tg_photo_url'])): ?>
-                        <img src="<?= htmlspecialchars($rv['tg_photo_url']) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);" onerror="this.style.display='none'">
+                         <img src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);"
+                          onerror="this.style.display='none'">
+
                     <?php else: ?>
                         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
                             <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
