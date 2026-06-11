@@ -117,13 +117,21 @@ if (isset($_POST['notify_new_review_internal'])) {
 // КОМАНДЫ БОТА - сохранение
 // ──────────────────────────────────────────────────────────────────
 if (isset($_POST['save_bot_commands'])) {
-    $commands = $_POST['bot_commands'] ?? [];
+    $commands  = $_POST['bot_commands']   ?? [];
+    $toDelete  = $_POST['delete_commands'] ?? [];
+
+    // Удаляем отмеченные
+    foreach ($toDelete as $delId) {
+        try { $pdo->prepare("DELETE FROM bot_commands WHERE id = ?")->execute([(int)$delId]); } catch (Throwable $e) {}
+    }
+
+    // Обновляем оставшиеся
     foreach ($commands as $id => $data) {
         $id = (int)$id;
-        $cmd = trim($data['command'] ?? '');
-        $desc = trim($data['description'] ?? '');
+        if (in_array((string)$id, array_map('strval', $toDelete))) continue;
+        $cmd   = trim($data['command'] ?? '');
+        $desc  = trim($data['description'] ?? '');
         $level = trim($data['access_level'] ?? 'admin');
-        
         if ($cmd !== '' && $id > 0) {
             try {
                 $pdo->prepare("UPDATE bot_commands SET command = ?, description = ?, access_level = ? WHERE id = ?")
@@ -131,18 +139,31 @@ if (isset($_POST['save_bot_commands'])) {
             } catch (Throwable $e) {}
         }
     }
-    
+
     // Добавить новую команду если указана
-    $newCmd = trim($_POST['new_command_name'] ?? '');
+    $newCmd  = trim($_POST['new_command_name'] ?? '');
     $newDesc = trim($_POST['new_command_desc'] ?? '');
-    if ($newCmd !== '' && $newDesc !== '') {
+    if ($newCmd !== '') {
         try {
-            $pdo->prepare("INSERT INTO bot_commands (command, description, access_level) VALUES (?, ?, 'admin')")
-                ->execute([$newCmd, $newDesc]);
+            $pdo->prepare("INSERT INTO bot_commands (command, description, access_level) VALUES (?, ?, 'admin') ON CONFLICT DO NOTHING")
+                ->execute([ltrim($newCmd, '/'), $newDesc]);
         } catch (Throwable $e) {}
     }
-    
-    $message = '✅ Команды бота сохранены.';
+
+    // Синхронизируем с Telegram (setMyCommands)
+    try {
+        $_botToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_allCmds  = $pdo->query("SELECT command, description FROM bot_commands ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+        $_tgCmds   = array_map(fn($c) => ['command' => ltrim($c['command'],'/'), 'description' => ($c['description'] ?: $c['command'])], $_allCmds);
+        if (!empty($_tgCmds)) {
+            $_ch = curl_init("https://api.telegram.org/bot{$_botToken}/setMyCommands");
+            curl_setopt_array($_ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8,
+                CURLOPT_POSTFIELDS => ['commands' => json_encode($_tgCmds, JSON_UNESCAPED_UNICODE)]]);
+            curl_exec($_ch); curl_close($_ch);
+        }
+    } catch (Throwable $e) {}
+
+    $message = '✅ Команды сохранены и обновлены в Telegram.';
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -354,6 +375,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $pdo->prepare("UPDATE orders SET status='ready', payment_method=?, paid_amount=?, paid_currency=? WHERE id=?")
                     ->execute([$payMethod, $paidAmount, $paidCurrency, $orderId]);
                 notifyClientOrderStatus($pdo, $orderId, 'ready');
+                // Уведомление себе с деталями оплаты
+                $_payLabels = ['donation' => '💳 Донейшен', 'crypto' => '₿ Крипта', 'monobank' => '🏦 Монобанк', 'other' => '💰 Другое'];
+                $_payLabel  = $_payLabels[$payMethod] ?? $payMethod;
+                $_currSymbols = ['RUB' => '₽', 'USD' => '$', 'UAH' => '₴'];
+                $_sym = $_currSymbols[$paidCurrency] ?? $paidCurrency;
+                $_adminTg = getenv('ADMIN_ID') ?: '1710365896';
+                $_tok = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+                $_ch = curl_init("https://api.telegram.org/bot{$_tok}/sendMessage");
+                curl_setopt_array($_ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
+                    CURLOPT_POSTFIELDS => ['chat_id' => $_adminTg, 'parse_mode' => 'HTML',
+                        'text' => "✅ <b>Заказ #{$orderId} выполнен</b>
+
+{$_payLabel}
+💰 Получено: <b>{$_sym}" . number_format($paidAmount, 2, '.', ' ') . "</b>"]]);
+                curl_exec($_ch); curl_close($_ch);
                 $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
             } elseif ($action === 'decline') {
                 $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$orderId]);
@@ -1579,7 +1615,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <option value="admin" <?= ($cmd['access_level'] ?? '') === 'admin' ? 'selected' : '' ?>>admin</option>
                                             <option value="user" <?= ($cmd['access_level'] ?? '') === 'user' ? 'selected' : '' ?>>user</option>
                                         </select>
-                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.parentElement.style.display='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#fca5a5;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
+                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.closest('.cmd-row').style.opacity='.3'; this.closest('.cmd-row').querySelector('.del-chk').checked=true; this.closest('.cmd-row').style.pointerEvents='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#fca5a5;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
+                                        <input type="checkbox" class="del-chk" name="delete_commands[]" value="<?= (int)$cmd['id'] ?>" style="display:none;">
                                     </div>
                                 <?php endforeach; ?>
                             </div>
@@ -2274,8 +2311,8 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
             <div style="display:flex;gap:8px;margin-bottom:20px;">
-                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="0" style="flex:1;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#fff;font-size:15px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
-                <select name="paid_currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;">
+                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Введи сумму..." style="flex:1;min-width:0;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;">
+                <select name="paid_currency" id="ready-currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;min-width:90px;">
                     <option value="RUB">₽ RUB</option>
                     <option value="USD">$ USD</option>
                     <option value="UAH">₴ UAH</option>
