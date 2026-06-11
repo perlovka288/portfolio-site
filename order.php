@@ -388,7 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         curl_exec($ch); curl_close($ch);
                     }
                 } else {
-                    // Несколько фото — sendMediaGroup через URL
+                    // Несколько фото — sendMediaGroup через URL (multipart)
                     $mediaPayload = [];
                     foreach ($photos_to_send as $i => $url) {
                         $mediaItem = ['type' => 'photo', 'media' => $url];
@@ -399,12 +399,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         $mediaPayload[] = $mediaItem;
                     }
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
-                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
-                        CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)])]);
+                    curl_setopt_array($ch, [
+                        CURLOPT_POST           => true,
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_TIMEOUT        => 30,
+                        CURLOPT_POSTFIELDS     => [
+                            'chat_id' => $my_chat_id,
+                            'media'   => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        ],
+                    ]);
                     curl_exec($ch); curl_close($ch);
+                    // Текст + кнопки отдельным сообщением
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-                        CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id, 'text' => $full_msg_text, 'parse_mode' => 'HTML', 'reply_markup' => json_encode($keyboard)])]);
+                        CURLOPT_POSTFIELDS => [
+                            'chat_id'      => $my_chat_id,
+                            'text'         => $full_msg_text,
+                            'parse_mode'   => 'HTML',
+                            'reply_markup' => json_encode($keyboard),
+                        ]]);
                     curl_exec($ch); curl_close($ch);
                 }
             } else {
