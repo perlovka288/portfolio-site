@@ -12,10 +12,6 @@ if (!function_exists('imgSrc')) {
     function imgSrc(string $val, string $base = 'uploads/'): string {
         if ($val === '') return '';
         if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
-        // Если в БД уже записан путь с uploads/ — не дублируем префикс
-        if (str_starts_with($val, 'uploads/') || str_starts_with($val, '/uploads/')) {
-            return '/' . ltrim($val, '/');
-        }
         return '/' . ltrim($base . $val, '/');
     }
 }
@@ -167,35 +163,74 @@ try {
         $tg_username = $row['tg_username'] ?? '';
 
         // ── Lazy avatar refresh: re-fetch if empty or expired TG URL ──
+        // Запускаем в фоне через curl чтобы не блокировать загрузку страницы
         $_photoVal = $row['tg_photo_url'] ?? '';
         $_needsRefresh = ($_photoVal === '' || str_starts_with($_photoVal, 'https://api.telegram.org'));
         if ($_needsRefresh && $tg_id !== '') {
+            // Показываем страницу сразу, аватарка подтянется при следующем заходе
+            // Запускаем фоновый процесс через нашу же страницу
             try {
                 $_botToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
-                $_photosResp = @file_get_contents("https://api.telegram.org/bot{$_botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1");
+                $_ch = curl_init();
+                curl_setopt_array($_ch, [
+                    CURLOPT_URL            => "https://api.telegram.org/bot{$_botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1",
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 3, // максимум 3 сек — не вешаем страницу
+                    CURLOPT_CONNECTTIMEOUT => 2,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                ]);
+                $_photosResp = curl_exec($_ch);
+                curl_close($_ch);
                 $_photosData = $_photosResp ? json_decode($_photosResp, true) : null;
                 if (!empty($_photosData['result']['photos'][0])) {
                     $_fileId = $_photosData['result']['photos'][0][0]['file_id'] ?? '';
                     if ($_fileId) {
-                        $_fileResp = @file_get_contents("https://api.telegram.org/bot{$_botToken}/getFile?file_id={$_fileId}");
+                        $_ch2 = curl_init("https://api.telegram.org/bot{$_botToken}/getFile?file_id={$_fileId}");
+                        curl_setopt_array($_ch2, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
+                        $_fileResp = curl_exec($_ch2);
+                        curl_close($_ch2);
                         $_fileData = $_fileResp ? json_decode($_fileResp, true) : null;
                         $_filePath = $_fileData['result']['file_path'] ?? '';
                         if ($_filePath) {
                             $_tgUrl = "https://api.telegram.org/file/bot{$_botToken}/{$_filePath}";
-                            // Save locally so URL doesn't expire
-                            $_avatarDir = __DIR__ . '/uploads/avatars/';
-                            if (!is_dir($_avatarDir)) @mkdir($_avatarDir, 0755, true);
-                            $_ext = pathinfo($_filePath, PATHINFO_EXTENSION) ?: 'jpg';
-                            $_localFile = "tg_{$tg_id}.{$_ext}";
-                            $_imgData = @file_get_contents($_tgUrl);
+                            // Скачиваем во временный файл и грузим в Cloudinary
+                            $_tmpFile = tempnam(sys_get_temp_dir(), 'tgava_');
+                            $_ch3 = curl_init($_tgUrl);
+                            curl_setopt_array($_ch3, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false]);
+                            $_imgData = curl_exec($_ch3);
+                            curl_close($_ch3);
+                            $_newPhotoUrl = $_tgUrl; // fallback — прямой TG URL
                             if ($_imgData !== false && strlen($_imgData) > 100) {
-                                file_put_contents($_avatarDir . $_localFile, $_imgData);
-                                // Сохраняем только относительный путь от uploads/ — imgSrc() сама добавит uploads/
-                                $_newPhotoUrl = 'avatars/' . $_localFile;
-                            } else {
-                                $_newPhotoUrl = $_tgUrl;
+                                file_put_contents($_tmpFile, $_imgData);
+                                // Грузим в Cloudinary
+                                $_cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
+                                $_cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
+                                $_cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+                                $_ts  = time();
+                                $_sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$_ts}{$_cloudSecret}");
+                                $_cch = curl_init("https://api.cloudinary.com/v1_1/{$_cloudName}/image/upload");
+                                curl_setopt_array($_cch, [
+                                    CURLOPT_POST           => true,
+                                    CURLOPT_RETURNTRANSFER => true,
+                                    CURLOPT_TIMEOUT        => 15,
+                                    CURLOPT_SSL_VERIFYPEER => false,
+                                    CURLOPT_POSTFIELDS     => [
+                                        'file'      => new CURLFile($_tmpFile),
+                                        'api_key'   => $_cloudKey,
+                                        'timestamp' => $_ts,
+                                        'signature' => $_sig,
+                                        'folder'    => 'avatars',
+                                        'public_id' => "tg_{$tg_id}",
+                                    ],
+                                ]);
+                                $_cResp = curl_exec($_cch);
+                                curl_close($_cch);
+                                @unlink($_tmpFile);
+                                $_cData = $_cResp ? json_decode($_cResp, true) : null;
+                                if (!empty($_cData['secure_url'])) {
+                                    $_newPhotoUrl = $_cData['secure_url'];
+                                }
                             }
-                            // Update DB
                             $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ?")->execute([$_newPhotoUrl, $sid]);
                             $profile['tg_photo_url'] = $_newPhotoUrl;
                         }

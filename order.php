@@ -16,6 +16,34 @@ try {
 } catch (Throwable $e) {}
 
 define('ADMIN_TG_ID', '1710365896');
+
+// ── Cloudinary upload ──────────────────────────────────────────────
+function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
+    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
+    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
+    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+    if (!is_file($filePath)) return '';
+    $timestamp = time();
+    $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
+    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_POSTFIELDS     => [
+            'file'      => new CURLFile($filePath),
+            'api_key'   => $apiKey,
+            'timestamp' => $timestamp,
+            'signature' => $sig,
+            'folder'    => $folder,
+        ],
+    ]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    $data = $resp ? json_decode($resp, true) : null;
+    return $data['secure_url'] ?? '';
+}
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
@@ -173,21 +201,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
 
     $pay_screenshot = '';
     $example_imgs   = [];
-    $target_dir = 'uploads/orders/';
-    if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
 
-    if (!empty($_FILES['screenshot']['name'])) {
-        $ext = pathinfo($_FILES['screenshot']['name'], PATHINFO_EXTENSION);
-        $pay_screenshot = 'pay_' . time() . '_' . uniqid() . '.' . $ext;
-        move_uploaded_file($_FILES['screenshot']['tmp_name'], $target_dir . $pay_screenshot);
+    if (!empty($_FILES['screenshot']['name']) && $_FILES['screenshot']['error'] === UPLOAD_ERR_OK) {
+        $url = uploadToCloudinary($_FILES['screenshot']['tmp_name'], 'orders/pay');
+        if ($url !== '') $pay_screenshot = $url;
     }
     if (!empty($_FILES['example_photos']['name'][0])) {
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
-            if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === 0) {
-                $ext = pathinfo($_FILES['example_photos']['name'][$i], PATHINFO_EXTENSION);
-                $fname = 'ref_' . time() . '_' . uniqid() . '.' . $ext;
-                move_uploaded_file($tmp, $target_dir . $fname);
-                $example_imgs[] = $fname;
+            if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === UPLOAD_ERR_OK) {
+                $url = uploadToCloudinary($tmp, 'orders/ref');
+                if ($url !== '') $example_imgs[] = $url;
             }
         }
     }
