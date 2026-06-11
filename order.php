@@ -17,7 +17,6 @@ try {
 
 define('ADMIN_TG_ID', '1710365896');
 
-// ── Cloudinary upload ──────────────────────────────────────────────
 function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
     $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
     $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
@@ -359,33 +358,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 ],
             ]];
 
-            // ✅ Отправляем МЕДИА с ТЕКСТОМ в caption (ОДНО сообщение!)
+            // ✅ Отправляем МЕДИА — теперь через Cloudinary URL
             $photos_to_send = [];
-            if (!empty($pay_screenshot) && file_exists($target_dir . $pay_screenshot)) {
-                $photos_to_send[] = ['path' => $target_dir . $pay_screenshot, 'label' => 'Чек оплаты'];
+            if (!empty($pay_screenshot)) {
+                $photos_to_send[] = $pay_screenshot;
             }
             foreach ($example_imgs as $ref) {
-                if ($ref !== '' && file_exists($target_dir . $ref)) {
-                    $photos_to_send[] = ['path' => $target_dir . $ref, 'label' => 'Референс'];
-                }
+                if ($ref !== '') $photos_to_send[] = $ref;
             }
 
             if (!empty($photos_to_send)) {
                 if (count($photos_to_send) === 1) {
-                    // Одно фото — caption ≤ 1024 символов + кнопки
-                    $p = $photos_to_send[0];
                     $caption = mb_strlen($full_msg_text) <= 1024 ? $full_msg_text : '';
                     $fields = [
                         'chat_id'      => $my_chat_id,
-                        'photo'        => new CURLFile(realpath($p['path'])),
+                        'photo'        => $photos_to_send[0],
                         'parse_mode'   => 'HTML',
                         'reply_markup' => json_encode($keyboard),
                     ];
                     if ($caption) $fields['caption'] = $caption;
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
-                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => $fields]);
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+                        CURLOPT_POSTFIELDS => http_build_query($fields)]);
                     curl_exec($ch); curl_close($ch);
-                    // Если текст не влез в caption — шлём отдельно с кнопками
                     if (!$caption) {
                         $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
@@ -393,25 +388,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         curl_exec($ch); curl_close($ch);
                     }
                 } else {
-                    // Несколько фото — sendMediaGroup НЕ поддерживает reply_markup!
-                    // Шаг 1: медиагруппа (только фото, текст в caption первого)
+                    // Несколько фото — sendMediaGroup через URL
                     $mediaPayload = [];
-                    $postFields   = ['chat_id' => $my_chat_id];
-                    foreach ($photos_to_send as $i => $p) {
-                        $key = 'photo' . $i;
-                        $postFields[$key] = new CURLFile(realpath($p['path']));
-                        $mediaItem = ['type' => 'photo', 'media' => "attach://{$key}"];
+                    foreach ($photos_to_send as $i => $url) {
+                        $mediaItem = ['type' => 'photo', 'media' => $url];
                         if ($i === 0) {
                             $mediaItem['caption'] = '📸 Фото к заказу #' . $order_id;
                             $mediaItem['parse_mode'] = 'HTML';
                         }
                         $mediaPayload[] = $mediaItem;
                     }
-                    $postFields['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
-                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_POSTFIELDS => $postFields]);
+                    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
+                        CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)])]);
                     curl_exec($ch); curl_close($ch);
-                    // Шаг 2: текст + кнопки отдельным сообщением (они всегда будут видны!)
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
                         CURLOPT_POSTFIELDS => http_build_query(['chat_id' => $my_chat_id, 'text' => $full_msg_text, 'parse_mode' => 'HTML', 'reply_markup' => json_encode($keyboard)])]);
