@@ -43,6 +43,32 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
     $data = $resp ? json_decode($resp, true) : null;
     return $data['secure_url'] ?? '';
 }
+
+// ── ФУНКЦИЯ: Сохранить черновик заказа ──────────────────────
+function saveDraftOrder($pdo, $session_id, $data) {
+    try {
+        $references_json = !empty($data['references']) ? json_encode($data['references']) : null;
+        $stmt = $pdo->prepare("
+            INSERT INTO draft_orders 
+            (session_id, client_telegram, username, service_key, details, cooperation, screenshot_url, references_urls, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+        ");
+        $stmt->execute([
+            $session_id,
+            $data['telegram'] ?? null,
+            $data['username'] ?? null,
+            $data['service'] ?? null,
+            $data['details'] ?? null,
+            $data['cooperation'] ?? 0,
+            $data['screenshot_url'] ?? null,
+            $references_json
+        ]);
+        return $pdo->lastInsertId();
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
@@ -101,6 +127,68 @@ $error_msg   = '';
 
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
 $rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
+
+// ── AJAX: Сохранить черновик заказа ──────────────────────────────
+if (isset($_POST['action']) && $_POST['action'] === 'save_draft') {
+    header('Content-Type: application/json');
+    try {
+        $sid = session_id();
+        $draft_data = [
+            'telegram'      => $_POST['telegram'] ?? '',
+            'username'      => $_POST['username'] ?? '',
+            'service'       => $_POST['service'] ?? '',
+            'details'       => $_POST['details'] ?? '',
+            'cooperation'   => $_POST['cooperation'] ?? 0,
+            'screenshot_url' => $_POST['screenshot_url'] ?? '',
+            'references'    => !empty($_POST['references']) ? json_decode($_POST['references'], true) : []
+        ];
+        
+        $draft_id = saveDraftOrder($pdo, $sid, $draft_data);
+        
+        if ($draft_id) {
+            echo json_encode(['success' => true, 'draft_id' => $draft_id, 'message' => 'Заказ сохранён в черновиках']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Ошибка при сохранении']);
+        }
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'message' => 'Ошибка: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// ── AJAX: Получить список черновиков ──────────────────────────────
+if (isset($_GET['action']) && $_GET['action'] === 'get_drafts') {
+    header('Content-Type: application/json');
+    try {
+        $sid = session_id();
+        $stmt = $pdo->prepare("SELECT id, username, service_key, details, created_at FROM draft_orders WHERE session_id = ? AND status = 'draft' ORDER BY created_at DESC LIMIT 20");
+        $stmt->execute([$sid]);
+        $drafts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'drafts' => $drafts]);
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'drafts' => []]);
+    }
+    exit;
+}
+
+// ── AJAX: Удалить черновик ──────────────────────────────────
+if (isset($_POST['action']) && $_POST['action'] === 'delete_draft') {
+    header('Content-Type: application/json');
+    try {
+        $sid = session_id();
+        $draft_id = (int)($_POST['draft_id'] ?? 0);
+        
+        if ($draft_id > 0) {
+            $pdo->prepare("DELETE FROM draft_orders WHERE id = ? AND session_id = ?")->execute([$draft_id, $sid]);
+            echo json_encode(['success' => true, 'message' => 'Черновик удалён']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Неверный ID']);
+        }
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'message' => 'Ошибка: ' . $e->getMessage()]);
+    }
+    exit;
+}
 
 // ── Загружаем правила из БД (сохранённые через админку) ──────────────────
 $orderRulesHtml = '';
@@ -557,14 +645,16 @@ body::before {
 .order-label { display: block; color: #8a8a96; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .order-input, .order-select, .order-textarea {
     width: 100%; background: #16161f; border: 1px solid #262633; color: #fff;
-    padding: 12px 14px; border-radius: 9px; font-size: 13px; font-family: inherit;
+    padding: 14px 16px; border-radius: 9px; font-size: 14px; font-weight: 500; font-family: inherit;
     transition: border-color .2s, box-shadow .2s; outline: none; box-sizing: border-box;
+    letter-spacing: 0.3px;
 }
 .order-input:focus, .order-select:focus, .order-textarea:focus {
     border-color: var(--or);
     box-shadow: 0 0 0 3px rgba(249,115,22,.14), var(--or-glow-sm);
+    background: #1a1a24;
 }
-.order-textarea { height: 110px; resize: vertical; }
+.order-textarea { height: 130px; resize: vertical; }
 .order-select {
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -597,6 +687,120 @@ body::before {
     font-family: inherit; margin-top: 6px;
 }
 .order-submit:hover { opacity: .92; transform: translateY(-2px); box-shadow: 0 0 30px rgba(249,115,22,.65), 0 8px 28px rgba(249,115,22,.3); }
+.order-actions-group {
+    display: grid;
+    grid-template-columns: 1fr 2fr 100px;
+    gap: 10px;
+    margin-top: 6px;
+}
+.order-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 15px 12px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(249,115,22,.3);
+    background: rgba(249,115,22,.08);
+    color: #fdba74;
+    cursor: pointer;
+    transition: all .2s;
+    font-family: inherit;
+}
+.order-btn:hover {
+    background: rgba(249,115,22,.15);
+    border-color: rgba(249,115,22,.6);
+    box-shadow: 0 0 16px rgba(249,115,22,.2);
+}
+.order-btn-archive { grid-column: 1; }
+.order-btn-multi {
+    grid-column: 3;
+    padding: 15px;
+    font-size: 18px;
+    background: linear-gradient(135deg, rgba(249,115,22,.2), rgba(249,115,22,.08));
+    border-color: rgba(249,115,22,.4);
+}
+.order-btn-multi:hover {
+    background: linear-gradient(135deg, rgba(249,115,22,.3), rgba(249,115,22,.15));
+}
+
+/* ══ МОДАЛЬНОЕ ОКНО ══ */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn .2s ease;
+}
+.modal-box {
+    background: linear-gradient(135deg, #13131a, #1a1a24);
+    border: 1px solid rgba(249,115,22,.35);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 360px;
+    width: calc(100% - 40px);
+    box-shadow: 0 24px 80px rgba(0,0,0,.6);
+    animation: slideUp .3s cubic-bezier(.34,1.56,.64,1);
+}
+.modal-box h3 {
+    color: #fff;
+    font-size: 18px;
+    font-weight: 900;
+    margin: 0 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.modal-box p {
+    color: #8a8a96;
+    font-size: 13px;
+    margin: 0 0 20px;
+    line-height: 1.5;
+}
+.modal-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.modal-btn {
+    padding: 12px 20px;
+    border-radius: 9px;
+    border: none;
+    font-weight: 800;
+    font-size: 13px;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .2s;
+    background: linear-gradient(135deg, #fb923c, #f97316);
+    color: #fff;
+    box-shadow: 0 0 14px rgba(249,115,22,.4);
+}
+.modal-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(249,115,22,.5);
+}
+.modal-btn-cancel {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,.15);
+    color: #8a8a96;
+    box-shadow: none;
+}
+.modal-btn-cancel:hover {
+    border-color: rgba(255,255,255,.3);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255,255,255,.1);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(30px) scale(.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
 .req-block { background: #0e0e16; border: 1px solid #1e1e2c; border-radius: 14px; padding: 20px; margin-bottom: 22px; }
 .req-block h3 { color: var(--or); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 14px; text-shadow: var(--or-glow-sm); }
 .req-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -1018,7 +1222,30 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             </div>
         </div>
 
-        <button type="submit" class="order-submit">Отправить заказ Kostlim'у</button>
+        <div class="order-actions-group">
+            <button type="button" class="order-btn order-btn-archive" onclick="saveDraftOrder(event)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Архивировать
+            </button>
+            <button type="submit" class="order-submit">Отправить заказ Kostlim'у</button>
+            <button type="button" class="order-btn order-btn-multi" onclick="showMultipleOrdersMenu(event)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                +
+            </button>
+        </div>
+        
+        <!-- Модальное окно для выбора количества заказов -->
+        <div id="multiOrdersModal" class="modal-overlay" style="display:none;" onclick="closeMultiOrdersModal(event)">
+            <div class="modal-box" onclick="event.stopPropagation()">
+                <h3>Создать несколько заказов</h3>
+                <p>Сколько дополнительных заказов создать?</p>
+                <div class="modal-buttons">
+                    <button type="button" class="modal-btn" onclick="createMultipleOrders(2)">2 заказа</button>
+                    <button type="button" class="modal-btn" onclick="createMultipleOrders(3)">3 заказа</button>
+                    <button type="button" class="modal-btn modal-btn-cancel" onclick="closeMultiOrdersModal()">Отмена</button>
+                </div>
+            </div>
+        </div>
     </form>
 </div>
 
@@ -1027,6 +1254,163 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 </div>
 
 <script>
+
+// ══ АРХИВИРОВАНИЕ ЗАКАЗА ══
+function saveDraftOrder(e) {
+    e.preventDefault();
+    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
+    if (!form) return;
+    
+    const formData = new FormData(form);
+    formData.append('action', 'save_draft');
+    formData.append('rules_accepted', '1');
+    
+    // Собираем URLs загруженных файлов (если есть)
+    const screenshotInput = form.querySelector('input[name="screenshot"]');
+    const refsInput = form.querySelector('input[name="example_photos[]"]');
+    
+    fetch('order.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const toast = createToast('✅ ' + data.message, 'success');
+            document.body.appendChild(toast);
+            // Очищаем форму
+            form.reset();
+            setTimeout(() => form.reset(), 100);
+        } else {
+            const toast = createToast('❌ ' + (data.message || 'Ошибка при сохранении'), 'error');
+            document.body.appendChild(toast);
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        const toast = createToast('❌ Ошибка сети', 'error');
+        document.body.appendChild(toast);
+    });
+}
+
+// ══ МОДАЛЬНОЕ ОКНО НЕСКОЛЬКИХ ЗАКАЗОВ ══
+function showMultipleOrdersMenu(e) {
+    e.preventDefault();
+    document.getElementById('multiOrdersModal').style.display = 'flex';
+}
+
+function closeMultiOrdersModal(e) {
+    if (e) e.stopPropagation();
+    document.getElementById('multiOrdersModal').style.display = 'none';
+}
+
+function createMultipleOrders(count) {
+    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
+    if (!form) return;
+    
+    // Валидируем форму
+    if (!form.checkValidity()) {
+        const toast = createToast('❌ Заполните все обязательные поля', 'error');
+        document.body.appendChild(toast);
+        closeMultiOrdersModal();
+        return;
+    }
+    
+    const formData = new FormData(form);
+    formData.append('action', 'create_multiple_orders');
+    formData.append('order_count', count);
+    formData.append('rules_accepted', '1');
+    
+    fetch('order.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const msg = `✅ Созданы ${count} заказов! Выберите какие отправить или архивировать`;
+            const toast = createToast(msg, 'success');
+            document.body.appendChild(toast);
+            closeMultiOrdersModal();
+            // Показываем интерфейс выбора заказов
+            showOrderSelectionUI(data.orders || []);
+        } else {
+            const toast = createToast('❌ ' + (data.message || 'Ошибка'), 'error');
+            document.body.appendChild(toast);
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        const toast = createToast('❌ Ошибка сети', 'error');
+        document.body.appendChild(toast);
+    });
+}
+
+// ══ ИНТЕРФЕЙС ВЫБОРА ЗАКАЗОВ ══
+function showOrderSelectionUI(orders) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'orderSelectionModal';
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:500px;" onclick="event.stopPropagation()">
+            <h3>Выберите действие</h3>
+            <p>Выберите какие заказы отправить, архивировать или сделать оба действия</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
+                <button type="button" class="modal-btn" onclick="submitSelectedOrders('send')">📤 Отправить всё</button>
+                <button type="button" class="modal-btn" onclick="submitSelectedOrders('archive')">💾 Архивировать всё</button>
+                <button type="button" class="modal-btn modal-btn-cancel" style="grid-column:1/-1;" onclick="closeOrderSelectionModal()">Закрыть</button>
+            </div>
+        </div>
+    `;
+    modal.onclick = closeOrderSelectionModal;
+    document.body.appendChild(modal);
+}
+
+function closeOrderSelectionModal() {
+    const modal = document.getElementById('orderSelectionModal');
+    if (modal) modal.remove();
+}
+
+function submitSelectedOrders(action) {
+    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
+    if (form) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'selected_action';
+        input.value = action;
+        form.appendChild(input);
+        form.submit();
+    }
+}
+
+// ══ УТИЛИТА: TOAST СООБЩЕНИЕ ══
+function createToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    const bgColor = type === 'error' ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'linear-gradient(135deg,#fb923c,#f97316)';
+    Object.assign(toast.style, {
+        position: 'fixed',
+        bottom: '30px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: bgColor,
+        color: '#fff',
+        padding: '12px 24px',
+        borderRadius: '10px',
+        fontWeight: '800',
+        fontSize: '13px',
+        boxShadow: type === 'error' ? '0 0 20px rgba(239,68,68,.6)' : '0 0 20px rgba(249,115,22,.6)',
+        zIndex: '10000',
+        transition: 'opacity .4s',
+        fontFamily: 'inherit'
+    });
+    toast.textContent = message;
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 400);
+    }, 2500);
+    return toast;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const rulesScroll = document.getElementById('rules-scroll');
     const agreeBtn = document.getElementById('agree-btn');

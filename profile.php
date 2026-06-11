@@ -449,7 +449,7 @@ body::before {
     width:700px;height:400px;background:radial-gradient(ellipse at center,rgba(249,115,22,0.13) 0%,transparent 70%);
     pointer-events:none;z-index:0;
 }
-.profile-wrap { max-width:760px;margin:0 auto;padding:40px 20px 80px;position:relative;z-index:1; }
+.profile-wrap { max-width:calc(100% - 40px);margin:0 auto;padding:40px 20px 80px;position:relative;z-index:1; }
 .profile-hero {
     background:var(--card);border:1px solid var(--border);border-radius:24px;padding:32px 28px;
     display:flex;align-items:center;gap:24px;margin-bottom:32px;

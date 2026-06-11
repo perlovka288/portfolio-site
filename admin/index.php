@@ -2002,7 +2002,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 </div>
 
                                 <!-- Двухколоночный layout -->
-                                <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;">
+                                <div style="display:grid;grid-template-columns:1fr minmax(0,320px);gap:16px;align-items:start;width:100%;box-sizing:border-box;">
 
                                     <!-- Левая колонка -->
                                     <div style="display:grid;gap:14px;">
@@ -2147,7 +2147,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                                 <style>
                                 @media(max-width:768px){
-                                    [style*="grid-template-columns:1fr 340px"]{grid-template-columns:1fr!important;}
+                                    [style*="grid-template-columns:1fr minmax(0,320px)"]{grid-template-columns:1fr!important;}
                                     [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}
                                 }
                                 </style>
@@ -2310,9 +2310,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="monobank" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-monobank" onclick="selectPayMethod2('monobank')" style="border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#86efac;background:rgba(34,197,94,.08);cursor:pointer;transition:.15s;">🏦<br>Монобанк</div></label>
             </div>
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
-            <div style="display:flex;gap:8px;margin-bottom:20px;">
-                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Введи сумму..." style="flex:1;min-width:0;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;">
-                <select name="paid_currency" id="ready-currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;min-width:90px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">
+                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Сумма..." style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;width:100%;box-sizing:border-box;">
+                <select name="paid_currency" id="ready-currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;width:100%;box-sizing:border-box;">
                     <option value="RUB">₽ RUB</option>
                     <option value="USD">$ USD</option>
                     <option value="UAH">₴ UAH</option>
