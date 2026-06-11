@@ -348,7 +348,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 notifyClientOrderStatus($pdo, $orderId, 'urgent');
                 $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
             } elseif ($action === 'ready') {
-                $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$orderId]);
+                $payMethod   = $_POST['pay_method']   ?? 'other';
+                $paidAmount  = (float)($_POST['paid_amount'] ?? 0);
+                $paidCurrency= in_array($_POST['paid_currency'] ?? '', ['RUB','USD','UAH']) ? $_POST['paid_currency'] : 'RUB';
+                $pdo->prepare("UPDATE orders SET status='ready', payment_method=?, paid_amount=?, paid_currency=? WHERE id=?")
+                    ->execute([$payMethod, $paidAmount, $paidCurrency, $orderId]);
                 notifyClientOrderStatus($pdo, $orderId, 'ready');
                 $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
             } elseif ($action === 'decline') {
@@ -1115,6 +1119,51 @@ $revenue = $pdo->query("
     FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status='ready'
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
+// ── Курсы валют (ЦБ РФ) ──────────────────────────────────────────────
+function fetchExchangeRates(): array {
+    $rates = ['USD' => 90.0, 'UAH' => 2.2]; // fallback
+    try {
+        $ch = curl_init('https://www.cbr-xml-daily.ru/daily_json.js');
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 4, CURLOPT_SSL_VERIFYPEER => false]);
+        $resp = curl_exec($ch); curl_close($ch);
+        $data = $resp ? json_decode($resp, true) : null;
+        if (!empty($data['Valute']['USD']['Value'])) $rates['USD'] = (float)$data['Valute']['USD']['Value'];
+        if (!empty($data['Valute']['UAH']['Value'])) $rates['UAH'] = (float)($data['Valute']['UAH']['Value'] / $data['Valute']['UAH']['Nominal']);
+    } catch (Throwable $e) {}
+    return $rates;
+}
+$rates = fetchExchangeRates();
+$usdRate = $rates['USD']; // руб за 1 USD
+$uahRate = $rates['UAH']; // руб за 1 UAH
+
+// ── Статистика по способам оплаты (только ready заказы с paid_amount > 0) ──
+$payStats = $pdo->query("
+    SELECT payment_method,
+           paid_currency,
+           COALESCE(SUM(paid_amount), 0) AS total
+    FROM orders
+    WHERE status = 'ready' AND paid_amount > 0
+    GROUP BY payment_method, paid_currency
+")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+// Группируем по методу и считаем в рублях
+$payByMethod = ['donation' => 0, 'crypto' => 0, 'monobank' => 0, 'other' => 0];
+$totalRubFromPaid = 0;
+foreach ($payStats as $row) {
+    $amt = (float)$row['total'];
+    $rubAmt = match($row['paid_currency']) {
+        'USD' => $amt * $usdRate,
+        'UAH' => $amt * $uahRate,
+        default => $amt,
+    };
+    $method = $row['payment_method'] ?? 'other';
+    if (!isset($payByMethod[$method])) $payByMethod[$method] = 0;
+    $payByMethod[$method] += $rubAmt;
+    $totalRubFromPaid += $rubAmt;
+}
+$totalUsdFromPaid = $usdRate > 0 ? $totalRubFromPaid / $usdRate : 0;
+$totalUahFromPaid = $uahRate > 0 ? $totalRubFromPaid / $uahRate : 0;
+
 $activeValue = $pdo->query("
     SELECT COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END),0) AS rub,
            COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END),0) AS uan
@@ -1434,6 +1483,38 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
                 <?php endif; ?>
             </section>
+
+            <!-- ── БЛОК ЗАРАБОТКА ПО СПОСОБАМ ОПЛАТЫ ── -->
+            <?php if ($totalRubFromPaid > 0): ?>
+            <section class="stats-grid" style="margin-bottom:0;">
+                <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
+                    <span>💳 Донейшен</span>
+                    <strong><?= money($payByMethod['donation']) ?> ₽</strong>
+                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['donation']/$usdRate,2,'.',',') ?></span>
+                </div>
+                <div class="stat-card" style="background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.3);">
+                    <span>₿ Крипта</span>
+                    <strong><?= money($payByMethod['crypto']) ?> ₽</strong>
+                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['crypto']/$usdRate,2,'.',',') ?></span>
+                </div>
+                <div class="stat-card" style="background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);">
+                    <span>🏦 Монобанк</span>
+                    <strong><?= money($payByMethod['monobank']) ?> ₽</strong>
+                    <span style="font-size:11px;color:#888;">₴<?= number_format($payByMethod['monobank']/$uahRate,2,'.',',') ?></span>
+                </div>
+            </section>
+            <section class="stats-grid" style="margin-top:8px;">
+                <div class="stat-card accent" style="grid-column:span 3;">
+                    <span>💰 Итого заработано (все способы)</span>
+                    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                        <strong style="font-size:22px;"><?= money($totalRubFromPaid) ?> ₽</strong>
+                        <span style="color:#f97316;font-size:16px;font-weight:800;">$<?= number_format($totalUsdFromPaid,2,'.',',') ?></span>
+                        <span style="color:#60a5fa;font-size:16px;font-weight:800;">₴<?= number_format($totalUahFromPaid,2,'.',',') ?></span>
+                        <span style="font-size:11px;color:#555;margin-left:auto;">Курс: 1$ = <?= number_format($usdRate,2) ?>₽ · 1₴ = <?= number_format($uahRate,4) ?>₽</span>
+                    </div>
+                </div>
+            </section>
+            <?php endif; ?>
 
             <!-- ════════════════════════════════════════════════════════════
                  ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ
@@ -2000,7 +2081,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <button type="submit" name="order_action" value="take_work" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚀 Взять в работу</button>
                                                 <button type="submit" name="order_action" value="urgent" style="border:1px solid rgba(239,184,74,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(239,184,74,.15);color:#efb84a;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">⚡ Сделать срочным</button>
-                                                <button type="submit" name="order_action" value="ready" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
+                                                <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
                                                     <button type="submit" name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚫 Бан</button>
@@ -2168,11 +2249,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (det) det.classList.remove('tab-hidden');
         const wrapper = document.getElementById('order-detail-panel');
         if (wrapper) wrapper.style.display = 'block';
-        // Растягиваем на всю ширину — скрываем aside, убираем грид
-        const layout = document.querySelector('.admin-layout');
-        if (layout) layout.classList.add('single-column');
-        const sidebarEl = document.querySelector('.admin-layout aside');
-        if (sidebarEl) sidebarEl.style.display = 'none';
     } else {
         activateAdminTab('overview');
     }
@@ -2181,6 +2257,61 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.admin-tab').forEach(btn => {
         btn.addEventListener('click', () => setTimeout(initFileInputs, 50));
     });
+});
+</script>
+<!-- ── МОДАЛКА ГОТОВО ── -->
+<div id="ready-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:#13131a;border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:28px 28px 24px;width:360px;max-width:95vw;box-shadow:0 0 60px rgba(0,0,0,.6);">
+        <div style="font-size:18px;font-weight:900;color:#fff;margin-bottom:18px;">✅ Отметить как готово</div>
+        <form method="POST" id="ready-form">
+            <input type="hidden" name="order_id" id="ready-order-id">
+            <input type="hidden" name="order_action" value="ready">
+            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#fdba74;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
+                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="crypto" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-crypto" onclick="selectPayMethod2('crypto')" style="border:1px solid rgba(96,165,250,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#93c5fd;background:rgba(96,165,250,.08);cursor:pointer;transition:.15s;">₿<br>Крипта</div></label>
+                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="monobank" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-monobank" onclick="selectPayMethod2('monobank')" style="border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#86efac;background:rgba(34,197,94,.08);cursor:pointer;transition:.15s;">🏦<br>Монобанк</div></label>
+            </div>
+            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
+            <div style="display:flex;gap:8px;margin-bottom:20px;">
+                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="0" style="flex:1;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#fff;font-size:15px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
+                <select name="paid_currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;">
+                    <option value="RUB">₽ RUB</option>
+                    <option value="USD">$ USD</option>
+                    <option value="UAH">₴ UAH</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button type="submit" style="flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;padding:12px;color:#fff;font-size:14px;font-weight:900;cursor:pointer;font-family:Montserrat,sans-serif;">✅ Подтвердить</button>
+                <button type="button" onclick="closeReadyModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 18px;color:#888;font-size:14px;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+let _selectedPayMethod = 'donation';
+function openReadyModal(orderId) {
+    document.getElementById('ready-order-id').value = orderId;
+    document.getElementById('ready-modal').style.display = 'flex';
+    selectPayMethod2('donation');
+}
+function closeReadyModal() {
+    document.getElementById('ready-modal').style.display = 'none';
+}
+function selectPayMethod2(method) {
+    _selectedPayMethod = method;
+    ['donation','crypto','monobank'].forEach(m => {
+        const el = document.getElementById('pm-' + m);
+        if (!el) return;
+        el.style.opacity = m === method ? '1' : '0.45';
+        el.style.transform = m === method ? 'scale(1.05)' : 'scale(1)';
+    });
+    // Set hidden radio
+    const radio = document.querySelector('input[name="pay_method"][value="' + method + '"]');
+    if (radio) radio.checked = true;
+}
+document.getElementById('ready-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeReadyModal();
 });
 </script>
 </body>
