@@ -43,32 +43,6 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
     $data = $resp ? json_decode($resp, true) : null;
     return $data['secure_url'] ?? '';
 }
-
-// ── ФУНКЦИЯ: Сохранить черновик заказа ──────────────────────
-function saveDraftOrder($pdo, $session_id, $data) {
-    try {
-        $references_json = !empty($data['references']) ? json_encode($data['references']) : null;
-        $stmt = $pdo->prepare("
-            INSERT INTO draft_orders 
-            (session_id, client_telegram, username, service_key, details, cooperation, screenshot_url, references_urls, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')
-        ");
-        $stmt->execute([
-            $session_id,
-            $data['telegram'] ?? null,
-            $data['username'] ?? null,
-            $data['service'] ?? null,
-            $data['details'] ?? null,
-            $data['cooperation'] ?? 0,
-            $data['screenshot_url'] ?? null,
-            $references_json
-        ]);
-        return $pdo->lastInsertId();
-    } catch (Throwable $e) {
-        return null;
-    }
-}
-
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
@@ -128,68 +102,6 @@ $error_msg   = '';
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
 $rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
 
-// ── AJAX: Сохранить черновик заказа ──────────────────────────────
-if (isset($_POST['action']) && $_POST['action'] === 'save_draft') {
-    header('Content-Type: application/json');
-    try {
-        $sid = session_id();
-        $draft_data = [
-            'telegram'      => $_POST['telegram'] ?? '',
-            'username'      => $_POST['username'] ?? '',
-            'service'       => $_POST['service'] ?? '',
-            'details'       => $_POST['details'] ?? '',
-            'cooperation'   => $_POST['cooperation'] ?? 0,
-            'screenshot_url' => $_POST['screenshot_url'] ?? '',
-            'references'    => !empty($_POST['references']) ? json_decode($_POST['references'], true) : []
-        ];
-        
-        $draft_id = saveDraftOrder($pdo, $sid, $draft_data);
-        
-        if ($draft_id) {
-            echo json_encode(['success' => true, 'draft_id' => $draft_id, 'message' => 'Заказ сохранён в черновиках']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Ошибка при сохранении']);
-        }
-    } catch (Throwable $e) {
-        echo json_encode(['success' => false, 'message' => 'Ошибка: ' . $e->getMessage()]);
-    }
-    exit;
-}
-
-// ── AJAX: Получить список черновиков ──────────────────────────────
-if (isset($_GET['action']) && $_GET['action'] === 'get_drafts') {
-    header('Content-Type: application/json');
-    try {
-        $sid = session_id();
-        $stmt = $pdo->prepare("SELECT id, username, service_key, details, created_at FROM draft_orders WHERE session_id = ? AND status = 'draft' ORDER BY created_at DESC LIMIT 20");
-        $stmt->execute([$sid]);
-        $drafts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode(['success' => true, 'drafts' => $drafts]);
-    } catch (Throwable $e) {
-        echo json_encode(['success' => false, 'drafts' => []]);
-    }
-    exit;
-}
-
-// ── AJAX: Удалить черновик ──────────────────────────────────
-if (isset($_POST['action']) && $_POST['action'] === 'delete_draft') {
-    header('Content-Type: application/json');
-    try {
-        $sid = session_id();
-        $draft_id = (int)($_POST['draft_id'] ?? 0);
-        
-        if ($draft_id > 0) {
-            $pdo->prepare("DELETE FROM draft_orders WHERE id = ? AND session_id = ?")->execute([$draft_id, $sid]);
-            echo json_encode(['success' => true, 'message' => 'Черновик удалён']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Неверный ID']);
-        }
-    } catch (Throwable $e) {
-        echo json_encode(['success' => false, 'message' => 'Ошибка: ' . $e->getMessage()]);
-    }
-    exit;
-}
-
 // ── Загружаем правила из БД (сохранённые через админку) ──────────────────
 $orderRulesHtml = '';
 try {
@@ -231,12 +143,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
     }
 
-    // Cooldown check — skip for admin
+    // Cooldown check — skip for admin and for additional order slots (2, 3)
     $sessionTgId = (string)($_SESSION['tg_chat_id'] ?? '');
     $adminTgId   = getenv('ADMIN_ID') ?: ADMIN_TG_ID;
     $isAdminOrder = (!empty($_SESSION['admin_logged']) || $sessionTgId === $adminTgId);
+    $orderSlot = (int)($_POST['order_slot'] ?? 1);
+    $isExtraSlot = ($orderSlot >= 2); // Слоты 2 и 3 — без кулдауна
 
-    if (!$isAdminOrder) {
+    if (!$isAdminOrder && !$isExtraSlot) {
         try {
             $stmt = $pdo->prepare("SELECT created_at FROM orders WHERE client_ip = ? ORDER BY id DESC LIMIT 1");
             $stmt->execute([$user_ip]);
@@ -417,7 +331,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $p_uan         = $price_info['price_uan'] ?? 0;
 
             // ✅ Формируем ПОЛНЫЙ текст ТЗ
-            $full_msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}</b>\n\n";
+            $slotLabel = $orderSlot >= 2 ? " [ЗАКАЗ №{$orderSlot}]" : "";
+            $full_msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}{$slotLabel}</b>\n\n";
             $full_msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
             $full_msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
             $full_msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
@@ -547,6 +462,72 @@ function tgEscapeSend(string $token, int $chat_id, string $text): void {
     curl_close($ch);
 }
 
+
+function slotFormFields(int $slot, array $services, string $selectedService, string $turnstileSiteKey): string {
+    $s = $slot;
+    ob_start(); ?>
+        <div class="mb16">
+            <label class="order-label">Ваше имя / никнейм</label>
+            <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
+        </div>
+        <div class="mb16">
+            <label class="order-label">Контакт (Telegram @username — обязательно)</label>
+            <input type="text" name="telegram" required placeholder="@username" class="order-input">
+        </div>
+        <div class="mb16">
+            <label class="order-label">Что вас интересует?</label>
+            <select name="service" class="order-select">
+                <?php foreach ($services as $sv): ?>
+                <option value="<?= htmlspecialchars($sv['category_key']) ?>" <?= ($selectedService === $sv['category_key']) ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($sv['title']) ?> (<?= $sv['price_uan'] ?>₴ / <?= $sv['price_rub'] ?>₽)
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="mb16">
+            <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+                <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
+                <span>Сотрудничество — цена 0 ₽ / 0 ₴</span>
+            </label>
+        </div>
+        <div class="mb16">
+            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+            <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+        </div>
+        <div class="file-upload-block mb16">
+            <input type="file" name="screenshot" accept="image/*" id="s<?= $s ?>_screenshot">
+            <div class="file-label-row">
+                <span class="file-label-title">📸 Доказательство оплаты</span>
+                <label for="s<?= $s ?>_screenshot" class="file-choose-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Выбрать файл
+                </label>
+            </div>
+            <div class="file-name-display" id="s<?= $s ?>_screenshot_name">Файл не выбран</div>
+        </div>
+        <div class="file-upload-block mb22">
+            <input type="file" name="example_photos[]" accept="image/*" multiple id="s<?= $s ?>_refs">
+            <div class="file-label-row">
+                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
+                <label for="s<?= $s ?>_refs" class="file-choose-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Выбрать файлы
+                </label>
+            </div>
+            <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько</div>
+        </div>
+        <div class="turnstile-wrap">
+            <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="normal"></div>
+        </div>
+        <div style="display:grid;gap:8px;margin-top:6px;">
+            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ №<?= $s ?></button>
+            <button type="button" class="btn-archive-small" onclick="archiveSlot(<?= $s ?>)">📦 Архивировать заказ</button>
+        </div>
+    <?php
+    return ob_get_clean();
+}
+
 render_page:
 ?>
 <!DOCTYPE html>
@@ -645,16 +626,14 @@ body::before {
 .order-label { display: block; color: #8a8a96; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .order-input, .order-select, .order-textarea {
     width: 100%; background: #16161f; border: 1px solid #262633; color: #fff;
-    padding: 14px 16px; border-radius: 9px; font-size: 14px; font-weight: 500; font-family: inherit;
+    padding: 12px 14px; border-radius: 9px; font-size: 13px; font-family: inherit;
     transition: border-color .2s, box-shadow .2s; outline: none; box-sizing: border-box;
-    letter-spacing: 0.3px;
 }
 .order-input:focus, .order-select:focus, .order-textarea:focus {
     border-color: var(--or);
     box-shadow: 0 0 0 3px rgba(249,115,22,.14), var(--or-glow-sm);
-    background: #1a1a24;
 }
-.order-textarea { height: 130px; resize: vertical; }
+.order-textarea { height: 110px; resize: vertical; }
 .order-select {
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -687,120 +666,6 @@ body::before {
     font-family: inherit; margin-top: 6px;
 }
 .order-submit:hover { opacity: .92; transform: translateY(-2px); box-shadow: 0 0 30px rgba(249,115,22,.65), 0 8px 28px rgba(249,115,22,.3); }
-.order-actions-group {
-    display: grid;
-    grid-template-columns: 1fr 2fr 100px;
-    gap: 10px;
-    margin-top: 6px;
-}
-.order-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 15px 12px;
-    border-radius: 10px;
-    font-weight: 700;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border: 1px solid rgba(249,115,22,.3);
-    background: rgba(249,115,22,.08);
-    color: #fdba74;
-    cursor: pointer;
-    transition: all .2s;
-    font-family: inherit;
-}
-.order-btn:hover {
-    background: rgba(249,115,22,.15);
-    border-color: rgba(249,115,22,.6);
-    box-shadow: 0 0 16px rgba(249,115,22,.2);
-}
-.order-btn-archive { grid-column: 1; }
-.order-btn-multi {
-    grid-column: 3;
-    padding: 15px;
-    font-size: 18px;
-    background: linear-gradient(135deg, rgba(249,115,22,.2), rgba(249,115,22,.08));
-    border-color: rgba(249,115,22,.4);
-}
-.order-btn-multi:hover {
-    background: linear-gradient(135deg, rgba(249,115,22,.3), rgba(249,115,22,.15));
-}
-
-/* ══ МОДАЛЬНОЕ ОКНО ══ */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,.7);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    animation: fadeIn .2s ease;
-}
-.modal-box {
-    background: linear-gradient(135deg, #13131a, #1a1a24);
-    border: 1px solid rgba(249,115,22,.35);
-    border-radius: 16px;
-    padding: 28px;
-    max-width: 360px;
-    width: calc(100% - 40px);
-    box-shadow: 0 24px 80px rgba(0,0,0,.6);
-    animation: slideUp .3s cubic-bezier(.34,1.56,.64,1);
-}
-.modal-box h3 {
-    color: #fff;
-    font-size: 18px;
-    font-weight: 900;
-    margin: 0 0 8px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.modal-box p {
-    color: #8a8a96;
-    font-size: 13px;
-    margin: 0 0 20px;
-    line-height: 1.5;
-}
-.modal-buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.modal-btn {
-    padding: 12px 20px;
-    border-radius: 9px;
-    border: none;
-    font-weight: 800;
-    font-size: 13px;
-    text-transform: uppercase;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all .2s;
-    background: linear-gradient(135deg, #fb923c, #f97316);
-    color: #fff;
-    box-shadow: 0 0 14px rgba(249,115,22,.4);
-}
-.modal-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(249,115,22,.5);
-}
-.modal-btn-cancel {
-    background: transparent;
-    border: 1px solid rgba(255,255,255,.15);
-    color: #8a8a96;
-    box-shadow: none;
-}
-.modal-btn-cancel:hover {
-    border-color: rgba(255,255,255,.3);
-    color: #fff;
-    box-shadow: 0 0 12px rgba(255,255,255,.1);
-}
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(30px) scale(.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
-
 .req-block { background: #0e0e16; border: 1px solid #1e1e2c; border-radius: 14px; padding: 20px; margin-bottom: 22px; }
 .req-block h3 { color: var(--or); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 14px; text-shadow: var(--or-glow-sm); }
 .req-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -1075,10 +940,55 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
     </div>
 </form>
 
+
 <?php else: ?>
 
+<style>
+/* ═══ ТАБЫ ═══ */
+.slots-wrap { max-width: 560px; margin: 0 auto; padding: 0 20px 40px; }
+.order-card  { background:#111116; border:1px solid #1f1f2a; border-radius:18px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,.5); margin-bottom:10px; }
+
+.slot-tabs-bar { display:flex; gap:6px; margin-bottom:10px; }
+.slot-pill { flex:1; padding:9px 10px; border-radius:10px; border:1px solid #2a2a38; background:#0e0e16; color:#555568; font-size:11px; font-weight:800; cursor:pointer; font-family:inherit; text-align:center; transition:.15s; text-transform:uppercase; letter-spacing:.5px; }
+.slot-pill.active { background:rgba(249,115,22,.15); border-color:#f97316; color:#f97316; }
+.slot-pill:hover:not(.active) { border-color:#3a3a4a; color:#8a8a96; }
+
+.slot-panel { display:none; }
+.slot-panel.active { display:block; }
+
+.add-order-btn {
+    width:100%; background:linear-gradient(135deg,rgba(249,115,22,.15),rgba(249,115,22,.06));
+    border:1.5px dashed rgba(249,115,22,.55); color:#f97316; border-radius:12px;
+    padding:13px; font-size:13px; font-weight:900; cursor:pointer; font-family:inherit;
+    letter-spacing:.5px; transition:.2s; display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.add-order-btn:hover { background:rgba(249,115,22,.22); box-shadow:0 0 18px rgba(249,115,22,.25); }
+.add-order-btn:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
+
+.btn-archive-small {
+    width:100%; background:#16161f; border:1px solid #2a2a38; color:#8a8a96;
+    border-radius:10px; padding:11px; font-size:11px; font-weight:800;
+    cursor:pointer; font-family:inherit; text-transform:uppercase; letter-spacing:.5px; transition:.2s;
+}
+.btn-archive-small:hover { border-color:#f97316; color:#f97316; }
+.slot-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #1f1f2a; }
+.slot-header-title { font-size:14px; font-weight:900; color:#f97316; text-transform:uppercase; letter-spacing:1px; }
+.btn-remove-slot { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#fca5a5; border-radius:7px; padding:6px 12px; font-size:11px; font-weight:800; cursor:pointer; font-family:inherit; transition:.15s; }
+.btn-remove-slot:hover { background:rgba(239,68,68,.2); }
+</style>
+
+<div class="slots-wrap">
+
+<!-- ═══ ПИЛЮЛИ-ТАБЫ (видны когда > 1 слота) ═══ -->
+<div class="slot-tabs-bar" id="slots-tabs-bar" style="display:none;">
+    <button class="slot-pill active" id="pill-1" onclick="switchSlot(1)">📋 Заказ №1</button>
+</div>
+
+<!-- ═══ СЛОТ 1 ═══ -->
+<div class="slot-panel active" id="slot-panel-1">
 <div class="order-card">
-    <!-- ══ TG ПЛАШКА — ОБЯЗАТЕЛЬНАЯ ══ -->
+
+    <!-- TG Баннер -->
     <?php if (!$isLinked): ?>
     <div class="tg-banner" id="tgBanner">
         <div class="tg-banner-icon">
@@ -1094,26 +1004,20 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             <div class="tg-banner-hint">1. Скопируй код &nbsp;→&nbsp; 2. Открой бот &nbsp;→&nbsp; 3. Отправь код в чат</div>
             <?php endif; ?>
         </div>
-        <a href="https://t.me/kostlimdznbot?start=link_<?= htmlspecialchars($linkCode ?? '') ?>"
-           target="_blank" class="tg-banner-btn" id="bannerOpenBtn" onclick="startBannerPolling()">
+        <a href="https://t.me/kostlimdznbot?start=link_<?= htmlspecialchars($linkCode ?? '') ?>" target="_blank" class="tg-banner-btn" id="bannerOpenBtn" onclick="startBannerPolling()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             Открыть бот
         </a>
-        <div class="tg-banner-waiting" id="bannerWaiting">
-            <span class="tg-spinner-sm"></span> Ожидаю…
-        </div>
+        <div class="tg-banner-waiting" id="bannerWaiting"><span class="tg-spinner-sm"></span> Ожидаю…</div>
     </div>
     <?php else: ?>
     <div class="tg-banner tg-banner-linked">
         <div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
-        <div class="tg-banner-body">
-            <div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан — уведомления придут в бот</div>
-        </div>
+        <div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан — уведомления придут в бот</div></div>
     </div>
     <?php endif; ?>
-
 
     <a href="index.php" class="order-back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
@@ -1134,7 +1038,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             <div class="req-icon">₴</div>
             <div class="req-info">
                 <span>Гривны (карта)</span>
-                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;">
                     <span class="req-val">4874 0700 1036 9708</span>
                     <button class="copy-btn" onclick="copyText('4874070010369708','Номер карты скопирован!')">Копировать</button>
                 </div>
@@ -1144,7 +1048,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             <div class="req-icon">₿</div>
             <div class="req-info">
                 <span>Крипта (USDT TRC-20)</span>
-                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;">
                     <span class="req-val" style="font-size:10px;">THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2</span>
                     <button class="copy-btn" onclick="copyText('THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2','Адрес скопирован!')">Копировать</button>
                 </div>
@@ -1152,304 +1056,443 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         </div>
     </div>
 
-    <form action="" method="POST" enctype="multipart/form-data">
+    <form id="form-slot-1" action="" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="rules_accepted" value="1">
+        <input type="hidden" name="order_slot" value="1">
 
         <div class="mb16">
             <label class="order-label">Ваше имя / никнейм</label>
             <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
         </div>
-
         <div class="mb16">
             <label class="order-label">Контакт для связи (Telegram @username — обязательно)</label>
             <input type="text" name="telegram" required placeholder="@username" class="order-input">
         </div>
-
         <div class="mb16">
             <label class="order-label">Что вас интересует?</label>
             <select name="service" class="order-select">
                 <?php foreach ($services as $s): ?>
-                <option value="<?= htmlspecialchars($s['category_key']) ?>"
-                    <?= ($selected_service === $s['category_key']) ? 'selected' : '' ?>>
+                <option value="<?= htmlspecialchars($s['category_key']) ?>" <?= ($selected_service === $s['category_key']) ? 'selected' : '' ?>>
                     <?= htmlspecialchars($s['title']) ?> (<?= $s['price_uan'] ?>₴ / <?= $s['price_rub'] ?>₽)
                 </option>
                 <?php endforeach; ?>
             </select>
         </div>
-
         <div class="mb16">
             <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
                 <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
                 <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
             </label>
         </div>
-
         <div class="mb16">
             <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
             <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
-
         <div class="file-upload-block mb16">
-            <input type="file" name="screenshot" accept="image/*" id="file_screenshot">
+            <input type="file" name="screenshot" accept="image/*" id="s1_screenshot">
             <div class="file-label-row">
                 <span class="file-label-title">📸 Доказательство оплаты</span>
-                <label for="file_screenshot" class="file-choose-btn">
+                <label for="s1_screenshot" class="file-choose-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     Выбрать файл
                 </label>
             </div>
-            <div class="file-name-display" id="name_screenshot">Файл не выбран</div>
+            <div class="file-name-display" id="s1_screenshot_name">Файл не выбран</div>
         </div>
-
         <div class="file-upload-block mb22">
-            <input type="file" name="example_photos[]" accept="image/*" multiple id="file_refs">
+            <input type="file" name="example_photos[]" accept="image/*" multiple id="s1_refs">
             <div class="file-label-row">
                 <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
-                <label for="file_refs" class="file-choose-btn">
+                <label for="s1_refs" class="file-choose-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     Выбрать файлы
                 </label>
             </div>
-            <div class="file-name-display" id="name_refs">Файлы не выбраны</div>
+            <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
             <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
         </div>
-
         <div class="turnstile-wrap">
-            <div class="cf-turnstile"
-                 data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>"
-                 data-theme="dark"
-                 data-size="normal">
-            </div>
+            <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>" data-theme="dark" data-size="normal"></div>
         </div>
-
-        <div class="order-actions-group">
-            <button type="button" class="order-btn order-btn-archive" onclick="saveDraftOrder(event)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Архивировать
-            </button>
-            <button type="submit" class="order-submit">Отправить заказ Kostlim'у</button>
-            <button type="button" class="order-btn order-btn-multi" onclick="showMultipleOrdersMenu(event)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                +
-            </button>
-        </div>
-        
-        <!-- Модальное окно для выбора количества заказов -->
-        <div id="multiOrdersModal" class="modal-overlay" style="display:none;" onclick="closeMultiOrdersModal(event)">
-            <div class="modal-box" onclick="event.stopPropagation()">
-                <h3>Создать несколько заказов</h3>
-                <p>Сколько дополнительных заказов создать?</p>
-                <div class="modal-buttons">
-                    <button type="button" class="modal-btn" onclick="createMultipleOrders(2)">2 заказа</button>
-                    <button type="button" class="modal-btn" onclick="createMultipleOrders(3)">3 заказа</button>
-                    <button type="button" class="modal-btn modal-btn-cancel" onclick="closeMultiOrdersModal()">Отмена</button>
-                </div>
-            </div>
+        <div style="display:grid;gap:8px;margin-top:6px;">
+            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ Kostlim'у</button>
+            <button type="button" class="btn-archive-small" onclick="archiveSlot(1)">📦 Архивировать заказ</button>
         </div>
     </form>
+
+</div><!-- .order-card -->
+
+<!-- Кнопка добавить заказ -->
+<div style="margin-top:10px;">
+    <button type="button" id="add-order-btn" class="add-order-btn" onclick="addSlot()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Добавить ещё заказ
+    </button>
 </div>
 
-<?php endif; ?>
+</div><!-- #slot-panel-1 -->
+
+<!-- ═══ СЛОТ 2 ═══ -->
+<div class="slot-panel" id="slot-panel-2" style="display:none;">
+<div class="order-card">
+    <div class="slot-header">
+        <div class="slot-header-title">📋 Заказ №2</div>
+        <button class="btn-remove-slot" onclick="removeSlot(2)">✕ Удалить</button>
+    </div>
+    <form id="form-slot-2" action="" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="rules_accepted" value="1">
+        <input type="hidden" name="order_slot" value="2">
+        <?php echo slotFormFields(2, $services, $selected_service, $turnstile_site_key); ?>
+    </form>
+</div>
+</div>
+
+<!-- ═══ СЛОТ 3 ═══ -->
+<div class="slot-panel" id="slot-panel-3" style="display:none;">
+<div class="order-card">
+    <div class="slot-header">
+        <div class="slot-header-title">📋 Заказ №3</div>
+        <button class="btn-remove-slot" onclick="removeSlot(3)">✕ Удалить</button>
+    </div>
+    <form id="form-slot-3" action="" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="rules_accepted" value="1">
+        <input type="hidden" name="order_slot" value="3">
+        <?php echo slotFormFields(3, $services, $selected_service, $turnstile_site_key); ?>
+    </form>
+</div>
+</div>
+
+<!-- Кнопка архива -->
+<div id="archive-btn-wrap" style="display:none;margin-top:10px;">
+    <button type="button" onclick="openArchiveList()" style="width:100%;background:#16161f;border:1px solid rgba(249,115,22,.3);color:#fdba74;border-radius:10px;padding:11px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.5px;">
+        📋 Архивированные заказы (<span id="archive-count">0</span>)
+    </button>
+</div>
+
+</div><!-- .slots-wrap -->
+
+<script>
+// ─── File input labels ───
+document.addEventListener('DOMContentLoaded', function() {
+    // Слот 1
+    document.getElementById('s1_screenshot').addEventListener('change', function() {
+        var el = document.getElementById('s1_screenshot_name');
+        el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
+        el.classList.toggle('has-file', !!this.files[0]);
+    });
+    document.getElementById('s1_refs').addEventListener('change', function() {
+        var el = document.getElementById('s1_refs_name');
+        if (this.files.length > 0) {
+            el.textContent = '✅ ' + this.files.length + ' файл(а): ' + Array.from(this.files).map(function(f){return f.name;}).join(', ');
+            el.classList.add('has-file');
+        } else {
+            el.textContent = 'Файлы не выбраны';
+            el.classList.remove('has-file');
+        }
+    });
+    // Слоты 2 и 3
+    [2,3].forEach(function(n) {
+        var sc = document.getElementById('s'+n+'_screenshot');
+        var rf = document.getElementById('s'+n+'_refs');
+        if (sc) sc.addEventListener('change', function() {
+            var el = document.getElementById('s'+n+'_screenshot_name');
+            el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
+            el.classList.toggle('has-file', !!this.files[0]);
+        });
+        if (rf) rf.addEventListener('change', function() {
+            var el = document.getElementById('s'+n+'_refs_name');
+            if (this.files.length > 0) {
+                el.textContent = '✅ ' + this.files.length + ' файл(а)';
+                el.classList.add('has-file');
+            } else {
+                el.textContent = 'Файлы не выбраны';
+                el.classList.remove('has-file');
+            }
+        });
+    });
+
+    updateArchiveBtn();
+});
+
+// ─── Таб-система ───
+var _slots = [1];
+var _currentSlot = 1;
+
+function switchSlot(n) {
+    _currentSlot = n;
+    // Панели
+    [1,2,3].forEach(function(i) {
+        var p = document.getElementById('slot-panel-' + i);
+        if (p) p.style.display = (i === n) ? 'block' : 'none';
+    });
+    // Пилюли
+    document.querySelectorAll('.slot-pill').forEach(function(p) { p.classList.remove('active'); });
+    var pill = document.getElementById('pill-' + n);
+    if (pill) pill.classList.add('active');
+}
+
+function addSlot() {
+    var next = null;
+    for (var i = 2; i <= 3; i++) {
+        if (_slots.indexOf(i) === -1) { next = i; break; }
+    }
+    if (!next) return;
+    _slots.push(next);
+
+    // Показать панель
+    var panel = document.getElementById('slot-panel-' + next);
+    if (panel) panel.style.display = 'block';
+
+    // Показать таббар
+    var bar = document.getElementById('slots-tabs-bar');
+    if (bar) bar.style.display = 'flex';
+
+    // Добавить пилюлю
+    if (!document.getElementById('pill-' + next)) {
+        var pill = document.createElement('button');
+        pill.className = 'slot-pill';
+        pill.id = 'pill-' + next;
+        var slotNum = next;
+        pill.textContent = '📋 Заказ №' + next;
+        pill.onclick = function() { switchSlot(slotNum); };
+        bar.appendChild(pill);
+    }
+
+    // Показать пилюлю слота 1 если её нет
+    if (!document.getElementById('pill-1')) {
+        var bar2 = document.getElementById('slots-tabs-bar');
+        var pill1 = document.createElement('button');
+        pill1.className = 'slot-pill';
+        pill1.id = 'pill-1';
+        pill1.textContent = '📋 Заказ №1';
+        pill1.onclick = function() { switchSlot(1); };
+        bar2.insertBefore(pill1, bar2.firstChild);
+    }
+
+    updateAddBtn();
+    switchSlot(next);
+}
+
+function removeSlot(n) {
+    var idx = _slots.indexOf(n);
+    if (idx !== -1) _slots.splice(idx, 1);
+
+    var panel = document.getElementById('slot-panel-' + n);
+    if (panel) panel.style.display = 'none';
+
+    var form = document.getElementById('form-slot-' + n);
+    if (form) form.reset();
+
+    var pill = document.getElementById('pill-' + n);
+    if (pill) pill.remove();
+
+    if (_slots.length <= 1) {
+        var bar = document.getElementById('slots-tabs-bar');
+        if (bar) bar.style.display = 'none';
+    }
+
+    updateAddBtn();
+    switchSlot(1);
+}
+
+function updateAddBtn() {
+    var btn = document.getElementById('add-order-btn');
+    if (!btn) return;
+    btn.disabled = _slots.length >= 3;
+    btn.style.opacity = _slots.length >= 3 ? '.4' : '1';
+}
+
+// ─── Архив ───
+var ARCHIVE_KEY = 'kostlim_order_archive';
+function getArchive() { try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY) || '[]'); } catch(e) { return []; } }
+function saveArchive(arr) { localStorage.setItem(ARCHIVE_KEY, JSON.stringify(arr)); }
+
+function updateArchiveBtn() {
+    var archive = getArchive();
+    var wrap = document.getElementById('archive-btn-wrap');
+    var cnt = document.getElementById('archive-count');
+    if (wrap) wrap.style.display = archive.length > 0 ? 'block' : 'none';
+    if (cnt) cnt.textContent = archive.length;
+}
+
+async function uploadFileToCloudinary(file) {
+    var fd = new FormData();
+    fd.append('file', file);
+    try {
+        var resp = await fetch('upload_proxy.php', { method: 'POST', body: fd });
+        var data = await resp.json();
+        return data.ok ? data.url : null;
+    } catch(e) { return null; }
+}
+
+function showToastMsg(msg, color) {
+    var old = document.getElementById('order-toast');
+    if (old) old.remove();
+    var t = document.createElement('div');
+    t.id = 'order-toast';
+    t.textContent = msg;
+    Object.assign(t.style, { position:'fixed', bottom:'30px', left:'50%', transform:'translateX(-50%)', background: color||'#f97316', color:'#fff', padding:'12px 24px', borderRadius:'10px', fontWeight:'800', fontSize:'13px', boxShadow:'0 4px 20px rgba(0,0,0,.4)', zIndex:'9999', fontFamily:'inherit', whiteSpace:'nowrap', transition:'opacity .4s' });
+    document.body.appendChild(t);
+    setTimeout(function() { t.style.opacity='0'; setTimeout(function(){ t.remove(); }, 400); }, 3000);
+}
+
+async function archiveSlot(slot) {
+    var form = document.getElementById('form-slot-' + slot);
+    if (!form) { showToastMsg('❌ Форма не найдена', '#ef4444'); return; }
+
+    var data = {};
+    form.querySelectorAll('input[name], select[name], textarea[name]').forEach(function(el) {
+        if (el.type === 'file' || el.type === 'hidden') return;
+        if (el.type === 'checkbox') { data[el.name] = el.checked ? '1' : ''; return; }
+        data[el.name] = el.value;
+    });
+
+    if (!data.username && !data.telegram && !data.details) {
+        showToastMsg('⚠️ Заполни хотя бы имя, контакт или ТЗ', '#ef4444'); return;
+    }
+
+    showToastMsg('⏳ Загружаю фото...', '#6366f1');
+
+    var scInput = document.getElementById('s'+slot+'_screenshot');
+    if (scInput && scInput.files[0]) {
+        var url = await uploadFileToCloudinary(scInput.files[0]);
+        if (url) data._screenshot_url = url;
+    }
+    var rfInput = document.getElementById('s'+slot+'_refs');
+    if (rfInput && rfInput.files.length > 0) {
+        var urls = [];
+        for (var i = 0; i < Math.min(rfInput.files.length, 5); i++) {
+            var u = await uploadFileToCloudinary(rfInput.files[i]);
+            if (u) urls.push(u);
+        }
+        if (urls.length) data._refs_urls = urls;
+    }
+
+    var archive = getArchive();
+    archive.push({ id: Date.now(), slot: slot, savedAt: new Date().toLocaleString('ru'), data: data });
+    saveArchive(archive);
+    updateArchiveBtn();
+    showToastMsg('📦 Заказ архивирован!', '#f97316');
+}
+
+function openArchiveList() { renderArchiveList(); document.getElementById('archive-modal').style.display = 'flex'; }
+function closeArchiveModal() { document.getElementById('archive-modal').style.display = 'none'; }
+
+function renderArchiveList() {
+    var archive = getArchive();
+    var c = document.getElementById('archive-items');
+    if (!c) return;
+    if (!archive.length) { c.innerHTML = '<div style="text-align:center;color:#555568;padding:30px;font-size:13px;">Архив пуст</div>'; return; }
+    c.innerHTML = archive.map(function(item, i) {
+        var d = item.data || {};
+        var photos = '';
+        if (d._screenshot_url || (d._refs_urls && d._refs_urls.length)) {
+            photos = '<div style="font-size:10px;color:#34d399;margin-top:4px;">📸 ' +
+                (d._screenshot_url ? 'Чек ✓' : '') +
+                (d._screenshot_url && d._refs_urls && d._refs_urls.length ? ' | ' : '') +
+                (d._refs_urls && d._refs_urls.length ? 'Референсы: ' + d._refs_urls.length + ' шт ✓' : '') + '</div>';
+        } else {
+            photos = '<div style="font-size:10px;color:#555568;margin-top:4px;">Без фото</div>';
+        }
+        return '<div style="background:#0e0e16;border:1px solid #1e1e2c;border-radius:12px;padding:14px;margin-bottom:10px;">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+                '<div style="font-size:12px;font-weight:800;color:#fdba74;">📦 ' + item.savedAt + '</div>' +
+                '<div style="display:flex;gap:6px;">' +
+                    '<button onclick="loadArchiveItem('+i+')" style="background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.3);color:#fdba74;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">✏️ Загрузить</button>' +
+                    '<button onclick="deleteArchiveItem('+i+')" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">🗑️</button>' +
+                '</div>' +
+            '</div>' +
+            '<div style="font-size:11px;color:#8a8a96;">👤 '+(d.username||'—')+' | 🎨 '+(d.service||'—')+'</div>' +
+            '<div style="font-size:11px;color:#666678;margin-top:2px;">' + ((d.details||'').substring(0,80) + ((d.details||'').length > 80 ? '...' : '')) + '</div>' +
+            photos + '</div>';
+    }).join('');
+}
+
+function loadArchiveItem(i) {
+    var item = getArchive()[i];
+    if (!item) return;
+    var form = document.getElementById('form-slot-1');
+    if (form) {
+        Object.keys(item.data).forEach(function(name) {
+            if (name.startsWith('_')) return;
+            var el = form.querySelector('[name="'+name+'"]');
+            if (!el) return;
+            if (el.type === 'checkbox') { el.checked = item.data[name] === '1'; return; }
+            el.value = item.data[name];
+        });
+        if (item.data._screenshot_url) {
+            var el = document.getElementById('s1_screenshot_name');
+            if (el) { el.innerHTML = '✅ Чек: <a href="'+item.data._screenshot_url+'" target="_blank" style="color:#f97316;">открыть</a>'; el.classList.add('has-file'); }
+        }
+        if (item.data._refs_urls && item.data._refs_urls.length) {
+            var el2 = document.getElementById('s1_refs_name');
+            if (el2) { el2.textContent = '✅ ' + item.data._refs_urls.length + ' референс(а) сохранены'; el2.classList.add('has-file'); }
+        }
+    }
+    switchSlot(1);
+    closeArchiveModal();
+    showToastMsg('✅ Загружено!', '#22c55e');
+}
+
+function deleteArchiveItem(i) {
+    var a = getArchive(); a.splice(i,1); saveArchive(a); updateArchiveBtn(); renderArchiveList();
+}
+
+function clearAllArchive() {
+    if (!confirm('Удалить все архивированные заказы?')) return;
+    localStorage.removeItem(ARCHIVE_KEY); updateArchiveBtn(); renderArchiveList();
+}
+
+function copyText(text, msg) {
+    navigator.clipboard.writeText(text).then(function() { showToastMsg('✅ ' + msg, '#f97316'); });
+}
+</script>
+
 
 </div>
 
 <script>
-
-// ══ АРХИВИРОВАНИЕ ЗАКАЗА ══
-function saveDraftOrder(e) {
-    e.preventDefault();
-    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
-    if (!form) return;
-    
-    const formData = new FormData(form);
-    formData.append('action', 'save_draft');
-    formData.append('rules_accepted', '1');
-    
-    // Собираем URLs загруженных файлов (если есть)
-    const screenshotInput = form.querySelector('input[name="screenshot"]');
-    const refsInput = form.querySelector('input[name="example_photos[]"]');
-    
-    fetch('order.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const toast = createToast('✅ ' + data.message, 'success');
-            document.body.appendChild(toast);
-            // Очищаем форму
-            form.reset();
-            setTimeout(() => form.reset(), 100);
-        } else {
-            const toast = createToast('❌ ' + (data.message || 'Ошибка при сохранении'), 'error');
-            document.body.appendChild(toast);
-        }
-    })
-    .catch(err => {
-        console.error('Error:', err);
-        const toast = createToast('❌ Ошибка сети', 'error');
-        document.body.appendChild(toast);
-    });
-}
-
-// ══ МОДАЛЬНОЕ ОКНО НЕСКОЛЬКИХ ЗАКАЗОВ ══
-function showMultipleOrdersMenu(e) {
-    e.preventDefault();
-    document.getElementById('multiOrdersModal').style.display = 'flex';
-}
-
-function closeMultiOrdersModal(e) {
-    if (e) e.stopPropagation();
-    document.getElementById('multiOrdersModal').style.display = 'none';
-}
-
-function createMultipleOrders(count) {
-    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
-    if (!form) return;
-    
-    // Валидируем форму
-    if (!form.checkValidity()) {
-        const toast = createToast('❌ Заполните все обязательные поля', 'error');
-        document.body.appendChild(toast);
-        closeMultiOrdersModal();
-        return;
-    }
-    
-    const formData = new FormData(form);
-    formData.append('action', 'create_multiple_orders');
-    formData.append('order_count', count);
-    formData.append('rules_accepted', '1');
-    
-    fetch('order.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const msg = `✅ Созданы ${count} заказов! Выберите какие отправить или архивировать`;
-            const toast = createToast(msg, 'success');
-            document.body.appendChild(toast);
-            closeMultiOrdersModal();
-            // Показываем интерфейс выбора заказов
-            showOrderSelectionUI(data.orders || []);
-        } else {
-            const toast = createToast('❌ ' + (data.message || 'Ошибка'), 'error');
-            document.body.appendChild(toast);
-        }
-    })
-    .catch(err => {
-        console.error('Error:', err);
-        const toast = createToast('❌ Ошибка сети', 'error');
-        document.body.appendChild(toast);
-    });
-}
-
-// ══ ИНТЕРФЕЙС ВЫБОРА ЗАКАЗОВ ══
-function showOrderSelectionUI(orders) {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'orderSelectionModal';
-    modal.innerHTML = `
-        <div class="modal-box" style="max-width:500px;" onclick="event.stopPropagation()">
-            <h3>Выберите действие</h3>
-            <p>Выберите какие заказы отправить, архивировать или сделать оба действия</p>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
-                <button type="button" class="modal-btn" onclick="submitSelectedOrders('send')">📤 Отправить всё</button>
-                <button type="button" class="modal-btn" onclick="submitSelectedOrders('archive')">💾 Архивировать всё</button>
-                <button type="button" class="modal-btn modal-btn-cancel" style="grid-column:1/-1;" onclick="closeOrderSelectionModal()">Закрыть</button>
-            </div>
-        </div>
-    `;
-    modal.onclick = closeOrderSelectionModal;
-    document.body.appendChild(modal);
-}
-
-function closeOrderSelectionModal() {
-    const modal = document.getElementById('orderSelectionModal');
-    if (modal) modal.remove();
-}
-
-function submitSelectedOrders(action) {
-    const form = document.querySelector('form[method="POST"][enctype="multipart/form-data"]');
-    if (form) {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'selected_action';
-        input.value = action;
-        form.appendChild(input);
-        form.submit();
-    }
-}
-
-// ══ УТИЛИТА: TOAST СООБЩЕНИЕ ══
-function createToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    const bgColor = type === 'error' ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'linear-gradient(135deg,#fb923c,#f97316)';
-    Object.assign(toast.style, {
-        position: 'fixed',
-        bottom: '30px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        background: bgColor,
-        color: '#fff',
-        padding: '12px 24px',
-        borderRadius: '10px',
-        fontWeight: '800',
-        fontSize: '13px',
-        boxShadow: type === 'error' ? '0 0 20px rgba(239,68,68,.6)' : '0 0 20px rgba(249,115,22,.6)',
-        zIndex: '10000',
-        transition: 'opacity .4s',
-        fontFamily: 'inherit'
-    });
-    toast.textContent = message;
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => toast.remove(), 400);
-    }, 2500);
-    return toast;
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     const rulesScroll = document.getElementById('rules-scroll');
     const agreeBtn = document.getElementById('agree-btn');
     
     if (rulesScroll && agreeBtn) {
         const checkScroll = () => {
-            // Если контент влезает без прокрутки или прокручен до конца (с погрешностью 10px)
             if (rulesScroll.scrollHeight <= rulesScroll.clientHeight || 
                 Math.abs(rulesScroll.scrollHeight - rulesScroll.clientHeight - rulesScroll.scrollTop) < 10) {
                 agreeBtn.disabled = false;
             }
         };
-
         rulesScroll.addEventListener('scroll', checkScroll);
-        checkScroll(); // Проверка при загрузке (на случай если текста мало)
+        checkScroll();
     }
 });
 
-document.getElementById('file_screenshot')?.addEventListener('change', function() {
-    const el = document.getElementById('name_screenshot');
-    if (this.files[0]) { el.textContent = '✅ ' + this.files[0].name; el.classList.add('has-file'); }
-    else { el.textContent = 'Файл не выбран'; el.classList.remove('has-file'); }
 });
-document.getElementById('file_refs')?.addEventListener('change', function() {
-    const el = document.getElementById('name_refs');
-    if (this.files.length > 0) {
-        el.textContent = '✅ ' + this.files.length + ' файл(а): ' + Array.from(this.files).map(f => f.name).join(', ');
-        el.classList.add('has-file');
-    } else { el.textContent = 'Файлы не выбраны'; el.classList.remove('has-file'); }
+
+</script>
+
+<!-- ══ МОДАЛКА АРХИВА ══ -->
+<div id="archive-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:center;justify-content:center;">
+    <div style="background:#13131a;border:1px solid rgba(249,115,22,.25);border-radius:20px;padding:28px;width:540px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <div style="font-size:16px;font-weight:900;color:#fff;">📋 Архивированные заказы</div>
+            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.07);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#8a8a96;font-size:16px;display:flex;align-items:center;justify-content:center;">✕</button>
+        </div>
+        <div style="font-size:11px;color:#555568;margin-bottom:16px;line-height:1.5;">
+            Фото не сохраняются в архиве — только текстовые данные. При загрузке заполни фото заново.
+        </div>
+        <div id="archive-items" style="overflow-y:auto;flex:1;padding-right:4px;scrollbar-width:thin;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;">
+            <button onclick="clearAllArchive()" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:10px;padding:11px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;">🗑️ Очистить всё</button>
+            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:11px;color:#8a8a96;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Закрыть</button>
+        </div>
+    </div>
+</div>
+<script>
+document.getElementById('archive-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeArchiveModal();
 });
-function copyText(text, msg) {
-    navigator.clipboard.writeText(text).then(() => {
-        const toast = document.createElement('div');
-        toast.textContent = '✅ ' + msg;
-        Object.assign(toast.style, { position:'fixed', bottom:'30px', left:'50%', transform:'translateX(-50%)', background:'linear-gradient(135deg,#fb923c,#f97316)', color:'#fff', padding:'10px 22px', borderRadius:'9px', fontWeight:'800', fontSize:'13px', boxShadow:'0 0 20px rgba(249,115,22,.6)', zIndex:'9999', transition:'opacity .4s', fontFamily:'inherit' });
-        document.body.appendChild(toast);
-        setTimeout(() => { toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 2000);
-    });
-}
 </script>
 </body>
 </html>
