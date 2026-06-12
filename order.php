@@ -1494,5 +1494,6 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
     if (e.target === this) closeArchiveModal();
 });
 </script>
+<?php endif; ?>
 </body>
 </html>
