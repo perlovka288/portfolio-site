@@ -218,11 +218,17 @@ if (isset($update['callback_query'])) {
 
 // ── MESSAGE ──────────────────────────────────────────────────────
 if (isset($update['message'])) {
-    $chat_id  = $update['message']['chat']['id'];
-    $text     = trim($update['message']['text'] ?? '');
-    $text_key = normalizeBotText($text);
+    $chat_id   = $update['message']['chat']['id'];
+    $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
+    $text      = trim($update['message']['text'] ?? '');
+    $text_key  = normalizeBotText($text);
 
-    botLog("message chat={$chat_id} text={$text}");
+    botLog("message chat={$chat_id} type={$chat_type} text={$text}");
+
+    // В группах/супергруппах реагируем ТОЛЬКО на команды (сообщения начинающиеся с /)
+    if (in_array($chat_type, ['group', 'supergroup', 'channel'], true) && ($text === '' || $text[0] !== '/')) {
+        exit;
+    }
 
     // Автоматически привязываем chat_id к заказам по username при каждом сообщении
     $msg_username = $update['message']['from']['username'] ?? '';
@@ -717,13 +723,15 @@ if (isset($update['message'])) {
         }
     }
 
-    // Неизвестный текст — показываем меню клиенту
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'      => $chat_id,
-        'text'         => "Используй кнопки меню 👇",
-        'parse_mode'   => 'Markdown',
-        'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
-    ]);
+    // Неизвестный текст — показываем меню клиенту (только в личном чате)
+    if ($chat_type === 'private') {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $chat_id,
+            'text'         => "Используй кнопки меню 👇",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+        ]);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
