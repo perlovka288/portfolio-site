@@ -225,9 +225,12 @@ if (isset($update['message'])) {
 
     botLog("message chat={$chat_id} type={$chat_type} text={$text}");
 
-    // В группах/супергруппах реагируем ТОЛЬКО на команды (сообщения начинающиеся с /)
-    if (in_array($chat_type, ['group', 'supergroup', 'channel'], true) && ($text === '' || $text[0] !== '/')) {
-        exit;
+    // В группах/супергруппах — антиспам на все сообщения, команды пропускаем дальше
+    if (in_array($chat_type, ['group', 'supergroup', 'channel'], true)) {
+        if ($text === '' || $text[0] !== '/') {
+            checkAntiSpam($pdo, $token, $update);
+            exit;
+        }
     }
 
     // Автоматически привязываем chat_id к заказам по username при каждом сообщении

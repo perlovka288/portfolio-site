@@ -1,10 +1,11 @@
 <?php
 /**
  * bot_commands.php — Админ-команды для Telegram бота Kostlim Design
- * Команды работают в ЛС и в приват-паке, если отправитель — владелец бота.
  *
  * ВАЖНО: бот должен быть администратором группы с правом "Restrict Members"
- * иначе /mute /ban /kick не будут работать.
+ *
+ * Антиспам: 10 сообщений за 10 сек → предупреждение, если продолжает → мут 10 мин
+ * Антифлуд: 3 одинаковых сообщения подряд → варн
  */
 
 define('BOT_PRIVATE_PACK_ID', (int)(getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
@@ -34,7 +35,34 @@ function getBotReplyChatId(array $update): int
 }
 
 // ────────────────────────────────────────────────────────────────
-// Получить числовой ID пользователя из username через tg_links
+// Получить thread_id (тему) из сообщения если есть
+// ────────────────────────────────────────────────────────────────
+function getMessageThreadId(array $update): ?int
+{
+    $threadId = $update['message']['message_thread_id'] ?? null;
+    return $threadId !== null ? (int)$threadId : null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Отправка с поддержкой тем (message_thread_id)
+// ────────────────────────────────────────────────────────────────
+function sendToThread(string $token, int $chatId, ?int $threadId, string $text, array $extra = []): void
+{
+    $params = array_merge([
+        'chat_id'    => $chatId,
+        'text'       => $text,
+        'parse_mode' => 'Markdown',
+    ], $extra);
+
+    if ($threadId !== null) {
+        $params['message_thread_id'] = $threadId;
+    }
+
+    sendTelegram($token, 'sendMessage', $params);
+}
+
+// ────────────────────────────────────────────────────────────────
+// getUserIdByUsername
 // ────────────────────────────────────────────────────────────────
 function getUserIdByUsername(PDO $pdo, string $username): ?int
 {
@@ -50,112 +78,78 @@ function getUserIdByUsername(PDO $pdo, string $username): ?int
         );
         $stmt->execute([$username, '@' . $username]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && !empty($row['tg_id'])) {
-            return (int)$row['tg_id'];
-        }
+        if ($row && !empty($row['tg_id'])) return (int)$row['tg_id'];
     } catch (Exception $e) {}
 
     return null;
 }
 
 // ────────────────────────────────────────────────────────────────
-// Вызов Telegram API — restrict / unrestrict / ban / unban
+// Telegram API helpers
 // ────────────────────────────────────────────────────────────────
-
-/**
- * Замутить пользователя в Telegram-группе через restrictChatMember.
- * $groupChatId — числовой ID группы (например -1003781426510)
- * $userId      — числовой tg_id пользователя
- * $untilDate   — unix timestamp окончания мута (0 = навсегда)
- */
 function tgRestrictUser(string $token, int $groupChatId, int $userId, int $untilDate = 0): array
 {
     $params = [
-        'chat_id' => $groupChatId,
-        'user_id' => $userId,
+        'chat_id'     => $groupChatId,
+        'user_id'     => $userId,
         'permissions' => json_encode([
-            'can_send_messages'       => false,
-            'can_send_audios'         => false,
-            'can_send_documents'      => false,
-            'can_send_photos'         => false,
-            'can_send_videos'         => false,
-            'can_send_video_notes'    => false,
-            'can_send_voice_notes'    => false,
-            'can_send_polls'          => false,
-            'can_send_other_messages' => false,
+            'can_send_messages'         => false,
+            'can_send_audios'           => false,
+            'can_send_documents'        => false,
+            'can_send_photos'           => false,
+            'can_send_videos'           => false,
+            'can_send_video_notes'      => false,
+            'can_send_voice_notes'      => false,
+            'can_send_polls'            => false,
+            'can_send_other_messages'   => false,
             'can_add_web_page_previews' => false,
-            'can_change_info'         => false,
-            'can_invite_users'        => false,
-            'can_pin_messages'        => false,
+            'can_change_info'           => false,
+            'can_invite_users'          => false,
+            'can_pin_messages'          => false,
         ]),
     ];
-    if ($untilDate > 0) {
-        $params['until_date'] = $untilDate;
-    }
+    if ($untilDate > 0) $params['until_date'] = $untilDate;
 
     $ch = curl_init("https://api.telegram.org/bot{$token}/restrictChatMember");
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_POSTFIELDS     => $params,
-    ]);
-    $res = curl_exec($ch);
-    curl_close($ch);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_POSTFIELDS => $params]);
+    $res = curl_exec($ch); curl_close($ch);
     return json_decode((string)$res, true) ?: ['ok' => false, 'description' => 'curl error'];
 }
 
-/**
- * Снять мут — вернуть все права обычного участника.
- */
 function tgUnrestrictUser(string $token, int $groupChatId, int $userId): array
 {
     $params = [
-        'chat_id' => $groupChatId,
-        'user_id' => $userId,
+        'chat_id'     => $groupChatId,
+        'user_id'     => $userId,
         'permissions' => json_encode([
-            'can_send_messages'       => true,
-            'can_send_audios'         => true,
-            'can_send_documents'      => true,
-            'can_send_photos'         => true,
-            'can_send_videos'         => true,
-            'can_send_video_notes'    => true,
-            'can_send_voice_notes'    => true,
-            'can_send_polls'          => true,
-            'can_send_other_messages' => true,
+            'can_send_messages'         => true,
+            'can_send_audios'           => true,
+            'can_send_documents'        => true,
+            'can_send_photos'           => true,
+            'can_send_videos'           => true,
+            'can_send_video_notes'      => true,
+            'can_send_voice_notes'      => true,
+            'can_send_polls'            => true,
+            'can_send_other_messages'   => true,
             'can_add_web_page_previews' => true,
         ]),
     ];
-
     $ch = curl_init("https://api.telegram.org/bot{$token}/restrictChatMember");
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_POSTFIELDS     => $params,
-    ]);
-    $res = curl_exec($ch);
-    curl_close($ch);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_POSTFIELDS => $params]);
+    $res = curl_exec($ch); curl_close($ch);
     return json_decode((string)$res, true) ?: ['ok' => false, 'description' => 'curl error'];
 }
 
-/**
- * Забанить через banChatMember.
- */
 function tgBanUser(string $token, int $groupChatId, int $userId, int $untilDate = 0): array
 {
     $params = ['chat_id' => $groupChatId, 'user_id' => $userId, 'revoke_messages' => false];
     if ($untilDate > 0) $params['until_date'] = $untilDate;
-
     $ch = curl_init("https://api.telegram.org/bot{$token}/banChatMember");
     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_POSTFIELDS => $params]);
     $res = curl_exec($ch); curl_close($ch);
     return json_decode((string)$res, true) ?: ['ok' => false, 'description' => 'curl error'];
 }
 
-/**
- * Разбанить через unbanChatMember.
- */
 function tgUnbanUser(string $token, int $groupChatId, int $userId): array
 {
     $params = ['chat_id' => $groupChatId, 'user_id' => $userId, 'only_if_banned' => true];
@@ -165,17 +159,148 @@ function tgUnbanUser(string $token, int $groupChatId, int $userId): array
     return json_decode((string)$res, true) ?: ['ok' => false, 'description' => 'curl error'];
 }
 
-/**
- * Кикнуть (бан + сразу разбан = исключить без постоянного бана).
- */
 function tgKickUser(string $token, int $groupChatId, int $userId): array
 {
     $res = tgBanUser($token, $groupChatId, $userId);
-    if (!empty($res['ok'])) {
-        sleep(1);
-        tgUnbanUser($token, $groupChatId, $userId);
-    }
+    if (!empty($res['ok'])) { sleep(1); tgUnbanUser($token, $groupChatId, $userId); }
     return $res;
+}
+
+// ────────────────────────────────────────────────────────────────
+// АНТИСПАМ / АНТИФЛУД
+// Вызывается из bot.php на каждое сообщение в группе
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * Проверить сообщение на спам/флуд.
+ * Возвращает true если сообщение заблокировано (дальнейшую обработку можно пропустить).
+ */
+function checkAntiSpam(PDO $pdo, string $token, array $update): bool
+{
+    $msg      = $update['message'] ?? null;
+    if (!$msg) return false;
+
+    $chatType = $msg['chat']['type'] ?? 'private';
+    if ($chatType === 'private') return false; // в ЛС не проверяем
+
+    $userId   = (int)($msg['from']['id'] ?? 0);
+    $chatId   = (int)($msg['chat']['id'] ?? 0);
+    $threadId = getMessageThreadId($update);
+    $username = $msg['from']['username'] ?? '';
+    $firstName= $msg['from']['first_name'] ?? $username ?: 'Пользователь';
+    $text     = trim($msg['text'] ?? '');
+    $now      = time();
+
+    // Администратора не трогаем
+    if ($userId === getBotAdminId()) return false;
+
+    $token_env = getenv('TELEGRAM_BOT_TOKEN') ?: '';
+
+    // ── Антиспам: счётчик сообщений за последние 10 сек ──────────
+    $spamBlocked = false;
+    try {
+        // Убираем старые записи
+        $pdo->prepare("DELETE FROM spam_log WHERE user_id = ? AND chat_id = ? AND sent_at < ?")->execute([$userId, $chatId, $now - 10]);
+
+        // Добавляем текущее
+        $pdo->prepare("INSERT INTO spam_log (user_id, chat_id, sent_at) VALUES (?, ?, ?)")->execute([$userId, $chatId, $now]);
+
+        // Считаем за окно
+        $cnt = (int)$pdo->prepare("SELECT COUNT(*) FROM spam_log WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]) ? 0 : 0;
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM spam_log WHERE user_id = ? AND chat_id = ?");
+        $stmt->execute([$userId, $chatId]);
+        $cnt = (int)$stmt->fetchColumn();
+
+        if ($cnt >= 10) {
+            // Проверяем — уже предупреждали?
+            $warnStmt = $pdo->prepare("SELECT id FROM spam_warnings WHERE user_id = ? AND chat_id = ? AND warned_at > ?");
+            $warnStmt->execute([$userId, $chatId, $now - 60]); // предупреждение действует 60 сек
+            $alreadyWarned = $warnStmt->fetch();
+
+            if (!$alreadyWarned) {
+                // Первый раз — предупреждение
+                $pdo->prepare("INSERT INTO spam_warnings (user_id, chat_id, warned_at) VALUES (?, ?, ?) ON CONFLICT (user_id, chat_id) DO UPDATE SET warned_at = EXCLUDED.warned_at")
+                    ->execute([$userId, $chatId, $now]);
+
+                $mention = $username ? "@{$username}" : $firstName;
+                sendToThread($token_env, $chatId, $threadId,
+                    "⚠️ {$mention}, пожалуйста не спамь! Если продолжишь — получишь мут на 10 минут."
+                );
+            } else {
+                // Продолжает спамить → мут 10 минут
+                $untilDate = $now + 600;
+                tgRestrictUser($token_env, $chatId, $userId, $untilDate);
+
+                try {
+                    $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at) VALUES (?, ?, 'mute', 'Автомут за спам', 10, ?, ?)")
+                        ->execute([$userId, $username, getBotAdminId(), date('Y-m-d H:i:s', $untilDate)]);
+                } catch (Throwable $e) {}
+
+                // Удаляем счётчик чтобы не мутить повторно сразу
+                $pdo->prepare("DELETE FROM spam_log WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+                $pdo->prepare("DELETE FROM spam_warnings WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+
+                $mention = $username ? "@{$username}" : $firstName;
+                sendToThread($token_env, $chatId, $threadId,
+                    "🔇 {$mention} замучен на 10 минут за спам."
+                );
+                $spamBlocked = true;
+            }
+        }
+    } catch (Throwable $e) {
+        botLog("antiSpam error: " . $e->getMessage());
+    }
+
+    // ── Антифлуд: 3 одинаковых сообщения подряд → варн ──────────
+    if (!$spamBlocked && $text !== '') {
+        try {
+            // Берём последние 3 сообщения пользователя в этом чате
+            $stmt = $pdo->prepare(
+                "SELECT message_text FROM flood_log
+                 WHERE user_id = ? AND chat_id = ?
+                 ORDER BY id DESC LIMIT 2"
+            );
+            $stmt->execute([$userId, $chatId]);
+            $prev = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Сохраняем текущее
+            $pdo->prepare("INSERT INTO flood_log (user_id, chat_id, message_text, sent_at) VALUES (?, ?, ?, ?)")
+                ->execute([$userId, $chatId, mb_substr($text, 0, 255), $now]);
+
+            // Удаляем старые (оставляем только 10 последних)
+            $pdo->prepare(
+                "DELETE FROM flood_log WHERE id IN (
+                    SELECT id FROM flood_log WHERE user_id = ? AND chat_id = ?
+                    ORDER BY id DESC OFFSET 10
+                 )"
+            )->execute([$userId, $chatId]);
+
+            // Проверяем — два предыдущих совпадают с текущим?
+            if (count($prev) >= 2 && $prev[0] === $text && $prev[1] === $text) {
+                $mention = $username ? "@{$username}" : $firstName;
+
+                // Варн
+                $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, issued_by) VALUES (?, ?, 'warn', 'Флуд одинаковыми сообщениями', ?)")
+                    ->execute([$userId, $username, getBotAdminId()]);
+
+                $cntW = (int)$pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE")->execute([$username]) ? 0 : 0;
+                $stW  = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
+                $stW->execute([$username]);
+                $cntW = (int)$stW->fetchColumn();
+
+                sendToThread($token_env, $chatId, $threadId,
+                    "⚠️ {$mention}, не флуди одинаковыми сообщениями! Варн {$cntW}/3."
+                );
+
+                // Очищаем flood_log чтобы не варнить каждое следующее
+                $pdo->prepare("DELETE FROM flood_log WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+            }
+        } catch (Throwable $e) {
+            botLog("antiFlood error: " . $e->getMessage());
+        }
+    }
+
+    return $spamBlocked;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -183,16 +308,13 @@ function tgKickUser(string $token, int $groupChatId, int $userId): array
 // ────────────────────────────────────────────────────────────────
 function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text, array $update): bool
 {
-    if (!isBotAdmin($update)) {
-        return false;
-    }
+    if (!isBotAdmin($update)) return false;
 
     $replyChatId = getBotReplyChatId($update) ?: $chat_id;
+    $threadId    = getMessageThreadId($update);
 
-    // Определяем группу для применения ограничений:
-    // если команда написана в группе — используем этот чат,
-    // если в ЛС — используем BOT_PRIVATE_PACK_ID
-    $groupChatId = (abs($replyChatId) !== abs(getBotAdminId())) ? $replyChatId : BOT_PRIVATE_PACK_ID;
+    // Группа для применения ограничений
+    $groupChatId = ($replyChatId !== getBotAdminId()) ? $replyChatId : BOT_PRIVATE_PACK_ID;
 
     $parts   = explode(' ', $text, 3);
     $command = strtolower(trim($parts[0] ?? ''));
@@ -200,28 +322,17 @@ function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text
     $arg2    = trim($parts[2] ?? '');
 
     switch ($command) {
-        case '/mute':
-            return cmdMute($pdo, $token, $replyChatId, $groupChatId, $arg1, $arg2);
-        case '/unmute':
-            return cmdUnmute($pdo, $token, $replyChatId, $groupChatId, $arg1);
-        case '/warn':
-            return cmdWarn($pdo, $token, $replyChatId, $groupChatId, $arg1, $arg2);
-        case '/unwarn':
-            return cmdUnwarn($pdo, $token, $replyChatId, $arg1);
-        case '/ban':
-            return cmdBan($pdo, $token, $replyChatId, $groupChatId, $arg1, $arg2);
-        case '/unban':
-            return cmdUnban($pdo, $token, $replyChatId, $groupChatId, $arg1);
-        case '/kick':
-            return cmdKick($pdo, $token, $replyChatId, $groupChatId, $arg1);
-        case '/admin':
-            return cmdAdmin($pdo, $token, $replyChatId);
-        case '/stats':
-            return cmdStats($pdo, $token, $replyChatId);
-        case '/help':
-            return cmdHelp($pdo, $token, $replyChatId);
-        default:
-            return false;
+        case '/mute':   return cmdMute($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1, $arg2);
+        case '/unmute': return cmdUnmute($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
+        case '/warn':   return cmdWarn($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1, $arg2);
+        case '/unwarn': return cmdUnwarn($pdo, $token, $replyChatId, $threadId, $arg1);
+        case '/ban':    return cmdBan($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1, $arg2);
+        case '/unban':  return cmdUnban($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
+        case '/kick':   return cmdKick($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
+        case '/admin':  return cmdAdmin($pdo, $token, $replyChatId, $threadId);
+        case '/stats':  return cmdStats($pdo, $token, $replyChatId, $threadId);
+        case '/help':   return cmdHelp($pdo, $token, $chat_id, $update); // всегда в ЛС
+        default:        return false;
     }
 }
 
@@ -229,94 +340,67 @@ function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text
 // Команды
 // ────────────────────────────────────────────────────────────────
 
-/**
- * /mute @username [минуты] [причина]
- * Пример: /mute @user 30 спам
- * Если минуты не указаны — мут навсегда.
- */
-function cmdMute(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target, string $arg2): bool
+function cmdMute(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target, string $arg2): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "⛔ *Использование:* `/mute @username [минуты] [причина]`\n\nПример: `/mute @user 30 спам`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "⛔ *Использование:* `/mute @username [минуты] [причина]`\n\nПример: `/mute @user 30 спам`");
         return true;
     }
 
     $username = ltrim($target, '@');
+    $parts2   = explode(' ', $arg2, 2);
+    $maybeMin = trim($parts2[0] ?? '');
+    $reason   = trim($parts2[1] ?? '');
 
-    // Парсим: первое слово arg2 — число минут, остальное — причина
-    $parts2      = explode(' ', $arg2, 2);
-    $maybeMinutes = trim($parts2[0] ?? '');
-    $reason       = trim($parts2[1] ?? '');
-
-    if ($maybeMinutes !== '' && is_numeric($maybeMinutes)) {
-        $durationMin = max(1, (int)$maybeMinutes);
+    if ($maybeMin !== '' && is_numeric($maybeMin)) {
+        $durationMin = max(1, (int)$maybeMin);
         if ($reason === '') $reason = 'Без причины';
     } else {
-        $durationMin = 0; // навсегда
+        $durationMin = 0;
         $reason      = $arg2 ?: 'Без причины';
     }
 
-    $untilDate  = $durationMin > 0 ? time() + $durationMin * 60 : 0;
+    $untilDate   = $durationMin > 0 ? time() + $durationMin * 60 : 0;
     $durationTxt = $durationMin > 0 ? "на {$durationMin} мин." : 'навсегда';
+    $userId      = getUserIdByUsername($pdo, $username);
 
-    // 1) Ищем tg_id по username
-    $userId = getUserIdByUsername($pdo, $username);
-
-    // 2) Применяем в Telegram если нашли ID
-    $tgResult = null;
-    $tgOk     = false;
+    $tgOk  = false;
+    $tgMsg = '';
     if ($userId) {
-        $tgResult = tgRestrictUser($token, $groupChatId, $userId, $untilDate);
-        $tgOk     = !empty($tgResult['ok']);
+        $res  = tgRestrictUser($token, $groupChatId, $userId, $untilDate);
+        $tgOk = !empty($res['ok']);
+        if (!$tgOk) $tgMsg = "\n⚠️ TG: " . ($res['description'] ?? 'ошибка');
     }
 
-    // 3) Пишем в БД
     try {
         $expiresAt = $durationMin > 0 ? date('Y-m-d H:i:s', $untilDate) : null;
-        $pdo->prepare(
-            "INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at)
-             VALUES (?, ?, 'mute', ?, ?, ?, ?)"
-        )->execute([$userId ?? 0, $username, $reason, $durationMin, getBotAdminId(), $expiresAt]);
+        $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at) VALUES (?, ?, 'mute', ?, ?, ?, ?)")
+            ->execute([$userId ?? 0, $username, $reason, $durationMin, getBotAdminId(), $expiresAt]);
     } catch (Exception $e) {}
 
-    // 4) Ответ
-    if (!$userId) {
-        $statusLine = "⚠️ _Пользователь не найден в БД — запись сделана, но ограничение в TG не применено._\n_Попроси его написать боту `/start` для привязки._";
-    } elseif ($tgOk) {
-        $statusLine = "✅ Ограничение применено в Telegram.";
-    } else {
-        $desc = $tgResult['description'] ?? 'нет ответа';
-        $statusLine = "⚠️ _Запись в БД сделана, но Telegram ответил ошибкой:_\n`{$desc}`\n\n_Убедись, что бот — администратор с правом «Restrict Members»._";
-    }
+    $statusLine = !$userId
+        ? "⚠️ _ID не найден в БД — запись сделана, но ограничение в TG не применено._"
+        : ($tgOk ? "✅ Применено в Telegram." : "⚠️ _Запись сделана, но ошибка TG:_{$tgMsg}\n_Убедись что бот — администратор с правом «Restrict Members»._");
 
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $replyChatId,
-        'text'       => "⛔ *Мут: @{$username}* — {$durationTxt}\n📝 Причина: {$reason}\n\n{$statusLine}",
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $replyChatId, $threadId, "⛔ *Мут: @{$username}* — {$durationTxt}\n📝 Причина: {$reason}\n\n{$statusLine}");
     return true;
 }
 
-/**
- * /unmute @username — снять мут
- */
-function cmdUnmute(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target): bool
+function cmdUnmute(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "✅ *Использование:* `/unmute @username`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "✅ *Использование:* `/unmute @username` или `/unmute 123456789` (по ID)");
         return true;
     }
 
-    $username = ltrim($target, '@');
-    $userId   = getUserIdByUsername($pdo, $username);
+    // Поддержка числового ID напрямую
+    if (is_numeric($target)) {
+        $userId   = (int)$target;
+        $username = $target;
+    } else {
+        $username = ltrim($target, '@');
+        $userId   = getUserIdByUsername($pdo, $username);
+    }
 
     $tgOk  = false;
     $tgMsg = '';
@@ -327,30 +411,19 @@ function cmdUnmute(PDO $pdo, string $token, int $replyChatId, int $groupChatId, 
     }
 
     try {
-        $pdo->prepare("UPDATE moderation SET is_active = FALSE WHERE username = ? AND type = 'mute' AND is_active = TRUE")
-            ->execute([$username]);
+        $pdo->prepare("UPDATE moderation SET is_active = FALSE WHERE (username = ? OR user_id = ?) AND type = 'mute' AND is_active = TRUE")
+            ->execute([$username, $userId ?? 0]);
     } catch (Exception $e) {}
 
     $icon = $tgOk ? '✅' : '📝';
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $replyChatId,
-        'text'       => "{$icon} *@{$username}* размучен.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД — только снято в записях._" : ''),
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* размучен.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден — только снято в БД._" : ''));
     return true;
 }
 
-/**
- * /warn @username [причина]
- */
-function cmdWarn(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target, string $reason): bool
+function cmdWarn(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target, string $reason): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "⚠️ *Использование:* `/warn @username [причина]`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "⚠️ *Использование:* `/warn @username [причина]`");
         return true;
     }
 
@@ -361,86 +434,60 @@ function cmdWarn(PDO $pdo, string $token, int $replyChatId, int $groupChatId, st
         $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, issued_by) VALUES (0, ?, 'warn', ?, ?)")
             ->execute([$username, $reason, getBotAdminId()]);
 
-        $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
-        $cntStmt->execute([$username]);
-        $warnCount = (int)$cntStmt->fetchColumn();
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
+        $stmt->execute([$username]);
+        $warnCount = (int)$stmt->fetchColumn();
 
         $extra = '';
-        // После 3 варнов — автомут на 60 минут
         if ($warnCount >= 3) {
-            $userId = getUserIdByUsername($pdo, $username);
+            $userId    = getUserIdByUsername($pdo, $username);
+            $untilDate = time() + 3600;
             if ($userId) {
-                $untilDate = time() + 3600;
                 tgRestrictUser($token, $groupChatId, $userId, $untilDate);
-                $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at) VALUES (?, ?, 'mute', ?, 60, ?, ?)")
-                    ->execute([$userId, $username, 'Авто-мут за 3 варна', getBotAdminId(), date('Y-m-d H:i:s', $untilDate)]);
+                $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at) VALUES (?, ?, 'mute', 'Авто-мут за 3 варна', 60, ?, ?)")
+                    ->execute([$userId, $username, getBotAdminId(), date('Y-m-d H:i:s', $untilDate)]);
             }
             $extra = "\n🚨 *3 варна — автомут на 60 мин!*";
         }
 
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "⚠️ *Варн: @{$username}* ({$warnCount}/3)\n📝 Причина: {$reason}{$extra}",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "⚠️ *Варн: @{$username}* ({$warnCount}/3)\n📝 Причина: {$reason}{$extra}");
     } catch (Exception $e) {
-        sendTelegram($token, 'sendMessage', ['chat_id' => $replyChatId, 'text' => '❌ ' . $e->getMessage()]);
+        sendToThread($token, $replyChatId, $threadId, '❌ ' . $e->getMessage());
     }
     return true;
 }
 
-/**
- * /unwarn @username — снять последний варн
- */
-function cmdUnwarn(PDO $pdo, string $token, int $replyChatId, string $target): bool
+function cmdUnwarn(PDO $pdo, string $token, int $replyChatId, ?int $threadId, string $target): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "✅ *Использование:* `/unwarn @username`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "✅ *Использование:* `/unwarn @username`");
         return true;
     }
 
     $username = ltrim($target, '@');
     try {
-        // Снимаем самый последний активный варн
         $pdo->prepare(
-            "UPDATE moderation SET is_active = FALSE
-             WHERE id = (
-                 SELECT id FROM moderation
-                 WHERE username = ? AND type = 'warn' AND is_active = TRUE
-                 ORDER BY created_at DESC LIMIT 1
+            "UPDATE moderation SET is_active = FALSE WHERE id = (
+                SELECT id FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE
+                ORDER BY created_at DESC LIMIT 1
              )"
         )->execute([$username]);
 
-        $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
-        $cntStmt->execute([$username]);
-        $remaining = (int)$cntStmt->fetchColumn();
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
+        $stmt->execute([$username]);
+        $remaining = (int)$stmt->fetchColumn();
 
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "✅ *@{$username}* — 1 варн снят. Осталось: {$remaining}/3",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "✅ *@{$username}* — 1 варн снят. Осталось: {$remaining}/3");
     } catch (Exception $e) {
-        sendTelegram($token, 'sendMessage', ['chat_id' => $replyChatId, 'text' => '❌ ' . $e->getMessage()]);
+        sendToThread($token, $replyChatId, $threadId, '❌ ' . $e->getMessage());
     }
     return true;
 }
 
-/**
- * /ban @username [причина]
- */
-function cmdBan(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target, string $reason): bool
+function cmdBan(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target, string $reason): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "🚫 *Использование:* `/ban @username [причина]`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "🚫 *Использование:* `/ban @username [причина]`");
         return true;
     }
 
@@ -459,35 +506,30 @@ function cmdBan(PDO $pdo, string $token, int $replyChatId, int $groupChatId, str
     try {
         $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, issued_by) VALUES (?, ?, 'ban', ?, ?)")
             ->execute([$userId ?? 0, $username, $reason, getBotAdminId()]);
-        $pdo->prepare("INSERT INTO blacklist (telegram, reason, created_at) VALUES (?, ?, NOW()) ON CONFLICT DO NOTHING")
+        $pdo->prepare("INSERT INTO blacklist (telegram, reason, created_at) VALUES (?, ?, NOW()) ON CONFLICT (telegram) DO NOTHING")
             ->execute(['@' . $username, $reason]);
     } catch (Exception $e) {}
 
     $icon = $tgOk ? '🚫' : '📝';
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $replyChatId,
-        'text'       => "{$icon} *Бан: @{$username}*\n📝 Причина: {$reason}{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден — только в чёрном списке сайта._" : ''),
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $replyChatId, $threadId, "{$icon} *Бан: @{$username}*\n📝 Причина: {$reason}{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден — только в чёрном списке._" : ''));
     return true;
 }
 
-/**
- * /unban @username
- */
-function cmdUnban(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target): bool
+function cmdUnban(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "✅ *Использование:* `/unban @username`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "✅ *Использование:* `/unban @username` или `/unban 123456789` (по ID)");
         return true;
     }
 
-    $username = ltrim($target, '@');
-    $userId   = getUserIdByUsername($pdo, $username);
+    // Поддержка числового ID
+    if (is_numeric($target)) {
+        $userId   = (int)$target;
+        $username = $target;
+    } else {
+        $username = ltrim($target, '@');
+        $userId   = getUserIdByUsername($pdo, $username);
+    }
 
     $tgOk  = false;
     $tgMsg = '';
@@ -498,30 +540,19 @@ function cmdUnban(PDO $pdo, string $token, int $replyChatId, int $groupChatId, s
     }
 
     try {
-        $pdo->prepare("UPDATE moderation SET is_active = FALSE WHERE username = ? AND type = 'ban'")->execute([$username]);
-        $pdo->prepare("DELETE FROM blacklist WHERE telegram = ?")->execute(['@' . $username]);
+        $pdo->prepare("UPDATE moderation SET is_active = FALSE WHERE (username = ? OR user_id = ?) AND type = 'ban'")->execute([$username, $userId ?? 0]);
+        $pdo->prepare("DELETE FROM blacklist WHERE telegram = ? OR telegram = ?")->execute(['@' . $username, $username]);
     } catch (Exception $e) {}
 
     $icon = $tgOk ? '✅' : '📝';
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $replyChatId,
-        'text'       => "{$icon} *@{$username}* разбанен.{$tgMsg}",
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* разбанен.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
     return true;
 }
 
-/**
- * /kick @username — кикнуть из группы (бан + сразу разбан)
- */
-function cmdKick(PDO $pdo, string $token, int $replyChatId, int $groupChatId, string $target): bool
+function cmdKick(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target): bool
 {
     if ($target === '') {
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $replyChatId,
-            'text'       => "👢 *Использование:* `/kick @username`",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $replyChatId, $threadId, "👢 *Использование:* `/kick @username`");
         return true;
     }
 
@@ -537,26 +568,18 @@ function cmdKick(PDO $pdo, string $token, int $replyChatId, int $groupChatId, st
     }
 
     $icon = $tgOk ? '👢' : '📝';
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $replyChatId,
-        'text'       => "{$icon} *@{$username}* кикнут из группы.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''),
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* кикнут.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
     return true;
 }
 
-function cmdAdmin(PDO $pdo, string $token, int $chatId): bool
+function cmdAdmin(PDO $pdo, string $token, int $chatId, ?int $threadId): bool
 {
     $siteUrl = rtrim(getenv('SITE_URL') ?: 'https://kostlimdzn.kesug.com/', '/') . '/';
-    sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $chatId,
-        'text'       => "⚙️ *Админ-панель*\n\n🌐 {$siteUrl}admin/\n\n📖 `/help` · 📊 `/stats`",
-        'parse_mode' => 'Markdown',
-    ]);
+    sendToThread($token, $chatId, $threadId, "⚙️ *Админ-панель*\n\n🌐 {$siteUrl}admin/");
     return true;
 }
 
-function cmdStats(PDO $pdo, string $token, int $chatId): bool
+function cmdStats(PDO $pdo, string $token, int $chatId, ?int $threadId): bool
 {
     try {
         $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
@@ -565,39 +588,58 @@ function cmdStats(PDO $pdo, string $token, int $chatId): bool
         $mutedNow = (int)$pdo->query("SELECT COUNT(*) FROM moderation WHERE type='mute' AND is_active=TRUE AND (expires_at IS NULL OR expires_at > NOW())")->fetchColumn();
         $bans     = (int)$pdo->query("SELECT COUNT(*) FROM blacklist")->fetchColumn();
 
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $chatId,
-            'text'       => "📊 *Статистика*\n\n📦 Заказов: *{$total}* (активных *{$active}*, готово *{$ready}*)\n⛔ Замучено сейчас: *{$mutedNow}*\n🚫 В чёрном списке: *{$bans}*",
-            'parse_mode' => 'Markdown',
-        ]);
+        sendToThread($token, $chatId, $threadId,
+            "📊 *Статистика*\n\n📦 Заказов: *{$total}* (активных *{$active}*, готово *{$ready}*)\n⛔ Замучено сейчас: *{$mutedNow}*\n🚫 В чёрном списке: *{$bans}*"
+        );
     } catch (Exception $e) {
-        sendTelegram($token, 'sendMessage', ['chat_id' => $chatId, 'text' => '❌ ' . $e->getMessage()]);
+        sendToThread($token, $chatId, $threadId, '❌ ' . $e->getMessage());
     }
     return true;
 }
 
-function cmdHelp(PDO $pdo, string $token, int $chatId): bool
+/**
+ * /help — всегда отправляется в ЛС к администратору, не в чат
+ */
+function cmdHelp(PDO $pdo, string $token, int $chatId, array $update): bool
 {
+    $adminId  = getBotAdminId();
+    $sendToId = $adminId; // всегда в ЛС
+
     $text  = "📖 *Команды Kostlim Bot*\n\n";
     $text .= "🛡 *Модерация (время в минутах):*\n";
     $text .= "• `/mute @user 30` — замутить на 30 мин\n";
-    $text .= "• `/mute @user 0` или `/mute @user` — навсегда\n";
+    $text .= "• `/mute @user` — навсегда\n";
     $text .= "• `/unmute @user` — снять мут\n";
-    $text .= "• `/warn @user [причина]` — предупреждение (3 → автомут 60 мин)\n";
+    $text .= "• `/unmute 123456789` — снять мут по числовому ID\n";
+    $text .= "• `/warn @user [причина]` — варн (3 → автомут 60 мин)\n";
     $text .= "• `/unwarn @user` — снять последний варн\n";
     $text .= "• `/ban @user [причина]` — бан\n";
     $text .= "• `/unban @user` — разбан\n";
+    $text .= "• `/unban 123456789` — разбан по числовому ID\n";
     $text .= "• `/kick @user` — кик из группы\n\n";
     $text .= "⚙️ *Прочее:*\n";
-    $text .= "• `/admin` — ссылка на сайт\n";
-    $text .= "• `/stats` — статистика\n\n";
+    $text .= "• `/stats` — статистика\n";
+    $text .= "• `/admin` — ссылка на панель\n";
+    $text .= "• `/help` — эта справка (всегда в ЛС)\n\n";
+    $text .= "🤖 *Авто-модерация:*\n";
+    $text .= "• 10 сообщений за 10 сек → предупреждение\n";
+    $text .= "• Продолжает → мут 10 мин\n";
+    $text .= "• 3 одинаковых сообщения подряд → варн\n\n";
     $text .= "⚠️ _Бот должен быть администратором с правом «Restrict Members»._";
 
     sendTelegram($token, 'sendMessage', [
-        'chat_id'    => $chatId,
+        'chat_id'    => $sendToId,
         'text'       => $text,
         'parse_mode' => 'Markdown',
     ]);
+
+    // Если команда была написана не в ЛС — сообщить что справка отправлена в ЛС
+    $replyChatId = getBotReplyChatId($update);
+    if ($replyChatId !== $adminId) {
+        $threadId = getMessageThreadId($update);
+        sendToThread($token, $replyChatId, $threadId, "📖 Справка отправлена тебе в личные сообщения.");
+    }
+
     return true;
 }
 
@@ -633,29 +675,54 @@ function ensureBotCommandTables(PDO $pdo): void
             telegram VARCHAR(255) DEFAULT '',
             ip VARCHAR(64) DEFAULT NULL,
             reason TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT uniq_blacklist_tg UNIQUE (telegram)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )");
 
-        // Добавляем UNIQUE constraint если ещё нет (для ON CONFLICT)
-        try {
-            $pdo->exec("ALTER TABLE blacklist ADD CONSTRAINT uniq_blacklist_tg UNIQUE (telegram)");
-        } catch (Throwable $e) {}
+        // UNIQUE на blacklist.telegram для ON CONFLICT
+        try { $pdo->exec("ALTER TABLE blacklist ADD CONSTRAINT uniq_blacklist_tg UNIQUE (telegram)"); } catch (Throwable $e) {}
 
+        // Таблица для антиспама (счётчик сообщений)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS spam_log (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            chat_id BIGINT NOT NULL,
+            sent_at INT NOT NULL
+        )");
+        try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_spam_log_user_chat ON spam_log (user_id, chat_id)"); } catch (Throwable $e) {}
+
+        // Таблица предупреждений о спаме (чтобы не спамить предупреждениями)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS spam_warnings (
+            user_id BIGINT NOT NULL,
+            chat_id BIGINT NOT NULL,
+            warned_at INT NOT NULL,
+            PRIMARY KEY (user_id, chat_id)
+        )");
+
+        // Таблица для антифлуда (история сообщений)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS flood_log (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            chat_id BIGINT NOT NULL,
+            message_text VARCHAR(255) NOT NULL,
+            sent_at INT NOT NULL
+        )");
+        try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_flood_log_user_chat ON flood_log (user_id, chat_id)"); } catch (Throwable $e) {}
+
+        // Заполняем bot_commands если пусто
         $count = (int)$pdo->query("SELECT COUNT(*) FROM bot_commands")->fetchColumn();
         if ($count === 0) {
             $insert = $pdo->prepare("INSERT INTO bot_commands (command, description, access_level) VALUES (?, ?, 'admin') ON CONFLICT DO NOTHING");
             foreach ([
                 ['mute',   '⛔ /mute @username [минуты] [причина]'],
-                ['unmute', '✅ /unmute @username'],
+                ['unmute', '✅ /unmute @username или ID'],
                 ['warn',   '⚠️ /warn @username [причина]'],
                 ['unwarn', '✅ /unwarn @username'],
                 ['ban',    '🚫 /ban @username [причина]'],
-                ['unban',  '✅ /unban @username'],
+                ['unban',  '✅ /unban @username или ID'],
                 ['kick',   '👢 /kick @username'],
-                ['admin',  '⚙️ /admin — админ-панель'],
+                ['admin',  '⚙️ /admin — панель'],
                 ['stats',  '📊 /stats — статистика'],
-                ['help',   '📖 /help — список команд'],
+                ['help',   '📖 /help — справка в ЛС'],
             ] as $cmd) {
                 $insert->execute($cmd);
             }
