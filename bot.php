@@ -99,6 +99,7 @@ if (isset($update['callback_query'])) {
         $order_id = (int)str_replace('adm_work_', '', $callback_data);
         $deadline = date('Y-m-d H:i:s', time() + 5 * 86400); // +5 дней
         $pdo->prepare("UPDATE orders SET status = 'in_progress', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
+        prefillClientChatId($pdo, $token, $order_id); // <-- пре-поиск chat_id
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
@@ -122,6 +123,7 @@ if (isset($update['callback_query'])) {
         $order_id = (int)str_replace('adm_urgent_', '', $callback_data);
         $deadline = date('Y-m-d H:i:s', time() + 24 * 3600); // +24 часа
         $pdo->prepare("UPDATE orders SET status = 'urgent', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
+        prefillClientChatId($pdo, $token, $order_id);
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
@@ -166,6 +168,7 @@ if (isset($update['callback_query'])) {
     if (strpos($callback_data, 'adm_dec_') === 0) {
         $order_id = (int)str_replace('adm_dec_', '', $callback_data);
         $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$order_id]);
+        prefillClientChatId($pdo, $token, $order_id);
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
@@ -1041,6 +1044,59 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
 /**
  * Уведомляет клиента БЕЗОПАСНО — без выброса исключения если chat_id нет.
  */
+// Заполняет client_chat_id в заказе если он пустой — через tg_links или getChat API
+function prefillClientChatId($pdo, $token, $order_id) {
+    try {
+        $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
+        $stmt->execute([$order_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return;
+
+        $chat_id = trim((string)($row['client_chat_id'] ?? ''));
+        if ($chat_id !== '' && is_numeric($chat_id)) return; // уже есть
+
+        // По session_id
+        if (!empty($row['session_id'])) {
+            $lnk = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $lnk->execute([$row['session_id']]);
+            $r = $lnk->fetch(PDO::FETCH_ASSOC);
+            if (!empty($r['chat_id']) && is_numeric($r['chat_id'])) $chat_id = $r['chat_id'];
+        }
+
+        // По telegram username через tg_links
+        if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
+            $tg = ltrim(trim(str_replace(['https://t.me/','http://t.me/','t.me/'], '', $row['telegram'])), '@');
+            if ($tg !== '') {
+                $lnk2 = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE (tg_username = ? OR tg_username = ?) AND linked = TRUE ORDER BY id DESC LIMIT 1");
+                $lnk2->execute([$tg, '@'.$tg]);
+                $r2 = $lnk2->fetch(PDO::FETCH_ASSOC);
+                if (!empty($r2['chat_id']) && is_numeric($r2['chat_id'])) $chat_id = $r2['chat_id'];
+            }
+        }
+
+        // Через getChat API
+        if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
+            $tg = ltrim(trim(str_replace(['https://t.me/','http://t.me/','t.me/'], '', $row['telegram'])), '@');
+            if ($tg !== '') {
+                $ch = curl_init("https://api.telegram.org/bot{$token}/getChat");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_POSTFIELDS => ['chat_id' => '@'.$tg]]);
+                $resp = curl_exec($ch); curl_close($ch);
+                $data = json_decode((string)$resp, true);
+                if (!empty($data['ok']) && !empty($data['result']['id'])) $chat_id = (string)$data['result']['id'];
+            }
+        }
+
+        if ($chat_id !== '' && is_numeric($chat_id)) {
+            $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
+            botLog("prefillClientChatId order={$order_id} set chat_id={$chat_id}");
+        } else {
+            botLog("prefillClientChatId order={$order_id} could not find chat_id, telegram=" . ($row['telegram'] ?? ''));
+        }
+    } catch (Throwable $e) {
+        botLog("prefillClientChatId error order={$order_id}: " . $e->getMessage());
+    }
+}
+
 function safeNotifyClient($pdo, $token, $order_id, $text) {
     try {
         $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");

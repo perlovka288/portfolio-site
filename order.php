@@ -203,15 +203,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     $pay_screenshot = '';
     $example_imgs   = [];
 
+    // Фото из обычной загрузки через форму
     if (!empty($_FILES['screenshot']['name']) && $_FILES['screenshot']['error'] === UPLOAD_ERR_OK) {
         $url = uploadToCloudinary($_FILES['screenshot']['tmp_name'], 'orders/pay');
         if ($url !== '') $pay_screenshot = $url;
     }
+    // Фото из архива (уже загружены на Cloudinary — приходят как URL в POST)
+    if ($pay_screenshot === '' && !empty($_POST['screenshot_url'])) {
+        $u = filter_var(trim($_POST['screenshot_url']), FILTER_VALIDATE_URL);
+        if ($u && str_contains($u, 'cloudinary.com')) $pay_screenshot = $u;
+    }
+
     if (!empty($_FILES['example_photos']['name'][0])) {
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === UPLOAD_ERR_OK) {
                 $url = uploadToCloudinary($tmp, 'orders/ref');
                 if ($url !== '') $example_imgs[] = $url;
+            }
+        }
+    }
+    // Референсы из архива (JSON массив URL)
+    if (empty($example_imgs) && !empty($_POST['refs_urls'])) {
+        $decoded = json_decode($_POST['refs_urls'], true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $u) {
+                $u = filter_var(trim($u), FILTER_VALIDATE_URL);
+                if ($u && str_contains($u, 'cloudinary.com')) $example_imgs[] = $u;
             }
         }
     }
@@ -1420,11 +1437,23 @@ function loadArchiveItem(i) {
             if (el.type === 'checkbox') { el.checked = item.data[name] === '1'; return; }
             el.value = item.data[name];
         });
+
+        // Inject hidden URL inputs for archive photos
+        ['screenshot_url','refs_urls'].forEach(function(n) {
+            var old = form.querySelector('[name="'+n+'"]');
+            if (old) old.remove();
+        });
         if (item.data._screenshot_url) {
+            var inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = 'screenshot_url'; inp.value = item.data._screenshot_url;
+            form.appendChild(inp);
             var el = document.getElementById('s1_screenshot_name');
             if (el) { el.innerHTML = '✅ Чек: <a href="'+item.data._screenshot_url+'" target="_blank" style="color:#f97316;">открыть</a>'; el.classList.add('has-file'); }
         }
         if (item.data._refs_urls && item.data._refs_urls.length) {
+            var inp2 = document.createElement('input');
+            inp2.type = 'hidden'; inp2.name = 'refs_urls'; inp2.value = JSON.stringify(item.data._refs_urls);
+            form.appendChild(inp2);
             var el2 = document.getElementById('s1_refs_name');
             if (el2) { el2.textContent = '✅ ' + item.data._refs_urls.length + ' референс(а) сохранены'; el2.classList.add('has-file'); }
         }
