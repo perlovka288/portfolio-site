@@ -29,6 +29,71 @@ try {
     }
 }
 
+// Создаём таблицу лайков если нет
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS portfolio_likes (
+        id SERIAL PRIMARY KEY,
+        portfolio_id INT NOT NULL,
+        session_id VARCHAR(128) NOT NULL DEFAULT '',
+        ip VARCHAR(64) NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(portfolio_id, session_id)
+    )");
+} catch (Throwable $e) {}
+
+// ── AJAX: лайк/анлайк работы ──
+if (isset($_POST['like_work'])) {
+    header('Content-Type: application/json');
+    $workId = (int)($_POST['work_id'] ?? 0);
+    $ip     = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+    $ip     = trim(explode(',', $ip)[0]);
+    if ($workId > 0) {
+        try {
+            // Проверяем уже лайкнул ли (по сессии)
+            $chk = $pdo->prepare("SELECT id FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?");
+            $chk->execute([$workId, $sid]);
+            $existing = $chk->fetch();
+            if ($existing) {
+                // Анлайк
+                $pdo->prepare("DELETE FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?")->execute([$workId, $sid]);
+                $liked = false;
+            } else {
+                // Лайк
+                $pdo->prepare("INSERT INTO portfolio_likes (portfolio_id, session_id, ip) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")->execute([$workId, $sid, $ip]);
+                $liked = true;
+            }
+            $cnt = (int)$pdo->prepare("SELECT COUNT(*) FROM portfolio_likes WHERE portfolio_id = ?")->execute([$workId]) ? 0 : 0;
+            $s2 = $pdo->prepare("SELECT COUNT(*) FROM portfolio_likes WHERE portfolio_id = ?");
+            $s2->execute([$workId]);
+            $cnt = (int)$s2->fetchColumn();
+            echo json_encode(['ok' => true, 'liked' => $liked, 'count' => $cnt]);
+        } catch (Throwable $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    } else {
+        echo json_encode(['ok' => false]);
+    }
+    exit;
+}
+
+// Загружаем лайки для текущей сессии
+$myLikes = [];
+try {
+    $likeStmt = $pdo->prepare("SELECT portfolio_id FROM portfolio_likes WHERE session_id = ?");
+    $likeStmt->execute([$sid]);
+    $myLikes = $likeStmt->fetchAll(PDO::FETCH_COLUMN);
+    $myLikes = array_map('intval', $myLikes);
+} catch (Throwable $e) {}
+
+// Загружаем счётчики лайков для всех работ
+$likeCounts = [];
+try {
+    $lcRows = $pdo->query("SELECT portfolio_id, COUNT(*) as cnt FROM portfolio_likes GROUP BY portfolio_id")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($lcRows as $lcRow) {
+        $likeCounts[(int)$lcRow['portfolio_id']] = (int)$lcRow['cnt'];
+    }
+} catch (Throwable $e) {}
+
 // Создаём таблицу отзывов если нет
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
@@ -601,6 +666,52 @@ body::after {
     .tg-user-name { max-width: 70px; }
 }
 
+/* ══ Лайки ══ */
+.like-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(249,115,22,0.08);
+    border: 1px solid rgba(249,115,22,0.2);
+    border-radius: 20px;
+    padding: 6px 14px;
+    color: #8a8a96;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .2s;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+.like-btn:hover {
+    background: rgba(249,115,22,0.18);
+    border-color: rgba(249,115,22,0.45);
+    color: #fb923c;
+}
+.like-btn.liked {
+    background: rgba(249,115,22,0.18);
+    border-color: rgba(249,115,22,0.55);
+    color: #fb923c;
+}
+.like-btn.liked .like-heart {
+    transform: scale(1.25);
+    filter: drop-shadow(0 0 4px rgba(249,115,22,0.6));
+}
+.like-heart {
+    font-size: 14px;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), filter .2s;
+    line-height: 1;
+}
+.like-btn.pop .like-heart {
+    animation: likePopAnim .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes likePopAnim {
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.55); }
+    100% { transform: scale(1.25); }
+}
+
 @media(max-width:700px){
     .header-right{flex-wrap:wrap;justify-content:center;}
     .portfolio-grid{grid-template-columns:1fr;gap:20px;}
@@ -779,10 +890,23 @@ body::after {
                 </div>
                 <div class="portfolio-price"><?= (int)($work['price_rub'] ?? 0) ?>₽/<?= (int)($work['price_uan'] ?? 0) ?>грн</div>
                 <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                 <button class="order-pill"
                     onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
                     ЗАКАЗАТЬ
                 </button>
+                <?php
+                    $wId      = (int)$work['id'];
+                    $wLiked   = in_array($wId, $myLikes, true);
+                    $wLikeCnt = $likeCounts[$wId] ?? 0;
+                ?>
+                <button class="like-btn <?= $wLiked ? 'liked' : '' ?>"
+                        id="like-btn-<?= $wId ?>"
+                        onclick="toggleLike(<?= $wId ?>, this)">
+                    <span class="like-heart"><?= $wLiked ? '🧡' : '🤍' ?></span>
+                    <span class="like-count" id="like-count-<?= $wId ?>"><?= $wLikeCnt ?></span>
+                </button>
+                </div>
             </div>
         </article>
         <?php endforeach; ?>
@@ -1160,6 +1284,47 @@ function filterPortfolio(category, event) {
     document.querySelectorAll('.filter-item').forEach(function(item) {
         item.style.display = (category === 'all' || item.classList.contains(category)) ? 'flex' : 'none';
     });
+}
+
+// ── Лайки ──
+function toggleLike(workId, btn) {
+    var fd = new FormData();
+    fd.append('like_work', '1');
+    fd.append('work_id', workId);
+
+    // Оптимистичный UI
+    var isLiked = btn.classList.contains('liked');
+    var heart   = btn.querySelector('.like-heart');
+    var counter = btn.querySelector('.like-count');
+    var newCount = parseInt(counter.textContent || '0', 10) + (isLiked ? -1 : 1);
+
+    btn.classList.toggle('liked');
+    btn.classList.add('pop');
+    setTimeout(function(){ btn.classList.remove('pop'); }, 350);
+    heart.textContent   = isLiked ? '🤍' : '🧡';
+    counter.textContent = Math.max(0, newCount);
+
+    fetch(window.location.pathname, { method: 'POST', body: fd })
+        .then(function(r){ return r.json(); })
+        .then(function(data) {
+            if (!data.ok) {
+                // Откатываем если ошибка
+                btn.classList.toggle('liked');
+                heart.textContent   = data.liked ? '🧡' : '🤍';
+                counter.textContent = data.count ?? newCount;
+                return;
+            }
+            heart.textContent   = data.liked ? '🧡' : '🤍';
+            counter.textContent = data.count;
+            if (!data.liked) btn.classList.remove('liked');
+            else             btn.classList.add('liked');
+        })
+        .catch(function(){
+            // Откат при сетевой ошибке
+            btn.classList.toggle('liked');
+            heart.textContent   = isLiked ? '🧡' : '🤍';
+            counter.textContent = isLiked ? newCount + 1 : Math.max(0, newCount - 1);
+        });
 }
 
 // ── Антивор ──

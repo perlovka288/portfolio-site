@@ -166,6 +166,23 @@ function tgKickUser(string $token, int $groupChatId, int $userId): array
     return $res;
 }
 
+/**
+ * Создать одноразовую инвайт-ссылку в группу (истекает через 24ч, лимит 1 человек).
+ */
+function tgCreateInviteLink(string $token, int $groupChatId): array
+{
+    $params = [
+        'chat_id'      => $groupChatId,
+        'expire_date'  => time() + 86400, // 24 часа
+        'member_limit' => 1,              // только 1 человек
+        'creates_join_request' => false,
+    ];
+    $ch = curl_init("https://api.telegram.org/bot{$token}/createChatInviteLink");
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_POSTFIELDS => $params]);
+    $res = curl_exec($ch); curl_close($ch);
+    return json_decode((string)$res, true) ?: ['ok' => false, 'description' => 'curl error'];
+}
+
 // ────────────────────────────────────────────────────────────────
 // АНТИСПАМ / АНТИФЛУД
 // Вызывается из bot.php на каждое сообщение в группе
@@ -194,7 +211,7 @@ function checkAntiSpam(PDO $pdo, string $token, array $update): bool
     // Администратора не трогаем
     if ($userId === getBotAdminId()) return false;
 
-    $token_env = getenv('TELEGRAM_BOT_TOKEN') ?: '';
+    $token_env = $token; // используем переданный токен
 
     // ── Антиспам: счётчик сообщений за последние 10 сек ──────────
     $spamBlocked = false;
@@ -329,6 +346,7 @@ function processAdminCommand(PDO $pdo, string $token, int $chat_id, string $text
         case '/ban':    return cmdBan($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1, $arg2);
         case '/unban':  return cmdUnban($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
         case '/kick':   return cmdKick($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
+        case '/invite': return cmdInvite($pdo, $token, $replyChatId, $threadId, $groupChatId, $arg1);
         case '/admin':  return cmdAdmin($pdo, $token, $replyChatId, $threadId);
         case '/stats':  return cmdStats($pdo, $token, $replyChatId, $threadId);
         case '/help':   return cmdHelp($pdo, $token, $chat_id, $update); // всегда в ЛС
@@ -544,8 +562,26 @@ function cmdUnban(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int
         $pdo->prepare("DELETE FROM blacklist WHERE telegram = ? OR telegram = ?")->execute(['@' . $username, $username]);
     } catch (Exception $e) {}
 
+    // После разбана — генерируем инвайт-ссылку и отправляем в ЛС
+    $inviteText = '';
+    if ($tgOk && $userId) {
+        $invRes = tgCreateInviteLink($token, $groupChatId);
+        if (!empty($invRes['ok'])) {
+            $invLink = $invRes['result']['invite_link'] ?? '';
+            if ($invLink !== '') {
+                $inviteText = "\n\n🔗 *Ссылка для возврата* (24ч, 1 использование):\n{$invLink}";
+                $tgEnv = getenv('TELEGRAM_BOT_TOKEN') ?: '';
+                sendTelegram($tgEnv, 'sendMessage', [
+                    'chat_id'    => $userId,
+                    'text'       => "✅ Тебя разбанили! Вернуться в группу:\n{$invLink}",
+                    'parse_mode' => 'Markdown',
+                ]);
+            }
+        }
+    }
+
     $icon = $tgOk ? '✅' : '📝';
-    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* разбанен.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
+    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* разбанен.{$tgMsg}{$inviteText}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
     return true;
 }
 
@@ -569,6 +605,74 @@ function cmdKick(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int 
 
     $icon = $tgOk ? '👢' : '📝';
     sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* кикнут.{$tgMsg}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
+    return true;
+}
+
+function cmdInvite(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int $groupChatId, string $target): bool
+{
+    if ($target === '') {
+        sendToThread($token, $replyChatId, $threadId,
+            "🔗 *Использование:* `/invite @username` или `/invite 123456789`
+
+Бот сгенерирует одноразовую ссылку и отправит её пользователю в ЛС."
+        );
+        return true;
+    }
+
+    // Числовой ID или username
+    if (is_numeric($target)) {
+        $userId   = (int)$target;
+        $username = $target;
+    } else {
+        $username = ltrim($target, '@');
+        $userId   = getUserIdByUsername($pdo, $username);
+    }
+
+    // Генерируем инвайт-ссылку
+    $res = tgCreateInviteLink($token, $groupChatId);
+
+    if (empty($res['ok'])) {
+        $desc = $res['description'] ?? 'нет ответа';
+        sendToThread($token, $replyChatId, $threadId,
+            "❌ Не удалось создать ссылку.
+`{$desc}`
+
+_Убедись, что бот — администратор с правом «Invite Users»._"
+        );
+        return true;
+    }
+
+    $link = $res['result']['invite_link'] ?? '';
+
+    // Отправляем ссылку пользователю в ЛС если знаем ID
+    $sentToDm = false;
+    if ($userId && $link !== '') {
+        $tgEnv = getenv('TELEGRAM_BOT_TOKEN') ?: '';
+        $dmRes = sendTelegram($tgEnv, 'sendMessage', [
+            'chat_id'    => $userId,
+            'text'       => "🎉 Тебя пригласили вступить в группу!
+
+🔗 Ссылка действует 24 часа (1 использование):
+{$link}",
+            'parse_mode' => 'Markdown',
+        ]);
+        $dmData   = json_decode((string)$dmRes, true);
+        $sentToDm = !empty($dmData['ok']);
+    }
+
+    $display   = is_numeric($target) ? "ID `{$target}`" : "@{$username}";
+    $dmStatus  = $sentToDm
+        ? "✉️ Ссылка отправлена пользователю в ЛС."
+        : "⚠️ _Не удалось отправить в ЛС_ " . (!$userId ? "(ID не найден в БД)" : "(пользователь не писал боту)") . ".";
+
+    sendToThread($token, $replyChatId, $threadId,
+        "🔗 *Инвайт для {$display}*
+
+`{$link}`
+
+{$dmStatus}
+_Ссылка действует 24ч, 1 использование._"
+    );
     return true;
 }
 
@@ -720,6 +824,7 @@ function ensureBotCommandTables(PDO $pdo): void
                 ['ban',    '🚫 /ban @username [причина]'],
                 ['unban',  '✅ /unban @username или ID'],
                 ['kick',   '👢 /kick @username'],
+                ['invite', '🔗 /invite @username или ID'],
                 ['admin',  '⚙️ /admin — панель'],
                 ['stats',  '📊 /stats — статистика'],
                 ['help',   '📖 /help — справка в ЛС'],
