@@ -268,50 +268,88 @@ function checkAntiSpam(PDO $pdo, string $token, array $update): bool
         botLog("antiSpam error: " . $e->getMessage());
     }
 
-    // ── Антифлуд: 3 одинаковых сообщения подряд → варн ──────────
+    // ── Антифлуд: повторное сообщение ──────────────────────────
+    // 2-е одинаковое → предупреждение + кулдаун 1 час
+    // 3-е одинаковое (нарушил кулдаун) → мут 1 час
     if (!$spamBlocked && $text !== '') {
         try {
-            // Берём последние 3 сообщения пользователя в этом чате
+            // Берём последнее сообщение пользователя
             $stmt = $pdo->prepare(
-                "SELECT message_text FROM flood_log
+                "SELECT message_text, sent_at FROM flood_log
                  WHERE user_id = ? AND chat_id = ?
-                 ORDER BY id DESC LIMIT 2"
+                 ORDER BY id DESC LIMIT 1"
             );
             $stmt->execute([$userId, $chatId]);
-            $prev = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $lastRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Сохраняем текущее
-            $pdo->prepare("INSERT INTO flood_log (user_id, chat_id, message_text, sent_at) VALUES (?, ?, ?, ?)")
-                ->execute([$userId, $chatId, mb_substr($text, 0, 255), $now]);
+            $mention = $username ? "@{$username}" : $firstName;
 
-            // Удаляем старые (оставляем только 10 последних)
-            $pdo->prepare(
-                "DELETE FROM flood_log WHERE id IN (
-                    SELECT id FROM flood_log WHERE user_id = ? AND chat_id = ?
-                    ORDER BY id DESC OFFSET 10
-                 )"
-            )->execute([$userId, $chatId]);
-
-            // Проверяем — два предыдущих совпадают с текущим?
-            if (count($prev) >= 2 && $prev[0] === $text && $prev[1] === $text) {
-                $mention = $username ? "@{$username}" : $firstName;
-
-                // Варн
-                $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, issued_by) VALUES (?, ?, 'warn', 'Флуд одинаковыми сообщениями', ?)")
-                    ->execute([$userId, $username, getBotAdminId()]);
-
-                $cntW = (int)$pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE")->execute([$username]) ? 0 : 0;
-                $stW  = $pdo->prepare("SELECT COUNT(*) FROM moderation WHERE username = ? AND type = 'warn' AND is_active = TRUE");
-                $stW->execute([$username]);
-                $cntW = (int)$stW->fetchColumn();
-
-                sendToThread($token_env, $chatId, $threadId,
-                    "⚠️ {$mention}, не флуди одинаковыми сообщениями! Варн {$cntW}/3."
+            if ($lastRow && $lastRow['message_text'] === mb_substr($text, 0, 255)) {
+                // Совпадает с предыдущим — проверяем был ли уже варн за это сообщение
+                $warnChk = $pdo->prepare(
+                    "SELECT id FROM flood_cooldown WHERE user_id = ? AND chat_id = ?"
                 );
+                $warnChk->execute([$userId, $chatId]);
+                $cooldownRow = $warnChk->fetch();
 
-                // Очищаем flood_log чтобы не варнить каждое следующее
-                $pdo->prepare("DELETE FROM flood_log WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+                if (!$cooldownRow) {
+                    // Первый повтор — предупреждение + ставим кулдаун 1 час
+                    $pdo->prepare(
+                        "INSERT INTO flood_cooldown (user_id, chat_id, warned_at, message_text)
+                         VALUES (?, ?, ?, ?)
+                         ON CONFLICT (user_id, chat_id) DO UPDATE SET warned_at = EXCLUDED.warned_at, message_text = EXCLUDED.message_text"
+                    )->execute([$userId, $chatId, $now, mb_substr($text, 0, 255)]);
+
+                    sendToThread($token_env, $chatId, $threadId,
+                        "⚠️ {$mention}, повторяющиеся сообщения можно отправлять раз в 1 час. " .
+                        "Если продолжишь — получишь мут на 1 час."
+                    );
+                } else {
+                    // Второй повтор (нарушил кулдаун) → мут 1 час
+                    $untilDate = $now + 3600;
+                    tgRestrictUser($token_env, $chatId, $userId, $untilDate);
+
+                    try {
+                        $pdo->prepare(
+                            "INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at)
+                             VALUES (?, ?, 'mute', 'Автомут за повторные сообщения', 60, ?, ?)"
+                        )->execute([$userId, $username, getBotAdminId(), date('Y-m-d H:i:s', $untilDate)]);
+                    } catch (Throwable $e2) {}
+
+                    // Сбрасываем кулдаун и flood_log
+                    $pdo->prepare("DELETE FROM flood_cooldown WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+                    $pdo->prepare("DELETE FROM flood_log WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+
+                    sendToThread($token_env, $chatId, $threadId,
+                        "🔇 {$mention} замучен на 1 час за повторный флуд."
+                    );
+                }
+            } else {
+                // Новое сообщение — сбрасываем кулдаун флуда (другой текст = новая тема)
+                if ($lastRow && $lastRow['message_text'] !== mb_substr($text, 0, 255)) {
+                    $cdChk = $pdo->prepare("SELECT message_text FROM flood_cooldown WHERE user_id = ? AND chat_id = ?");
+                    $cdChk->execute([$userId, $chatId]);
+                    $cdRow = $cdChk->fetch();
+                    // Сбрасываем только если предупреждали за другой текст
+                    if ($cdRow && $cdRow['message_text'] !== mb_substr($text, 0, 255)) {
+                        $pdo->prepare("DELETE FROM flood_cooldown WHERE user_id = ? AND chat_id = ?")->execute([$userId, $chatId]);
+                    }
+                }
             }
+
+            // Сохраняем/обновляем последнее сообщение
+            $pdo->prepare(
+                "INSERT INTO flood_log (user_id, chat_id, message_text, sent_at) VALUES (?, ?, ?, ?)
+                 ON CONFLICT DO NOTHING"
+            )->execute([$userId, $chatId, mb_substr($text, 0, 255), $now]);
+
+            // Оставляем только последнее
+            $pdo->prepare(
+                "DELETE FROM flood_log WHERE user_id = ? AND chat_id = ? AND id NOT IN (
+                    SELECT id FROM flood_log WHERE user_id = ? AND chat_id = ? ORDER BY id DESC LIMIT 1
+                 )"
+            )->execute([$userId, $chatId, $userId, $chatId]);
+
         } catch (Throwable $e) {
             botLog("antiFlood error: " . $e->getMessage());
         }
@@ -464,8 +502,11 @@ function cmdWarn(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int 
                 tgRestrictUser($token, $groupChatId, $userId, $untilDate);
                 $pdo->prepare("INSERT INTO moderation (user_id, username, type, reason, duration_minutes, issued_by, expires_at) VALUES (?, ?, 'mute', 'Авто-мут за 3 варна', 60, ?, ?)")
                     ->execute([$userId, $username, getBotAdminId(), date('Y-m-d H:i:s', $untilDate)]);
+                // Сбрасываем варны после мута
+                $pdo->prepare("UPDATE moderation SET is_active = FALSE WHERE username = ? AND type = 'warn' AND is_active = TRUE")
+                    ->execute([$username]);
             }
-            $extra = "\n🚨 *3 варна — автомут на 60 мин!*";
+            $extra = "\n🚨 *3 варна — мут на 1 час! Варны сброшены.*";
         }
 
         sendToThread($token, $replyChatId, $threadId, "⚠️ *Варн: @{$username}* ({$warnCount}/3)\n📝 Причина: {$reason}{$extra}");
@@ -562,26 +603,25 @@ function cmdUnban(PDO $pdo, string $token, int $replyChatId, ?int $threadId, int
         $pdo->prepare("DELETE FROM blacklist WHERE telegram = ? OR telegram = ?")->execute(['@' . $username, $username]);
     } catch (Exception $e) {}
 
-    // После разбана — генерируем инвайт-ссылку и отправляем в ЛС
-    $inviteText = '';
+    // После разбана — тихо генерируем инвайт и отправляем ТОЛЬКО тебе в ЛС
     if ($tgOk && $userId) {
         $invRes = tgCreateInviteLink($token, $groupChatId);
         if (!empty($invRes['ok'])) {
             $invLink = $invRes['result']['invite_link'] ?? '';
             if ($invLink !== '') {
-                $inviteText = "\n\n🔗 *Ссылка для возврата* (24ч, 1 использование):\n{$invLink}";
-                $tgEnv = getenv('TELEGRAM_BOT_TOKEN') ?: '';
-                sendTelegram($tgEnv, 'sendMessage', [
-                    'chat_id'    => $userId,
-                    'text'       => "✅ Тебя разбанили! Вернуться в группу:\n{$invLink}",
+                // Только владельцу в ЛС — не в чат группы
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id'    => getBotAdminId(),
+                    'text'       => "🔓 @{$username} разбанен.\n🔗 Ссылка (24ч, 1 использование):\n{$invLink}",
                     'parse_mode' => 'Markdown',
                 ]);
             }
         }
     }
 
+    // В чате группы — только тихое подтверждение без ссылки
     $icon = $tgOk ? '✅' : '📝';
-    sendToThread($token, $replyChatId, $threadId, "{$icon} *@{$username}* разбанен.{$tgMsg}{$inviteText}" . (!$userId ? "\n⚠️ _ID не найден в БД._" : ''));
+    sendToThread($token, $replyChatId, $threadId, "{$icon} @{$username} разбанен.{$tgMsg}" . (!$userId ? " ⚠️ ID не найден." : ''));
     return true;
 }
 
@@ -802,7 +842,7 @@ function ensureBotCommandTables(PDO $pdo): void
             PRIMARY KEY (user_id, chat_id)
         )");
 
-        // Таблица для антифлуда (история сообщений)
+        // Таблица для антифлуда (последнее сообщение)
         $pdo->exec("CREATE TABLE IF NOT EXISTS flood_log (
             id SERIAL PRIMARY KEY,
             user_id BIGINT NOT NULL,
@@ -811,6 +851,15 @@ function ensureBotCommandTables(PDO $pdo): void
             sent_at INT NOT NULL
         )");
         try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_flood_log_user_chat ON flood_log (user_id, chat_id)"); } catch (Throwable $e) {}
+
+        // Кулдаун повторных сообщений (1 час между одинаковыми)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS flood_cooldown (
+            user_id      BIGINT       NOT NULL,
+            chat_id      BIGINT       NOT NULL,
+            warned_at    INT          NOT NULL,
+            message_text VARCHAR(255) NOT NULL DEFAULT '',
+            PRIMARY KEY (user_id, chat_id)
+        )");
 
         // Заполняем bot_commands если пусто
         $count = (int)$pdo->query("SELECT COUNT(*) FROM bot_commands")->fetchColumn();

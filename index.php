@@ -41,59 +41,6 @@ try {
     )");
 } catch (Throwable $e) {}
 
-// ── AJAX: лайк/анлайк работы ──
-if (isset($_POST['like_work'])) {
-    header('Content-Type: application/json');
-    $workId = (int)($_POST['work_id'] ?? 0);
-    $ip     = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
-    $ip     = trim(explode(',', $ip)[0]);
-    if ($workId > 0) {
-        try {
-            // Проверяем уже лайкнул ли (по сессии)
-            $chk = $pdo->prepare("SELECT id FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?");
-            $chk->execute([$workId, $sid]);
-            $existing = $chk->fetch();
-            if ($existing) {
-                // Анлайк
-                $pdo->prepare("DELETE FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?")->execute([$workId, $sid]);
-                $liked = false;
-            } else {
-                // Лайк
-                $pdo->prepare("INSERT INTO portfolio_likes (portfolio_id, session_id, ip) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")->execute([$workId, $sid, $ip]);
-                $liked = true;
-            }
-            $cnt = (int)$pdo->prepare("SELECT COUNT(*) FROM portfolio_likes WHERE portfolio_id = ?")->execute([$workId]) ? 0 : 0;
-            $s2 = $pdo->prepare("SELECT COUNT(*) FROM portfolio_likes WHERE portfolio_id = ?");
-            $s2->execute([$workId]);
-            $cnt = (int)$s2->fetchColumn();
-            echo json_encode(['ok' => true, 'liked' => $liked, 'count' => $cnt]);
-        } catch (Throwable $e) {
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-        }
-    } else {
-        echo json_encode(['ok' => false]);
-    }
-    exit;
-}
-
-// Загружаем лайки для текущей сессии
-$myLikes = [];
-try {
-    $likeStmt = $pdo->prepare("SELECT portfolio_id FROM portfolio_likes WHERE session_id = ?");
-    $likeStmt->execute([$sid]);
-    $myLikes = $likeStmt->fetchAll(PDO::FETCH_COLUMN);
-    $myLikes = array_map('intval', $myLikes);
-} catch (Throwable $e) {}
-
-// Загружаем счётчики лайков для всех работ
-$likeCounts = [];
-try {
-    $lcRows = $pdo->query("SELECT portfolio_id, COUNT(*) as cnt FROM portfolio_likes GROUP BY portfolio_id")->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($lcRows as $lcRow) {
-        $likeCounts[(int)$lcRow['portfolio_id']] = (int)$lcRow['cnt'];
-    }
-} catch (Throwable $e) {}
-
 // Создаём таблицу отзывов если нет
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
@@ -114,6 +61,59 @@ $linkCode = null;
 $isLinked = false;
 $tgProfile = [];
 $sid = session_id();
+
+// ── AJAX: лайк/анлайк работы (здесь $sid уже определён) ──────────────────
+if (isset($_POST['like_work'])) {
+    header('Content-Type: application/json');
+    $workId = (int)($_POST['work_id'] ?? 0);
+    $ip     = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+    $ip     = trim(explode(',', $ip)[0]);
+    if ($workId > 0) {
+        try {
+            // Проверяем уже лайкнул ли (по сессии) — строгая проверка
+            $chk = $pdo->prepare("SELECT id FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?");
+            $chk->execute([$workId, $sid]);
+            $existing = $chk->fetch();
+            if ($existing) {
+                // Анлайк
+                $pdo->prepare("DELETE FROM portfolio_likes WHERE portfolio_id = ? AND session_id = ?")->execute([$workId, $sid]);
+                $liked = false;
+            } else {
+                // Лайк — ON CONFLICT DO NOTHING страхует от гонки
+                $pdo->prepare("INSERT INTO portfolio_likes (portfolio_id, session_id, ip) VALUES (?, ?, ?) ON CONFLICT (portfolio_id, session_id) DO NOTHING")->execute([$workId, $sid, $ip]);
+                $liked = true;
+            }
+            // Берём актуальный счётчик из БД
+            $s2 = $pdo->prepare("SELECT COUNT(*) FROM portfolio_likes WHERE portfolio_id = ?");
+            $s2->execute([$workId]);
+            $cnt = (int)$s2->fetchColumn();
+            echo json_encode(['ok' => true, 'liked' => $liked, 'count' => max(0, $cnt)]);
+        } catch (Throwable $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    } else {
+        echo json_encode(['ok' => false]);
+    }
+    exit;
+}
+
+// Загружаем лайки текущей сессии
+$myLikes = [];
+try {
+    $likeStmt = $pdo->prepare("SELECT portfolio_id FROM portfolio_likes WHERE session_id = ?");
+    $likeStmt->execute([$sid]);
+    $myLikes = array_map('intval', $likeStmt->fetchAll(PDO::FETCH_COLUMN));
+} catch (Throwable $e) {}
+
+// Загружаем счётчики лайков всех работ
+$likeCounts = [];
+try {
+    $lcRows = $pdo->query("SELECT portfolio_id, COUNT(*) as cnt FROM portfolio_likes GROUP BY portfolio_id")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($lcRows as $lcRow) {
+        $likeCounts[(int)$lcRow['portfolio_id']] = (int)$lcRow['cnt'];
+    }
+} catch (Throwable $e) {}
+
 try {
     $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$sid]);
@@ -1287,43 +1287,54 @@ function filterPortfolio(category, event) {
 }
 
 // ── Лайки ──
+var _likeInFlight = {}; // защита от двойного клика
+
 function toggleLike(workId, btn) {
+    if (_likeInFlight[workId]) return; // уже запрос в лёте — игнорируем
+    _likeInFlight[workId] = true;
+    btn.disabled = true;
+
+    var isLiked = btn.classList.contains('liked');
+    var heart   = btn.querySelector('.like-heart');
+    var counter = btn.querySelector('.like-count');
+    var prevCount = parseInt(counter.textContent || '0', 10);
+
+    // Оптимистичный UI
+    var newCount = isLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
+    btn.classList.toggle('liked', !isLiked);
+    btn.classList.add('pop');
+    setTimeout(function(){ btn.classList.remove('pop'); }, 350);
+    heart.textContent   = isLiked ? '🤍' : '🧡';
+    counter.textContent = newCount;
+
     var fd = new FormData();
     fd.append('like_work', '1');
     fd.append('work_id', workId);
 
-    // Оптимистичный UI
-    var isLiked = btn.classList.contains('liked');
-    var heart   = btn.querySelector('.like-heart');
-    var counter = btn.querySelector('.like-count');
-    var newCount = parseInt(counter.textContent || '0', 10) + (isLiked ? -1 : 1);
-
-    btn.classList.toggle('liked');
-    btn.classList.add('pop');
-    setTimeout(function(){ btn.classList.remove('pop'); }, 350);
-    heart.textContent   = isLiked ? '🤍' : '🧡';
-    counter.textContent = Math.max(0, newCount);
-
     fetch(window.location.pathname, { method: 'POST', body: fd })
         .then(function(r){ return r.json(); })
         .then(function(data) {
-            if (!data.ok) {
-                // Откатываем если ошибка
-                btn.classList.toggle('liked');
+            if (data.ok) {
+                // Синхронизируем с сервером — источник правды
+                btn.classList.toggle('liked', !!data.liked);
                 heart.textContent   = data.liked ? '🧡' : '🤍';
-                counter.textContent = data.count ?? newCount;
-                return;
+                counter.textContent = Math.max(0, data.count);
+            } else {
+                // Откат
+                btn.classList.toggle('liked', isLiked);
+                heart.textContent   = isLiked ? '🧡' : '🤍';
+                counter.textContent = prevCount;
             }
-            heart.textContent   = data.liked ? '🧡' : '🤍';
-            counter.textContent = data.count;
-            if (!data.liked) btn.classList.remove('liked');
-            else             btn.classList.add('liked');
         })
         .catch(function(){
             // Откат при сетевой ошибке
-            btn.classList.toggle('liked');
+            btn.classList.toggle('liked', isLiked);
             heart.textContent   = isLiked ? '🧡' : '🤍';
-            counter.textContent = isLiked ? newCount + 1 : Math.max(0, newCount - 1);
+            counter.textContent = prevCount;
+        })
+        .finally(function(){
+            _likeInFlight[workId] = false;
+            btn.disabled = false;
         });
 }
 
