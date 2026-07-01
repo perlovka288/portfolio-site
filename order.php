@@ -921,6 +921,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <!-- Правила из БД (редактируются в Админке → Правила) -->
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>
+            <div id="rules-end-sentinel" style="height:1px;"></div>
         </div>
     </div>
     <div style="margin-bottom: 20px;">
@@ -1419,18 +1420,36 @@ function copyText(text, msg) {
 document.addEventListener('DOMContentLoaded', function() {
     const rulesScroll = document.getElementById('rules-scroll');
     const agreeBtn = document.getElementById('agree-btn');
-    
-    if (rulesScroll && agreeBtn) {
-        const checkScroll = () => {
-            if (rulesScroll.scrollHeight <= rulesScroll.clientHeight || 
-                Math.abs(rulesScroll.scrollHeight - rulesScroll.clientHeight - rulesScroll.scrollTop) < 10) {
-                agreeBtn.disabled = false;
-            }
-        };
-        rulesScroll.addEventListener('scroll', checkScroll);
-        checkScroll();
-        setTimeout(checkScroll, 250);
+    const sentinel = document.getElementById('rules-end-sentinel');
+
+    if (!rulesScroll || !agreeBtn) return;
+
+    const enable = () => { agreeBtn.disabled = false; };
+
+    // Основной способ: IntersectionObserver — надёжно ловит момент,
+    // когда конец текста реально показался внутри блока, даже на
+    // мобильных с "резиновым" инерционным скроллом (там scrollTop
+    // на глаз никогда не долистывает точно до scrollHeight-clientHeight).
+    if (sentinel && 'IntersectionObserver' in window) {
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach(entry => { if (entry.isIntersecting) enable(); });
+        }, { root: rulesScroll, threshold: 0.99 });
+        io.observe(sentinel);
     }
+
+    // Запасной способ (старые браузеры без IntersectionObserver
+    // или если сам сентинел почему-то не найден) — прежняя проверка,
+    // но с увеличенным допуском.
+    const checkScroll = () => {
+        if (rulesScroll.scrollHeight <= rulesScroll.clientHeight ||
+            (rulesScroll.scrollHeight - rulesScroll.clientHeight - rulesScroll.scrollTop) < 24) {
+            enable();
+        }
+    };
+    rulesScroll.addEventListener('scroll', checkScroll);
+    checkScroll();
+    setTimeout(checkScroll, 250);
+    setTimeout(checkScroll, 1000); // на случай если текст правил ещё дорисовывался
 });
 
 </script>

@@ -125,6 +125,16 @@ try {
     if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
         $isLinked  = true;
         $tgProfile = $linkRow;
+
+        // Аватарка могла не подтянуться при первой привязке (короткий таймаут
+        // к Telegram API) — досасываем и кэшируем в Cloudinary прямо тут,
+        // чтобы она была видна сразу на главной, а не только в профиле.
+        $tgProfile['tg_photo_url'] = ensureTgAvatarFresh(
+            $pdo,
+            $sid,
+            (string)($linkRow['tg_id'] ?? ''),
+            (string)($linkRow['tg_photo_url'] ?? '')
+        );
     } elseif ($linkRow) {
         $linkCode = $linkRow['site_code'];
     }

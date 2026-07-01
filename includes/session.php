@@ -20,8 +20,13 @@ function startSafeSession(): void {
              || (($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '') === 'on');
 
     $p = session_get_cookie_params();
+    // Без явного lifetime кука сессии истекает при закрытии браузера/WebView
+    // Telegram — из-за этого при каждом новом заходе слетала привязка TG
+    // (аватарка, лайки "с одного профиля") пока человек не проходил
+    // auto-link заново. Держим куку живой год.
+    $oneYear = 60 * 60 * 24 * 365;
     session_set_cookie_params([
-        'lifetime' => $p['lifetime'],
+        'lifetime' => $oneYear,
         'path'     => '/',
         'domain'   => $p['domain'],
         'secure'   => $isSecure,
@@ -29,6 +34,10 @@ function startSafeSession(): void {
         'samesite' => $isSecure ? 'None' : 'Lax', // None требует Secure
     ]);
     session_start();
+    // session_set_cookie_params влияет только на будущие session_start(),
+    // а сама PHP session garbage collection может убить данные раньше —
+    // продлеваем и gc_maxlifetime на бэкенде.
+    @ini_set('session.gc_maxlifetime', (string)$oneYear);
 }
 
 startSafeSession();
@@ -131,6 +140,87 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
         }
     } catch (Throwable $e) {
         error_log('TG autolink saveTgToSession error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Ленивое обновление аватарки: если tg_photo_url пуст или это временная
+ * ссылка api.telegram.org (протухает через час) — тянем свежую аватарку
+ * из Telegram, заливаем в Cloudinary и сохраняем в tg_links для ЛЮБОЙ
+ * страницы (используется и в index.php, и в profile.php — раньше это
+ * умел делать только profile.php, из-за чего на главной аватарка
+ * не подгружалась, пока человек не заходил в профиль).
+ */
+function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $currentPhoto): string {
+    if ($tg_id === '') return $currentPhoto;
+
+    $needsRefresh = ($currentPhoto === '' || str_starts_with($currentPhoto, 'https://api.telegram.org'));
+    if (!$needsRefresh) return $currentPhoto;
+
+    try {
+        $botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+
+        $ch = curl_init("https://api.telegram.org/bot{$botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
+        $photosResp = curl_exec($ch);
+        curl_close($ch);
+        $photosData = $photosResp ? json_decode($photosResp, true) : null;
+        $fileId = $photosData['result']['photos'][0][0]['file_id'] ?? '';
+        if ($fileId === '') return $currentPhoto;
+
+        $ch = curl_init("https://api.telegram.org/bot{$botToken}/getFile?file_id={$fileId}");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
+        $fileResp = curl_exec($ch);
+        curl_close($ch);
+        $fileData = $fileResp ? json_decode($fileResp, true) : null;
+        $filePath = $fileData['result']['file_path'] ?? '';
+        if ($filePath === '') return $currentPhoto;
+
+        $tgUrl = "https://api.telegram.org/file/bot{$botToken}/{$filePath}";
+        $newPhotoUrl = $tgUrl; // fallback — прямая ссылка TG (протухнет, но лучше чем ничего)
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'tgava_');
+        $ch = curl_init($tgUrl);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false]);
+        $imgData = curl_exec($ch);
+        curl_close($ch);
+
+        if ($imgData !== false && strlen((string)$imgData) > 100) {
+            file_put_contents($tmpFile, $imgData);
+            $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
+            $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
+            $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+            $ts  = time();
+            $sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$ts}{$cloudSecret}");
+            $cch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
+            curl_setopt_array($cch, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_POSTFIELDS     => [
+                    'file'      => new CURLFile($tmpFile),
+                    'api_key'   => $cloudKey,
+                    'timestamp' => $ts,
+                    'signature' => $sig,
+                    'folder'    => 'avatars',
+                    'public_id' => "tg_{$tg_id}",
+                ],
+            ]);
+            $cResp = curl_exec($cch);
+            curl_close($cch);
+            @unlink($tmpFile);
+            $cData = $cResp ? json_decode($cResp, true) : null;
+            if (!empty($cData['secure_url'])) {
+                $newPhotoUrl = $cData['secure_url'];
+            }
+        }
+
+        $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ?")->execute([$newPhotoUrl, $sid]);
+        return $newPhotoUrl;
+    } catch (Throwable $e) {
+        error_log('ensureTgAvatarFresh error: ' . $e->getMessage());
+        return $currentPhoto;
     }
 }
 
