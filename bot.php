@@ -1,10 +1,12 @@
 <?php
 
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/order_flow.php';
 require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fatal error on every request
 
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
+ensureOrderFlowSchema($pdo);
 
 /**
  * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
@@ -84,13 +86,45 @@ if (isset($update['callback_query'])) {
     if ($callback_data === 'adm_stats') {
         $total  = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
         $ready  = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
-        $active = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress','urgent')")->fetchColumn();
+        $active = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','awaiting_payment','in_progress','urgent')")->fetchColumn();
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
             'text'       => "📊 *Быстрая статистика*\n\n📥 Всего заказов: *{$total}*\n🔥 Активных: *{$active}*\n✅ Выполненных: *{$ready}*",
             'parse_mode' => 'Markdown',
         ]);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // Принять заказ и запросить оплату
+    if (strpos($callback_data, 'adm_accept_') === 0) {
+        $urgentAccept = strpos($callback_data, 'adm_accept_urgent_') === 0;
+        $order_id = (int)str_replace($urgentAccept ? 'adm_accept_urgent_' : 'adm_accept_', '', $callback_data);
+        $pdo->prepare("UPDATE orders SET status = 'awaiting_payment', payment_status = 'requested', accepted_at = NOW(), is_urgent = ? WHERE id = ?")
+            ->execute([$urgentAccept ? 1 : 0, $order_id]);
+        prefillClientChatId($pdo, $token, $order_id);
+
+        $info = [];
+        try {
+            $st = $pdo->prepare("SELECT p.title, p.price_rub, p.price_uan, o.cooperation FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key WHERE o.id = ? LIMIT 1");
+            $st->execute([$order_id]);
+            $info = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {}
+        $payText = paymentInstructionsText($order_id, $info, !empty($info['cooperation']));
+        addOrderMessage($pdo, $order_id, 'admin', "Заказ принят. Клиенту отправлены реквизиты.");
+
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(orderKeyboard($order_id, 'awaiting_payment', getOrderTelegram($pdo, $order_id)), JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "✅ *Заказ #{$order_id} принят.*\nОжидаем оплату и чек от клиента.",
+            'parse_mode' => 'Markdown',
+        ]);
+        safeNotifyClient($pdo, $token, $order_id, mdEscape($payText));
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ принят, реквизиты отправлены']);
         exit;
     }
 
@@ -167,22 +201,12 @@ if (isset($update['callback_query'])) {
     // Отклонить
     if (strpos($callback_data, 'adm_dec_') === 0) {
         $order_id = (int)str_replace('adm_dec_', '', $callback_data);
-        $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$order_id]);
-        prefillClientChatId($pdo, $token, $order_id);
-        sendTelegram($token, 'editMessageReplyMarkup', [
-            'chat_id'      => $cal_chat_id,
-            'message_id'   => $msg_id,
-            'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
-        ]);
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "❌ *Заказ #{$order_id} отклонён.*",
+            'text'       => "❌ Чтобы отклонить заказ #{$order_id}, отправьте причину командой:\n`/decline_{$order_id} причина отказа`",
             'parse_mode' => 'Markdown',
         ]);
-        safeNotifyClient($pdo, $token, $order_id,
-            "🔴 *Заказ #{$order_id} отклонён.*\n\nК сожалению, дизайнер не смог принять ваш заказ. По вопросам: @Perlo_ovka"
-        );
-        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ отклонён']);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Напишите причину отказа']);
         exit;
     }
 
@@ -249,6 +273,69 @@ if (isset($update['message'])) {
                 't.me/' . $msg_username,
             ]);
         } catch (Throwable $e) {}
+    }
+
+    if ((string)$chat_id === $admin_id && preg_match('/^\/decline_(\d+)\s+(.+)/us', $text, $m)) {
+        $order_id = (int)$m[1];
+        $reason = trim($m[2]);
+        if ($reason === '') $reason = 'Без указанной причины';
+        $pdo->prepare("UPDATE orders SET status = 'declined', declined_reason = ? WHERE id = ?")->execute([$reason, $order_id]);
+        addOrderMessage($pdo, $order_id, 'admin', 'Заказ отклонён. Причина: ' . $reason);
+        prefillClientChatId($pdo, $token, $order_id);
+        safeNotifyClient($pdo, $token, $order_id,
+            "🔴 *Заказ #{$order_id} отклонён.*\n\nПричина: " . mdEscape($reason) . "\n\nПо вопросам: @Perlo_ovka"
+        );
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "❌ *Заказ #{$order_id} отклонён.*\nПричина: " . mdEscape($reason),
+            'parse_mode' => 'Markdown',
+        ]);
+        exit;
+    }
+
+    $receiptFileId = '';
+    if (!empty($update['message']['photo'])) {
+        $photos = $update['message']['photo'];
+        $last = end($photos);
+        $receiptFileId = (string)($last['file_id'] ?? '');
+    } elseif (!empty($update['message']['document']['file_id'])) {
+        $receiptFileId = (string)$update['message']['document']['file_id'];
+    }
+
+    if ($receiptFileId !== '' && (string)$chat_id !== $admin_id) {
+        try {
+            $stmt = $pdo->prepare("SELECT id, is_urgent FROM orders WHERE client_chat_id = ? AND status = 'awaiting_payment' ORDER BY accepted_at DESC NULLS LAST, id DESC LIMIT 1");
+            $stmt->execute([(string)$chat_id]);
+            $payOrder = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($payOrder) {
+                $order_id = (int)$payOrder['id'];
+                $isUrgent = !empty($payOrder['is_urgent']);
+                $deadline = date('Y-m-d H:i:s', time() + ($isUrgent ? 24 * 3600 : 5 * 86400));
+                $newStatus = $isUrgent ? 'urgent' : 'in_progress';
+                $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+                    ->execute([$newStatus, $receiptFileId, $deadline, $order_id]);
+                addOrderMessage($pdo, $order_id, 'client', 'Клиент отправил чек оплаты.', $receiptFileId);
+
+                sendTelegram($token, 'sendPhoto', [
+                    'chat_id'    => $admin_id,
+                    'photo'      => $receiptFileId,
+                    'caption'    => "💳 Чек оплаты по заказу #{$order_id}\nСтатус: срок запущен до " . date('d.m.Y H:i', strtotime($deadline)),
+                    'parse_mode' => 'HTML',
+                ]);
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id'    => $admin_id,
+                    'text'       => "✅ *Чек получен по заказу #{$order_id}.*\nЗаказ переведён в работу. Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*",
+                    'parse_mode' => 'Markdown',
+                ]);
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id'    => $chat_id,
+                    'text'       => "✅ Чек по заказу #{$order_id} получен.\nЗаказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)),
+                ]);
+                exit;
+            }
+        } catch (Throwable $e) {
+            botLog('receipt handling error: ' . $e->getMessage());
+        }
     }
 
     // Если первое сообщение от админа и клавиатура слетела — восстанавливаем нужную
@@ -472,7 +559,7 @@ if (isset($update['message'])) {
         if ($text === '📊 Статистика') {
             $total    = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
             $ready    = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='ready'")->fetchColumn();
-            $active   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','in_progress','urgent')")->fetchColumn();
+            $active   = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','awaiting_payment','in_progress','urgent')")->fetchColumn();
             $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
             $tg_links = 0;
             try { $tg_links = (int)$pdo->query("SELECT COUNT(*) FROM tg_links WHERE linked=TRUE")->fetchColumn(); } catch(Throwable $e){}
@@ -891,11 +978,11 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
 
     // Проверяем есть ли активные заказы — уведомляем о них
     try {
-        $active_stmt = $pdo->prepare("SELECT id, status FROM orders WHERE client_chat_id = ? AND status IN ('pending','in_progress','urgent') ORDER BY id DESC LIMIT 5");
+        $active_stmt = $pdo->prepare("SELECT id, status FROM orders WHERE client_chat_id = ? AND status IN ('pending','awaiting_payment','in_progress','urgent') ORDER BY id DESC LIMIT 5");
         $active_stmt->execute([$tg_id]);
         $active_orders = $active_stmt->fetchAll(PDO::FETCH_ASSOC);
         if (!empty($active_orders)) {
-            $statusLabel = ['pending' => '⏳ Ожидает', 'in_progress' => '🎨 В работе', 'urgent' => '⚡ Срочный'];
+            $statusLabel = ['pending' => '⏳ Ожидает', 'awaiting_payment' => '💳 Ожидает оплату', 'in_progress' => '🎨 В работе', 'urgent' => '⚡ Срочный'];
             $msg = "📦 *Твои активные заказы:*\n\n";
             foreach ($active_orders as $ao) {
                 $msg .= ($statusLabel[$ao['status']] ?? '📦') . " Заказ *#{$ao['id']}*\n";
@@ -980,7 +1067,7 @@ function showCabinet($pdo, $token, $chat_id) {
 function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
     try {
         $stmt = $pdo->prepare("
-            SELECT id, service_key, status, details, created_at, screenshot, example_photo
+            SELECT id, service_key, status, details, created_at, screenshot, example_photo, cooperation, deadline, payment_status, payment_receipt
             FROM orders
             WHERE id = ? AND client_chat_id = ?
             LIMIT 1
@@ -1014,10 +1101,12 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
         $date        = date('d.m.Y H:i', strtotime($order['created_at']));
 
         // Дедлайн
-        $created   = new DateTime($order['created_at']);
-        $now       = new DateTime();
-        $days_left = 5 - $created->diff($now)->days;
-        $deadline  = ($days_left < 0) ? '🚨 Срок истёк' : "⏱ Осталось {$days_left} дн.";
+        $deadline = '⏳ Срок начнётся после получения чека';
+        if (!empty($order['deadline'])) {
+            $deadlineDt = new DateTime($order['deadline']);
+            $diff = $deadlineDt->getTimestamp() - time();
+            $deadline = ($diff < 0) ? '🚨 Срок истёк' : '⏱ Дедлайн: ' . $deadlineDt->format('d.m.Y H:i');
+        }
 
         $text  = "📦 *Заказ #{$order['id']}*\n";
         $text .= "━━━━━━━━━━━━━━━━━━\n";
@@ -1232,10 +1321,17 @@ function orderKeyboard($order_id, $status, $telegram) {
 
     if ($status === 'pending') {
         $keyboard['inline_keyboard'][] = [
-            ['text' => '🚀 Взять в работу', 'callback_data' => "adm_work_{$order_id}"],
-            ['text' => '⚡️ Срочный',        'callback_data' => "adm_urgent_{$order_id}"],
+            ['text' => '✅ Принять / оплата', 'callback_data' => "adm_accept_{$order_id}"],
+            ['text' => '⚡️ Принять срочный', 'callback_data' => "adm_accept_urgent_{$order_id}"],
         ];
         $keyboard['inline_keyboard'][] = [
+            ['text' => '❌ Отклонить', 'callback_data' => "adm_dec_{$order_id}"],
+        ];
+    }
+
+    if ($status === 'awaiting_payment') {
+        $keyboard['inline_keyboard'][] = [
+            ['text' => '💳 Ожидаем чек', 'callback_data' => "adm_view_{$order_id}"],
             ['text' => '❌ Отклонить', 'callback_data' => "adm_dec_{$order_id}"],
         ];
     }
@@ -1326,9 +1422,9 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
     $q_stmt = $pdo->query("
         SELECT id, username, telegram, service_key, status, created_at
         FROM orders
-        WHERE status IN ('pending','in_progress','urgent')
+        WHERE status IN ('pending','awaiting_payment','in_progress','urgent')
         ORDER BY
-            CASE status WHEN 'urgent' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END ASC,
+            CASE status WHEN 'urgent' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'awaiting_payment' THEN 2 ELSE 3 END ASC,
             created_at ASC
     ");
     $queue = $q_stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1346,6 +1442,7 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
         $emoji    = statusEmoji($item['status']);
         $label    = [
             'pending'     => 'Новый',
+            'awaiting_payment' => 'Ожидает оплату',
             'in_progress' => 'В работе',
             'urgent'      => '⚡ СРОЧНЫЙ',
         ][$item['status']] ?? $item['status'];
@@ -1367,7 +1464,8 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
         SELECT o.id, o.username, o.telegram, o.service_key, o.details, o.screenshot,
-               o.example_photo, o.status, o.created_at, o.deadline, o.client_chat_id,
+               o.example_photo, o.status, o.payment_status, o.payment_receipt, o.payment_received_at,
+               o.declined_reason, o.created_at, o.deadline, o.client_chat_id, o.cooperation, o.is_urgent,
                tl.tg_username
         FROM orders o
         LEFT JOIN tg_links tl ON tl.session_id = o.session_id AND tl.linked = TRUE
@@ -1390,8 +1488,12 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
 
     // Собираем фото
     $photos = [];
-    foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
+    foreach (['payment_receipt' => 'Чек оплаты', 'screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
         if (empty($item[$field])) continue;
+        if ($field === 'payment_receipt' && !str_starts_with((string)$item[$field], 'http')) {
+            $photos[] = ['file' => $item[$field], 'label' => $label, 'is_local' => false];
+            continue;
+        }
         $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
         if (is_file($path)) {
             $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => $label, 'is_local' => true];
@@ -1515,8 +1617,16 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "📝 *ТЗ:* "     . mdEscape($item['details'] ?? '') . "\n";
     $msg .= "━━━━━━━━━━━━━━━━━━\n";
     $msg .= "🔹 *Статус:* {$status_text}\n";
+    if (($item['payment_status'] ?? '') === 'requested') {
+        $msg .= "💳 *Оплата:* ожидаем чек от клиента\n";
+    } elseif (($item['payment_status'] ?? '') === 'receipt_received') {
+        $msg .= "💳 *Оплата:* чек получен\n";
+    }
     if ($deadline_text) {
         $msg .= "{$deadline_text}\n";
+    }
+    if (!empty($item['declined_reason'])) {
+        $msg .= "📝 *Причина отказа:* " . mdEscape($item['declined_reason']) . "\n";
     }
 
     // Photos (screenshot / example) are sent as media album separately
@@ -1537,6 +1647,7 @@ function buildOrderCard($item, $price_info, $site_url) {
 function statusEmoji($status) {
     return [
         'pending'     => '⏳',
+        'awaiting_payment' => '💳',
         'in_progress' => '🎨',
         'urgent'      => '⚡️',
         'ready'       => '✅',
@@ -1550,6 +1661,7 @@ function statusEmoji($status) {
 function statusLabel($status) {
     return [
         'pending'     => '⏳ Ожидает подтверждения',
+        'awaiting_payment' => '💳 Ожидает оплату',
         'in_progress' => '🎨 В работе',
         'urgent'      => '⚡️ Срочный (в приоритете)',
         'ready'       => '✅ Готов',

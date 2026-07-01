@@ -96,6 +96,8 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
     $_SESSION['tg_username']  = $uname;
     $_SESSION['_tg_linked']   = true;
 
+    $photo = _fetchTgAvatarForSite($pdo, (string)$tg_id);
+
     // 2. Обновляем/создаём запись в tg_links чтобы заказы привязывались
     try {
         // Проверяем есть ли уже запись для этой сессии
@@ -105,15 +107,15 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
 
         if ($existRow) {
             // Обновляем существующую
-            $pdo->prepare("UPDATE tg_links SET tg_id=CAST(? AS VARCHAR), tg_username=?, tg_first_name=?, linked=TRUE WHERE session_id=?")
-                ->execute([(string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname, $sid]);
+            $pdo->prepare("UPDATE tg_links SET tg_id=CAST(? AS VARCHAR), tg_username=?, tg_first_name=?, tg_photo_url=COALESCE(NULLIF(?, ''), tg_photo_url), linked=TRUE WHERE session_id=?")
+                ->execute([(string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname, $photo, $sid]);
         } else {
             // Создаём новую — сначала генерируем site_code
             $code = strtoupper(substr(md5(uniqid($sid.$tg_id, true)), 0, 6));
-            $pdo->prepare("INSERT INTO tg_links (site_code, session_id, tg_id, tg_username, tg_first_name, linked, created_at)
-                           VALUES (?, ?, CAST(? AS VARCHAR), ?, ?, TRUE, NOW())
+            $pdo->prepare("INSERT INTO tg_links (site_code, session_id, tg_id, tg_username, tg_first_name, tg_photo_url, linked, created_at)
+                           VALUES (?, ?, CAST(? AS VARCHAR), ?, ?, ?, TRUE, NOW())
                            ON CONFLICT (site_code) DO NOTHING")
-                ->execute([$code, $sid, (string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname]);
+                ->execute([$code, $sid, (string)$tg_id, $uname ? ltrim($uname, '@') : '', $fname, $photo]);
         }
 
         // 3. Привязываем client_chat_id к заказам где указан username
@@ -129,5 +131,43 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
         }
     } catch (Throwable $e) {
         error_log('TG autolink saveTgToSession error: ' . $e->getMessage());
+    }
+}
+
+function _fetchTgAvatarForSite(PDO $pdo, string $tg_id): string {
+    if ($tg_id === '') return '';
+    try {
+        $old = $pdo->prepare("SELECT tg_photo_url FROM tg_links WHERE tg_id = ? AND tg_photo_url IS NOT NULL AND tg_photo_url <> '' ORDER BY id DESC LIMIT 1");
+        $old->execute([$tg_id]);
+        $cached = (string)($old->fetchColumn() ?: '');
+        if ($cached !== '' && !str_starts_with($cached, 'https://api.telegram.org')) {
+            return $cached;
+        }
+    } catch (Throwable $e) {}
+
+    $botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
+    if ($botToken === '') return '';
+
+    try {
+        $ch = curl_init("https://api.telegram.org/bot{$botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 4, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
+        $photosResp = curl_exec($ch);
+        curl_close($ch);
+        $photosData = $photosResp ? json_decode($photosResp, true) : null;
+        $fileId = $photosData['result']['photos'][0][0]['file_id'] ?? '';
+        if ($fileId === '') return '';
+
+        $ch = curl_init("https://api.telegram.org/bot{$botToken}/getFile?file_id={$fileId}");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 4, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
+        $fileResp = curl_exec($ch);
+        curl_close($ch);
+        $fileData = $fileResp ? json_decode($fileResp, true) : null;
+        $filePath = $fileData['result']['file_path'] ?? '';
+        if ($filePath === '') return '';
+
+        return "https://api.telegram.org/file/bot{$botToken}/{$filePath}";
+    } catch (Throwable $e) {
+        error_log('fetch tg avatar error: ' . $e->getMessage());
+        return '';
     }
 }
