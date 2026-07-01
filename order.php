@@ -3,11 +3,11 @@ require_once 'includes/session.php';
 require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 
-// AUTO-LINK: Р•СЃР»Рё РєР»РёРµРЅС‚ РїРµСЂРµС€С‘Р» СЃ TG РїРѕ РЅР°С€РµР№ СЃСЃС‹Р»РєРµ вЂ” РїСЂРёРІСЏР·С‹РІР°РµРј РµРіРѕ TG Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё
+// AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
-// в”Ђв”Ђ Р“Р°СЂР°РЅС‚РёСЂСѓРµРј СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёРµ С‚Р°Р±Р»РёС†С‹ РїСЂР°РІРёР» в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── Гарантируем существование таблицы правил ────────────────────────────
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (
         id SERIAL PRIMARY KEY,
@@ -54,15 +54,15 @@ $my_chat_id  = getenv('ADMIN_ID')  ?: "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
 $support_tg  = 'https://t.me/Perlo_ovka';
 
-$turnstile_site_key   = getenv('TURNSTILE_SITE_KEY')   ?: 'РўР’РћР™_РџРЈР‘Р›РР§РќР«Р™_РљР›Р®Р§';
-$turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'РўР’РћР™_РЎР•РљР Р•РўРќР«Р™_РљР›Р®Р§';
+$turnstile_site_key   = getenv('TURNSTILE_SITE_KEY')   ?: 'ТВОЙ_ПУБЛИЧНЫЙ_КЛЮЧ';
+$turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'ТВОЙ_СЕКРЕТНЫЙ_КЛЮЧ';
 
 define('COOLDOWN_SECONDS', 300);
 
 $selected_service = $_POST['service'] ?? $_GET['service'] ?? '';
 $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-// в”Ђв”Ђ TG: СЃС‚Р°С‚СѓСЃ РїСЂРёРІСЏР·РєРё РґР»СЏ С‚РµРєСѓС‰РµР№ СЃРµСЃСЃРёРё в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── TG: статус привязки для текущей сессии ──────────────────────
 $linkCode = null;
 $isLinked = false;
 try {
@@ -83,7 +83,7 @@ try {
     $linkCode = null;
 }
 
-// в”Ђв”Ђ AJAX: РїСЂРѕРІРµСЂРёС‚СЊ СЃС‚Р°С‚СѓСЃ РїСЂРёРІСЏР·РєРё (polling СЃ order.php) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── AJAX: проверить статус привязки (polling с order.php) ────────
 if (isset($_GET['check_linked'])) {
     header('Content-Type: application/json');
     $sid_chk = session_id();
@@ -104,23 +104,23 @@ $error_msg   = '';
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
 $rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
 
-// в”Ђв”Ђ Р—Р°РіСЂСѓР¶Р°РµРј РїСЂР°РІРёР»Р° РёР· Р‘Р” (СЃРѕС…СЂР°РЅС‘РЅРЅС‹Рµ С‡РµСЂРµР· Р°РґРјРёРЅРєСѓ) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── Загружаем правила из БД (сохранённые через админку) ──────────────────
 $orderRulesHtml = '';
 try {
     $rulesRow = $pdo->query("SELECT rule_text FROM site_rules WHERE rule_key = 'order_terms' LIMIT 1")->fetch();
     if ($rulesRow && !empty(trim($rulesRow['rule_text']))) {
-        // Р¤РёР»СЊС‚СЂСѓРµРј СЂР°Р·СЂРµС€С‘РЅРЅС‹Рµ С‚РµРіРё: <b>,<i>,<br>,<a>
+        // Фильтруем разрешённые теги: <b>,<i>,<br>,<a>
         $orderRulesHtml = strip_tags($rulesRow['rule_text'], '<b><i><br><a>');
     }
 } catch (Throwable $e) {}
-// Р•СЃР»Рё РІ Р‘Р” РїСѓСЃС‚Рѕ вЂ” РёСЃРїРѕР»СЊР·СѓРµРј РґРµС„РѕР»С‚РЅС‹Р№ С‚РµРєСЃС‚
+// Если в БД пусто — используем дефолтный текст
 if ($orderRulesHtml === '') {
     $orderRulesHtml = '<ul style="padding-left:20px;margin:0;line-height:1.7;font-size:13px;color:#e0e0ec;">'
-        . '<li>РЎС‚Р°РЅРґР°СЂС‚РЅС‹Р№ СЃСЂРѕРє СЃРґР°С‡Рё вЂ” <b>5 РґРЅРµР№</b>.</li>'
-        . '<li>РЎСЂРѕС‡РЅС‹Р№ Р·Р°РєР°Р· (24 С‡Р°СЃР°): <b>+50%</b> Рє С†РµРЅРµ.</li>'
-        . '<li>РўР— РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ <b>РјР°РєСЃРёРјР°Р»СЊРЅРѕ РїРѕРґСЂРѕР±РЅС‹Рј</b>.</li>'
-        . '<li>РџРѕ РІРѕРїСЂРѕСЃР°Рј: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:#f97316;font-weight:700;">@Perlo_ovka</a></li>'
-        . '<li>Р”РµРЅСЊРіРё РЅРµ РІРѕР·РІСЂР°С‰Р°СЋС‚СЃСЏ.</li>'
+        . '<li>Стандартный срок сдачи — <b>5 дней</b>.</li>'
+        . '<li>Срочный заказ (24 часа): <b>+50%</b> к цене.</li>'
+        . '<li>ТЗ должно быть <b>максимально подробным</b>.</li>'
+        . '<li>По вопросам: <a href="https://t.me/Perlo_ovka" target="_blank" style="color:#f97316;font-weight:700;">@Perlo_ovka</a></li>'
+        . '<li>Деньги не возвращаются.</li>'
         . '</ul>';
 }
 
@@ -145,12 +145,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $user_ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
     }
 
-    // Cooldown check вЂ” skip for admin and for additional order slots (2, 3)
+    // Cooldown check — skip for admin and for additional order slots (2, 3)
     $sessionTgId = (string)($_SESSION['tg_chat_id'] ?? '');
     $adminTgId   = getenv('ADMIN_ID') ?: ADMIN_TG_ID;
     $isAdminOrder = (!empty($_SESSION['admin_logged']) || $sessionTgId === $adminTgId);
     $orderSlot = (int)($_POST['order_slot'] ?? 1);
-    $isExtraSlot = ($orderSlot >= 2); // РЎР»РѕС‚С‹ 2 Рё 3 вЂ” Р±РµР· РєСѓР»РґР°СѓРЅР°
+    $isExtraSlot = ($orderSlot >= 2); // Слоты 2 и 3 — без кулдауна
 
     if (!$isAdminOrder && !$isExtraSlot) {
         try {
@@ -161,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 $seconds_passed = time() - strtotime($last_order['created_at']);
                 if ($seconds_passed < COOLDOWN_SECONDS) {
                     $minutes_left = ceil((COOLDOWN_SECONDS - $seconds_passed) / 60);
-                    $error_msg = "вЏі РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ Р·Р°СЏРІРѕРє. РџРѕРґРѕР¶РґРёС‚Рµ РµС‰С‘ {$minutes_left} РјРёРЅ. РїРµСЂРµРґ РЅРѕРІС‹Рј Р·Р°РєР°Р·РѕРј.";
+                    $error_msg = "⏳ Слишком много заявок. Подождите ещё {$minutes_left} мин. перед новым заказом.";
                     goto render_page;
                 }
             }
@@ -170,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
 
     $captcha_token = $_POST['cf-turnstile-response'] ?? '';
     if (empty($captcha_token)) {
-        $error_msg = 'вљ пёЏ РџСЂРѕР№РґРёС‚Рµ РїСЂРѕРІРµСЂРєСѓ (Turnstile). РћР±РЅРѕРІРёС‚Рµ СЃС‚СЂР°РЅРёС†Сѓ Рё РїРѕРїСЂРѕР±СѓР№С‚Рµ СЃРЅРѕРІР°.';
+        $error_msg = '⚠️ Пройдите проверку (Turnstile). Обновите страницу и попробуйте снова.';
         goto render_page;
     }
     $ch = curl_init('https://challenges.cloudflare.com/turnstile/v0/siteverify');
@@ -181,7 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     $cf_result = json_decode(curl_exec($ch), true);
     curl_close($ch);
     if (empty($cf_result['success'])) {
-        $error_msg = 'вљ пёЏ РљР°РїС‡Р° РЅРµ РїСЂРѕС€Р»Р°. РћР±РЅРѕРІРёС‚Рµ СЃС‚СЂР°РЅРёС†Сѓ Рё РїРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰С‘ СЂР°Р·.';
+        $error_msg = '⚠️ Капча не прошла. Обновите страницу и попробуйте ещё раз.';
         goto render_page;
     }
 
@@ -192,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $bl_stmt->execute([$tg_clean, $user_ip]);
         $bl = $bl_stmt->fetch(PDO::FETCH_ASSOC);
         if ($bl) {
-            $error_msg = 'рџљ« РћС„РѕСЂРјР»РµРЅРёРµ Р·Р°РєР°Р·РѕРІ СЃ РІР°С€РµРіРѕ Р°РєРєР°СѓРЅС‚Р° РёР»Рё Р°РґСЂРµСЃР° РЅРµРґРѕСЃС‚СѓРїРЅРѕ.';
+            $error_msg = '🚫 Оформление заказов с вашего аккаунта или адреса недоступно.';
             goto render_page;
         }
     } catch (PDOException $e) {}
@@ -212,7 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             }
         }
     }
-    // Р РµС„РµСЂРµРЅСЃС‹ РёР· Р°СЂС…РёРІР° (JSON РјР°СЃСЃРёРІ URL)
+    // Референсы из архива (JSON массив URL)
     if (empty($example_imgs) && !empty($_POST['refs_urls'])) {
         $decoded = json_decode($_POST['refs_urls'], true);
         if (is_array($decoded)) {
@@ -235,24 +235,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $order_id = (int)$pdo->lastInsertId();
         }
 
-        addOrderMessage($pdo, $order_id, 'client', 'Р—Р°РєР°Р· РѕС‚РїСЂР°РІР»РµРЅ РЅР° СЂР°СЃСЃРјРѕС‚СЂРµРЅРёРµ.');
-        $success_msg = "рџљЂ Р—Р°РєР°Р· #{$order_id} РѕС‚РїСЂР°РІР»РµРЅ! Р”РёР·Р°Р№РЅРµСЂ РїРѕСЃРјРѕС‚СЂРёС‚ РўР— Рё РїСЂРёРјРµС‚ РёР»Рё РѕС‚РєР»РѕРЅРёС‚ Р·Р°РєР°Р·. РћРїР»Р°С‡РёРІР°С‚СЊ СЃРµР№С‡Р°СЃ РЅРµ РЅСѓР¶РЅРѕ: СЂРµРєРІРёР·РёС‚С‹ РїСЂРёРґСѓС‚ РїРѕСЃР»Рµ РїСЂРёРЅСЏС‚РёСЏ Р·Р°РєР°Р·Р°.";
+        addOrderMessage($pdo, $order_id, 'client', 'Заказ отправлен на рассмотрение.');
+        $success_msg = "🚀 Заказ #{$order_id} отправлен! Дизайнер посмотрит ТЗ и примет или отклонит заказ. Оплачивать сейчас не нужно: реквизиты придут после принятия заказа.";
 
-        // РЈРІРµРґРѕРјРёС‚СЊ РєР»РёРµРЅС‚Р° РІ TG вЂ” РёС‰РµРј chat_id С‚СЂРµРјСЏ СЃРїРѕСЃРѕР±Р°РјРё
+        // Уведомить клиента в TG — ищем chat_id тремя способами
         $client_chat_id = null;
         try {
             $sid_now = session_id();
 
-            // РњРµС‚РѕРґ 0 (РїСЂРёРѕСЂРёС‚РµС‚): tg_chat_id РёР· СЃРµСЃСЃРёРё (Р°РІС‚РѕРїСЂРёРІСЏР·РєР° С‡РµСЂРµР· ?tg_token=...)
+            // Метод 0 (приоритет): tg_chat_id из сессии (автопривязка через ?tg_token=...)
             if (!empty($_SESSION['tg_chat_id'])) {
                 $client_chat_id = (int)$_SESSION['tg_chat_id'];
-                // РЎСЂР°Р·Сѓ РїРёС€РµРј РІ orders
+                // Сразу пишем в orders
                 if ($client_chat_id) {
                     $pdo->prepare("UPDATE orders SET client_chat_id=? WHERE id=?")->execute([$client_chat_id, $order_id]);
                 }
             }
 
-            // РњРµС‚РѕРґ 1: РїРѕ session_id С‚РµРєСѓС‰РµР№ СЃРµСЃСЃРёРё
+            // Метод 1: по session_id текущей сессии
             if ($sid_now !== '') {
                 $lnk = $pdo->prepare("
                     SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
@@ -266,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 }
             }
 
-            // РњРµС‚РѕРґ 2: РїРѕ telegram username РёР· С„РѕСЂРјС‹
+            // Метод 2: по telegram username из формы
             if (!$client_chat_id && !empty($telegram_raw)) {
                 $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $telegram_raw)), '@');
                 if ($tg_clean !== '') {
@@ -283,12 +283,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 }
             }
 
-            // РњРµС‚РѕРґ 3: telegram РїРѕР»Рµ РІС‹РіР»СЏРґРёС‚ РєР°Рє С‡РёСЃР»РѕРІРѕР№ ID
+            // Метод 3: telegram поле выглядит как числовой ID
             if (!$client_chat_id && !empty($telegram_raw) && is_numeric(trim($telegram_raw))) {
                 $client_chat_id = (int)trim($telegram_raw);
             }
 
-            // РњРµС‚РѕРґ 4: getChat С‡РµСЂРµР· Telegram API (СЂР°Р±РѕС‚Р°РµС‚ РµСЃР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РїРёСЃР°Р» Р±РѕС‚Сѓ)
+            // Метод 4: getChat через Telegram API (работает если пользователь писал боту)
             if (!$client_chat_id && !empty($telegram_raw)) {
                 $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $telegram_raw)), '@');
                 if ($tg_clean !== '') {
@@ -304,7 +304,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                     $data = json_decode((string)$resp, true);
                     if (!empty($data['ok']) && !empty($data['result']['id'])) {
                         $client_chat_id = (int)$data['result']['id'];
-                        // РЎРѕС…СЂР°РЅСЏРµРј РІ tg_links РґР»СЏ Р±СѓРґСѓС‰РёС… Р·Р°РєР°Р·РѕРІ
+                        // Сохраняем в tg_links для будущих заказов
                         try {
                             $pdo->prepare("
                                 UPDATE tg_links SET tg_id = CAST(? AS VARCHAR)
@@ -325,11 +325,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $pr->execute([$service_key]);
             $srv_title = (string)($pr->fetchColumn() ?: $service_key);
             tgEscapeSend($bot_token, $client_chat_id,
-                "вњ… *Р—Р°РєР°Р· \#{$order_id} СЃРѕР·РґР°РЅ\!*\n\nрџЋЁ РЈСЃР»СѓРіР°: " . tgEsc($srv_title) . "\nрџ“‹ РЎС‚Р°С‚СѓСЃ: РѕР¶РёРґР°РµС‚ СЂР°СЃСЃРјРѕС‚СЂРµРЅРёСЏ\n\nРћРїР»Р°С‚Р° РїРѕРєР° РЅРµ РЅСѓР¶РЅР°\. РљР°Рє С‚РѕР»СЊРєРѕ РґРёР·Р°Р№РЅРµСЂ РїСЂРёРјРµС‚ Р·Р°РєР°Р· вЂ” СЃСЋРґР° РїСЂРёРґСѓС‚ СЂРµРєРІРёР·РёС‚С‹\."
+                "✅ *Заказ \#{$order_id} создан\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nОплата пока не нужна\. Как только дизайнер примет заказ — сюда придут реквизиты\."
             );
         }
 
-        // вњ… РРЎРџР РђР’Р›Р•РќРћ: РћР±СЉРµРґРёРЅСЏРµРј РўР•РљРЎРў + РњР•Р”РРђ РІ РћР”РќРћ СЃРѕРѕР±С‰РµРЅРёРµ РІ Telegram
+        // ✅ ИСПРАВЛЕНО: Объединяем ТЕКСТ + МЕДИА в ОДНО сообщение в Telegram
         if (!empty($my_chat_id)) {
             $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
             $price_stmt->execute([$service_key]);
@@ -338,38 +338,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $p_rub         = $price_info['price_rub'] ?? 0;
             $p_uan         = $price_info['price_uan'] ?? 0;
 
-            // вњ… Р¤РѕСЂРјРёСЂСѓРµРј РџРћР›РќР«Р™ С‚РµРєСЃС‚ РўР—
-            $slotLabel = $orderSlot >= 2 ? " [Р—РђРљРђР— в„–{$orderSlot}]" : "";
-            $full_msg_text  = "рџ”” <b>РќРћР’Р«Р™ Р—РђРљРђР— #{$order_id}{$slotLabel}</b>\n\n";
-            $full_msg_text .= "рџ‘¤ <b>РљР»РёРµРЅС‚:</b> " . htmlspecialchars($username) . "\n";
-            $full_msg_text .= "рџ“ћ <b>РљРѕРЅС‚Р°РєС‚:</b> " . htmlspecialchars($telegram_raw) . "\n";
-            $full_msg_text .= "рџЋЁ <b>РЈСЃР»СѓРіР°:</b> " . htmlspecialchars($service_title) . "\n";
+            // ✅ Формируем ПОЛНЫЙ текст ТЗ
+            $slotLabel = $orderSlot >= 2 ? " [ЗАКАЗ №{$orderSlot}]" : "";
+            $full_msg_text  = "🔔 <b>НОВЫЙ ЗАКАЗ #{$order_id}{$slotLabel}</b>\n\n";
+            $full_msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
+            $full_msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
+            $full_msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
             if ($cooperation) {
-                $full_msg_text .= "рџ’ј <b>РЎРѕС‚СЂСѓРґРЅРёС‡РµСЃС‚РІРѕ:</b> Р”Р°\n";
-                $full_msg_text .= "рџ’° <b>РЎС‚РѕРёРјРѕСЃС‚СЊ:</b> 0в‚Ѕ / 0в‚ґ\n";
+                $full_msg_text .= "💼 <b>Сотрудничество:</b> Да\n";
+                $full_msg_text .= "💰 <b>Стоимость:</b> 0₽ / 0₴\n";
             } else {
-                $full_msg_text .= "рџ’° <b>РЎС‚РѕРёРјРѕСЃС‚СЊ:</b> {$p_rub}в‚Ѕ / {$p_uan}в‚ґ\n";
+                $full_msg_text .= "💰 <b>Стоимость:</b> {$p_rub}₽ / {$p_uan}₴\n";
             }
-            $full_msg_text .= "\nрџ“ќ <b>РўР•РҐРќРР§Р•РЎРљРћР• Р—РђР”РђРќРР•:</b>\n";
+            $full_msg_text .= "\n📝 <b>ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n";
             $full_msg_text .= "<pre>" . htmlspecialchars($details) . "</pre>\n";
-            $full_msg_text .= "рџЊђ <b>IP:</b> <code>{$user_ip}</code>";
+            $full_msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
 
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
             $keyboard = ['inline_keyboard' => [
                 [
-                    ['text' => 'вњ… РџСЂРёРЅСЏС‚СЊ / РѕРїР»Р°С‚Р°', 'callback_data' => "adm_accept_{$order_id}"],
-                    ['text' => 'вќЊ РћС‚РєР»РѕРЅРёС‚СЊ',       'callback_data' => "adm_dec_{$order_id}"],
+                    ['text' => '✅ Принять / оплата', 'callback_data' => "adm_accept_{$order_id}"],
+                    ['text' => '❌ Отклонить',       'callback_data' => "adm_dec_{$order_id}"],
                 ],
                 [
-                    ['text' => 'вљЎпёЏ РџСЂРёРЅСЏС‚СЊ СЃСЂРѕС‡РЅС‹Р№ / РѕРїР»Р°С‚Р°', 'callback_data' => "adm_accept_urgent_{$order_id}"],
+                    ['text' => '⚡️ Принять срочный / оплата', 'callback_data' => "adm_accept_urgent_{$order_id}"],
                 ],
                 [
-                    ['text' => 'рџљ« Р’ С‡С‘СЂРЅС‹Р№ СЃРїРёСЃРѕРє', 'callback_data' => "adm_ban_{$order_id}"],
-                    ['text' => 'рџ’¬ РќР°РїРёСЃР°С‚СЊ РєР»РёРµРЅС‚Сѓ', 'url' => "https://t.me/{$clean_tg}"],
+                    ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],
+                    ['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"],
                 ],
             ]];
 
-            // вњ… РћС‚РїСЂР°РІР»СЏРµРј РњР•Р”РРђ вЂ” С‚РµРїРµСЂСЊ С‡РµСЂРµР· Cloudinary URL
+            // ✅ Отправляем МЕДИА — теперь через Cloudinary URL
             $photos_to_send = [];
             foreach ($example_imgs as $ref) {
                 if ($ref !== '') $photos_to_send[] = $ref;
@@ -396,12 +396,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         curl_exec($ch); curl_close($ch);
                     }
                 } else {
-                    // РќРµСЃРєРѕР»СЊРєРѕ С„РѕС‚Рѕ вЂ” sendMediaGroup С‡РµСЂРµР· URL (multipart)
+                    // Несколько фото — sendMediaGroup через URL (multipart)
                     $mediaPayload = [];
                     foreach ($photos_to_send as $i => $url) {
                         $mediaItem = ['type' => 'photo', 'media' => $url];
                         if ($i === 0) {
-                            $mediaItem['caption'] = 'рџ“ё Р¤РѕС‚Рѕ Рє Р·Р°РєР°Р·Сѓ #' . $order_id;
+                            $mediaItem['caption'] = '📸 Фото к заказу #' . $order_id;
                             $mediaItem['parse_mode'] = 'HTML';
                         }
                         $mediaPayload[] = $mediaItem;
@@ -417,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         ],
                     ]);
                     curl_exec($ch); curl_close($ch);
-                    // РўРµРєСЃС‚ + РєРЅРѕРїРєРё РѕС‚РґРµР»СЊРЅС‹Рј СЃРѕРѕР±С‰РµРЅРёРµРј
+                    // Текст + кнопки отдельным сообщением
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
                         CURLOPT_POSTFIELDS => [
@@ -429,7 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                     curl_exec($ch); curl_close($ch);
                 }
             } else {
-                // РќРµС‚ С„РѕС‚Рѕ вЂ” С‚РѕР»СЊРєРѕ С‚РµРєСЃС‚ СЃ РєРЅРѕРїРєР°РјРё
+                // Нет фото — только текст с кнопками
                 $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                 curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
                     CURLOPT_POSTFIELDS => http_build_query([
@@ -443,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         }
 
     } catch (PDOException $e) {
-        $error_msg = "вќЊ РћС€РёР±РєР° Р‘Р”: " . $e->getMessage();
+        $error_msg = "❌ Ошибка БД: " . $e->getMessage();
     }
 }
 
@@ -472,19 +472,19 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
     $s = $slot;
     ob_start(); ?>
         <div class="mb16">
-            <label class="order-label">Р’Р°С€Рµ РёРјСЏ / РЅРёРєРЅРµР№Рј</label>
-            <input type="text" name="username" required placeholder="РќР°РїСЂРёРјРµСЂ: Р’Р»Р°Рґ" class="order-input">
+            <label class="order-label">Ваше имя / никнейм</label>
+            <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
         </div>
         <div class="mb16">
-            <label class="order-label">РљРѕРЅС‚Р°РєС‚ (Telegram @username вЂ” РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ)</label>
+            <label class="order-label">Контакт (Telegram @username — обязательно)</label>
             <input type="text" name="telegram" required placeholder="@username" class="order-input">
         </div>
         <div class="mb16">
-            <label class="order-label">Р§С‚Рѕ РІР°СЃ РёРЅС‚РµСЂРµСЃСѓРµС‚?</label>
+            <label class="order-label">Что вас интересует?</label>
             <select name="service" class="order-select">
                 <?php foreach ($services as $sv): ?>
                 <option value="<?= htmlspecialchars($sv['category_key']) ?>" <?= ($selectedService === $sv['category_key']) ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($sv['title']) ?> (<?= $sv['price_uan'] ?>в‚ґ / <?= $sv['price_rub'] ?>в‚Ѕ)
+                    <?= htmlspecialchars($sv['title']) ?> (<?= $sv['price_uan'] ?>₴ / <?= $sv['price_rub'] ?>₽)
                 </option>
                 <?php endforeach; ?>
             </select>
@@ -492,31 +492,31 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
         <div class="mb16">
             <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
                 <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
-                <span>РЎРѕС‚СЂСѓРґРЅРёС‡РµСЃС‚РІРѕ вЂ” С†РµРЅР° 0 в‚Ѕ / 0 в‚ґ</span>
+                <span>Сотрудничество — цена 0 ₽ / 0 ₴</span>
             </label>
         </div>
         <div class="mb16">
-            <label class="order-label">Р”РµС‚Р°Р»Рё Р·Р°РєР°Р·Р° (РўР—, РїРѕР¶РµР»Р°РЅРёСЏ)</label>
-            <textarea name="details" required placeholder="РћРїРёС€Рё С†РІРµС‚Р°, РїРµСЂСЃРѕРЅР°Р¶РµР№, С‚РµРєСЃС‚, СЃС‚РёР»СЊ..." class="order-textarea"></textarea>
+            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+            <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
         <div class="file-upload-block mb22">
             <input type="file" name="example_photos[]" accept="image/*" multiple id="s<?= $s ?>_refs">
             <div class="file-label-row">
-                <span class="file-label-title">рџ–јпёЏ Р РµС„РµСЂРµРЅСЃС‹ (РґРѕ 5 С„РѕС‚Рѕ)</span>
+                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
                 <label for="s<?= $s ?>_refs" class="file-choose-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Р’С‹Р±СЂР°С‚СЊ С„Р°Р№Р»С‹
+                    Выбрать файлы
                 </label>
             </div>
-            <div class="file-name-display" id="s<?= $s ?>_refs_name">Р¤Р°Р№Р»С‹ РЅРµ РІС‹Р±СЂР°РЅС‹</div>
-            <div class="file-hint">Р—Р°Р¶РјРё Ctrl (Win) РёР»Рё Cmd (Mac) С‡С‚РѕР±С‹ РІС‹Р±СЂР°С‚СЊ РЅРµСЃРєРѕР»СЊРєРѕ</div>
+            <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько</div>
         </div>
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="normal"></div>
         </div>
         <div style="display:grid;gap:8px;margin-top:6px;">
-            <button type="submit" class="order-submit" style="margin-top:0;">РћС‚РїСЂР°РІРёС‚СЊ Р·Р°РєР°Р· в„–<?= $s ?></button>
-            <button type="button" class="btn-archive-small" onclick="archiveSlot(<?= $s ?>)">рџ“¦ РђСЂС…РёРІРёСЂРѕРІР°С‚СЊ Р·Р°РєР°Р·</button>
+            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ №<?= $s ?></button>
+            <button type="button" class="btn-archive-small" onclick="archiveSlot(<?= $s ?>)">📦 Архивировать заказ</button>
         </div>
     <?php
     return ob_get_clean();
@@ -529,7 +529,7 @@ render_page:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Р—Р°РїРѕР»РЅРёС‚СЊ РўР— РґР»СЏ СЂР°Р±РѕС‚С‹ | Kostlim Design</title>
+<title>Заполнить ТЗ для работы | Kostlim Design</title>
 <?php
 // Dynamic favicon from site avatar
 $_favicon_url = '';
@@ -553,7 +553,7 @@ try {
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script>
-// в”Ђв”Ђ TG Banner polling в”Ђв”Ђ
+// ── TG Banner polling ──
 var bannerPollInterval = null;
 
 function copyBannerCode() {
@@ -562,13 +562,13 @@ function copyBannerCode() {
     var text = el.textContent.trim();
     navigator.clipboard.writeText(text).then(function() {
         var btn = document.querySelector('.tg-banner-copy');
-        if (btn) { btn.textContent = 'вњ… РЎРєРѕРїРёСЂРѕРІР°РЅРѕ'; setTimeout(function(){ btn.textContent = 'РљРѕРїРёСЂРѕРІР°С‚СЊ'; }, 2000); }
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
     }).catch(function() {
         var tmp = document.createElement('textarea');
         tmp.value = text; document.body.appendChild(tmp);
         tmp.select(); document.execCommand('copy'); document.body.removeChild(tmp);
         var btn = document.querySelector('.tg-banner-copy');
-        if (btn) { btn.textContent = 'вњ… РЎРєРѕРїРёСЂРѕРІР°РЅРѕ'; setTimeout(function(){ btn.textContent = 'РљРѕРїРёСЂРѕРІР°С‚СЊ'; }, 2000); }
+        if (btn) { btn.textContent = '✅ Скопировано'; setTimeout(function(){ btn.textContent = 'Копировать'; }, 2000); }
     });
 }
 
@@ -587,7 +587,7 @@ function checkBannerLinked() {
                 clearInterval(bannerPollInterval);
                 var banner = document.getElementById('tgBanner');
                 if (banner) {
-                    banner.innerHTML = '<div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">вњ… Telegram РїСЂРёРІСЏР·Р°РЅ! РЈРІРµРґРѕРјР»РµРЅРёСЏ РїСЂРёРґСѓС‚ РІ Р±РѕС‚</div></div>';
+                    banner.innerHTML = '<div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан! Уведомления придут в бот</div></div>';
                     banner.classList.add('tg-banner-linked');
                     banner.style.borderColor = 'rgba(34,197,94,0.4)';
                 }
@@ -688,7 +688,7 @@ body::before {
 .mb16 { margin-bottom: 16px; }
 .mb22 { margin-bottom: 22px; }
 
-/* в•ђв•ђ TG BANNER в•ђв•ђ */
+/* ══ TG BANNER ══ */
 .tg-banner {
     display: flex;
     align-items: center;
@@ -803,7 +803,7 @@ body::before {
 <div class="order-wrap">
 
 <?php if (!empty($success_msg)): ?>
-<!-- РњРѕРґР°Р»СЊРЅРѕРµ РѕРєРЅРѕ РїРѕРґРїРёСЃРєРё РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ -->
+<!-- Модальное окно подписки на уведомления -->
 <div id="notify-modal" style="
     position:fixed;inset:0;z-index:9999;
     display:flex;align-items:center;justify-content:center;
@@ -820,35 +820,35 @@ body::before {
         animation:slideUp .35s cubic-bezier(.34,1.56,.64,1);
         position:relative;
     ">
-        <!-- Р—Р°РєСЂС‹С‚СЊ -->
+        <!-- Закрыть -->
         <button onclick="closeNotifyModal()" style="
             position:absolute;top:14px;right:14px;
             background:rgba(255,255,255,.07);border:none;border-radius:50%;
             width:30px;height:30px;cursor:pointer;color:#8a8a96;font-size:16px;
             display:flex;align-items:center;justify-content:center;
-        ">вњ•</button>
+        ">✕</button>
 
-        <!-- РљРѕРЅС„РµС‚С‚Рё СЌРјРѕРґР·Рё -->
-        <div style="font-size:48px;margin-bottom:12px;line-height:1;">рџЋ‰</div>
+        <!-- Конфетти эмодзи -->
+        <div style="font-size:48px;margin-bottom:12px;line-height:1;">🎉</div>
 
         <div style="font-size:18px;font-weight:900;color:#fff;margin-bottom:6px;">
-            Р—Р°РєР°Р· #<?= (int)$order_id ?> РѕС‚РїСЂР°РІР»РµРЅ!
+            Заказ #<?= (int)$order_id ?> отправлен!
         </div>
         <div style="font-size:13px;color:#8a8a96;margin-bottom:24px;line-height:1.6;">
-            Р”РёР·Р°Р№РЅРµСЂ СѓР¶Рµ РїРѕР»СѓС‡РёР» СѓРІРµРґРѕРјР»РµРЅРёРµ Рё СЃРєРѕСЂРѕ РїСЂРёСЃС‚СѓРїРёС‚ Рє СЂР°Р±РѕС‚Рµ.
+            Дизайнер уже получил уведомление и скоро приступит к работе.
         </div>
 
-        <!-- Р‘Р»РѕРє РїРѕРґРїРёСЃРєРё -->
+        <!-- Блок подписки -->
         <div style="
             background:rgba(34,158,217,.08);
             border:1px solid rgba(34,158,217,.25);
             border-radius:14px;padding:18px;margin-bottom:20px;
         ">
             <div style="font-size:13px;font-weight:800;color:#60a5fa;margin-bottom:8px;">
-                рџ”” РџРѕРґРїРёС€РёСЃСЊ РЅР° СѓРІРµРґРѕРјР»РµРЅРёСЏ
+                🔔 Подпишись на уведомления
             </div>
             <div style="font-size:12px;color:#a0a0b8;margin-bottom:16px;line-height:1.6;">
-                РќР°Р¶РјРё РєРЅРѕРїРєСѓ вЂ” Р±РѕС‚ СЃСЂР°Р·Сѓ СЃРѕРѕР±С‰РёС‚ РєРѕРіРґР° РґРёР·Р°Р№РЅРµСЂ РІРѕР·СЊРјС‘С‚ Р·Р°РєР°Р· РІ СЂР°Р±РѕС‚Сѓ Рё РєРѕРіРґР° РѕРЅ Р±СѓРґРµС‚ РіРѕС‚РѕРІ.
+                Нажми кнопку — бот сразу сообщит когда дизайнер возьмёт заказ в работу и когда он будет готов.
             </div>
             <a href="https://t.me/kostlimdznbot?start=order_<?= (int)$order_id ?>" target="_blank"
                onclick="closeNotifyModal()"
@@ -864,12 +864,12 @@ body::before {
                onmouseout="this.style.transform='';this.style.boxShadow='0 8px 24px rgba(34,158,217,.4)'"
             >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.04 9.61c-.152.678-.554.843-1.122.524l-3.1-2.284-1.496 1.44c-.165.165-.304.304-.624.304l.223-3.164 5.754-5.196c.25-.222-.054-.345-.387-.123L7.06 14.4l-3.056-.955c-.664-.207-.677-.664.138-.983l11.927-4.598c.553-.2 1.037.135.493 2.384z"/></svg>
-                РџРѕР»СѓС‡Р°С‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ РІ Telegram
+                Получать уведомления в Telegram
             </a>
         </div>
 
         <div style="font-size:11px;color:#555568;line-height:1.5;">
-            рџ’° Р”Р»СЏ РѕРїР»Р°С‚С‹ СѓРєР°Р¶Рё <strong style="color:#8a8a96;">#<?= (int)$order_id ?></strong> РІ СЃРѕРѕР±С‰РµРЅРёРё РЅР° DonationAlerts
+            💰 Для оплаты укажи <strong style="color:#8a8a96;">#<?= (int)$order_id ?></strong> в сообщении на DonationAlerts
         </div>
 
         <button onclick="closeNotifyModal()" style="
@@ -879,7 +879,7 @@ body::before {
         "
         onmouseover="this.style.borderColor='rgba(255,255,255,.25)';this.style.color='#8a8a96'"
         onmouseout="this.style.borderColor='rgba(255,255,255,.1)';this.style.color='#555568'"
-        >Р—Р°РєСЂС‹С‚СЊ</button>
+        >Закрыть</button>
     </div>
 </div>
 
@@ -893,7 +893,7 @@ function closeNotifyModal() {
     var m = document.getElementById('notify-modal');
     if (m) { m.style.opacity='0'; m.style.transition='opacity .2s'; setTimeout(function(){ m.remove(); }, 200); }
 }
-// Р—Р°РєСЂС‹С‚РёРµ РїРѕ РєР»РёРєСѓ РЅР° С„РѕРЅ
+// Закрытие по клику на фон
 document.getElementById('notify-modal').addEventListener('click', function(e) {
     if (e.target === this) closeNotifyModal();
 });
@@ -912,13 +912,13 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
     <div style="text-align:center; margin-bottom:22px;">
         <a href="index.php" class="order-back">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            РќР° РіР»Р°РІРЅСѓСЋ Рє РїРѕСЂС‚С„РѕР»РёРѕ
+            На главную к портфолио
         </a>
-        <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">РџСЂР°РІРёР»Р° Р·Р°РєР°Р·Р°</h2>
-        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїСЂРѕРєСЂСѓС‚РёС‚Рµ РїСЂР°РІРёР»Р° РґРѕ РєРѕРЅС†Р°, С‡С‚РѕР±С‹ РєРЅРѕРїРєР° СЃС‚Р°Р»Р° Р°РєС‚РёРІРЅРѕР№.</p>
+        <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
+        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
     </div>
     <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin;">
-        <!-- РџСЂР°РІРёР»Р° РёР· Р‘Р” (СЂРµРґР°РєС‚РёСЂСѓСЋС‚СЃСЏ РІ РђРґРјРёРЅРєРµ в†’ РџСЂР°РІРёР»Р°) -->
+        <!-- Правила из БД (редактируются в Админке → Правила) -->
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>
         </div>
@@ -926,12 +926,12 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
     <div style="margin-bottom: 20px;">
         <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
             <input type="checkbox" name="dont_ask" value="1" style="width:auto; margin:0; accent-color:var(--or);">
-            Р‘РѕР»СЊС€Рµ РЅРµ СЃРїСЂР°С€РёРІР°С‚СЊ
+            Больше не спрашивать
         </label>
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-        <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;" disabled>РЎРѕРіР»Р°СЃРёС‚СЊСЃСЏ</button>
-        <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">РћС‚РєР°Р·Р°С‚СЊСЃСЏ</a>
+        <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;" disabled>Согласиться</button>
+        <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
 </form>
 
@@ -939,7 +939,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 <?php else: ?>
 
 <style>
-/* в•ђв•ђв•ђ РўРђР‘Р« в•ђв•ђв•ђ */
+/* ═══ ТАБЫ ═══ */
 .slots-wrap { max-width: 560px; margin: 0 auto; padding: 0 20px 40px; }
 .order-card  { background:#111116; border:1px solid #1f1f2a; border-radius:18px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,.5); margin-bottom:10px; }
 
@@ -974,70 +974,70 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 
 <div class="slots-wrap">
 
-<!-- в•ђв•ђв•ђ РџРР›Р®Р›Р-РўРђР‘Р« (РІРёРґРЅС‹ РєРѕРіРґР° > 1 СЃР»РѕС‚Р°) в•ђв•ђв•ђ -->
+<!-- ═══ ПИЛЮЛИ-ТАБЫ (видны когда > 1 слота) ═══ -->
 <div class="slot-tabs-bar" id="slots-tabs-bar" style="display:none;">
-    <button class="slot-pill active" id="pill-1" onclick="switchSlot(1)">рџ“‹ Р—Р°РєР°Р· в„–1</button>
+    <button class="slot-pill active" id="pill-1" onclick="switchSlot(1)">📋 Заказ №1</button>
 </div>
 
-<!-- в•ђв•ђв•ђ РЎР›РћРў 1 в•ђв•ђв•ђ -->
+<!-- ═══ СЛОТ 1 ═══ -->
 <div class="slot-panel active" id="slot-panel-1">
 <div class="order-card">
 
-    <!-- TG Р‘Р°РЅРЅРµСЂ -->
+    <!-- TG Баннер -->
     <?php if (!$isLinked): ?>
     <div class="tg-banner" id="tgBanner">
         <div class="tg-banner-icon">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </div>
         <div class="tg-banner-body">
-            <div class="tg-banner-title">РџСЂРёРІСЏР¶Рё Telegram вЂ” РїРѕР»СѓС‡Р°Р№ СѓРІРµРґРѕРјР»РµРЅРёСЏ Рѕ Р·Р°РєР°Р·Рµ</div>
+            <div class="tg-banner-title">Привяжи Telegram — получай уведомления о заказе</div>
             <?php if ($linkCode): ?>
             <div class="tg-banner-code-row">
                 <span class="tg-banner-code" id="bannerCode">/customer_<?= htmlspecialchars($linkCode) ?></span>
-                <button class="tg-banner-copy" onclick="copyBannerCode()">РљРѕРїРёСЂРѕРІР°С‚СЊ</button>
+                <button class="tg-banner-copy" onclick="copyBannerCode()">Копировать</button>
             </div>
-            <div class="tg-banner-hint">1. РЎРєРѕРїРёСЂСѓР№ РєРѕРґ &nbsp;в†’&nbsp; 2. РћС‚РєСЂРѕР№ Р±РѕС‚ &nbsp;в†’&nbsp; 3. РћС‚РїСЂР°РІСЊ РєРѕРґ РІ С‡Р°С‚</div>
+            <div class="tg-banner-hint">1. Скопируй код &nbsp;→&nbsp; 2. Открой бот &nbsp;→&nbsp; 3. Отправь код в чат</div>
             <?php endif; ?>
         </div>
         <a href="https://t.me/kostlimdznbot?start=link_<?= htmlspecialchars($linkCode ?? '') ?>" target="_blank" class="tg-banner-btn" id="bannerOpenBtn" onclick="startBannerPolling()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            РћС‚РєСЂС‹С‚СЊ Р±РѕС‚
+            Открыть бот
         </a>
-        <div class="tg-banner-waiting" id="bannerWaiting"><span class="tg-spinner-sm"></span> РћР¶РёРґР°СЋвЂ¦</div>
+        <div class="tg-banner-waiting" id="bannerWaiting"><span class="tg-spinner-sm"></span> Ожидаю…</div>
     </div>
     <?php else: ?>
     <div class="tg-banner tg-banner-linked">
         <div class="tg-banner-icon" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.4);">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
-        <div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">вњ… Telegram РїСЂРёРІСЏР·Р°РЅ вЂ” СѓРІРµРґРѕРјР»РµРЅРёСЏ РїСЂРёРґСѓС‚ РІ Р±РѕС‚</div></div>
+        <div class="tg-banner-body"><div class="tg-banner-title" style="color:#86efac;">✅ Telegram привязан — уведомления придут в бот</div></div>
     </div>
     <?php endif; ?>
 
     <a href="index.php" class="order-back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-        РќР° РіР»Р°РІРЅСѓСЋ Рє РїРѕСЂС‚С„РѕР»РёРѕ
+        На главную к портфолио
     </a>
-    <div class="order-title">рџ“‹ Р—Р°РїРѕР»РЅРёС‚СЊ РўР— РґР»СЏ СЂР°Р±РѕС‚С‹</div>
+    <div class="order-title">📋 Заполнить ТЗ для работы</div>
     <div class="req-block"><h3>Оплата после принятия</h3><div class="req-row"><div class="req-info"><span>Сначала отправь ТЗ. Если дизайнер примет заказ, реквизиты и загрузка чека появятся в профиле и придут в Telegram.</span></div></div></div>
 <form id="form-slot-1" action="" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="rules_accepted" value="1">
         <input type="hidden" name="order_slot" value="1">
 
         <div class="mb16">
-            <label class="order-label">Р’Р°С€Рµ РёРјСЏ / РЅРёРєРЅРµР№Рј</label>
-            <input type="text" name="username" required placeholder="РќР°РїСЂРёРјРµСЂ: Р’Р»Р°Рґ" class="order-input">
+            <label class="order-label">Ваше имя / никнейм</label>
+            <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
         </div>
         <div class="mb16">
-            <label class="order-label">РљРѕРЅС‚Р°РєС‚ РґР»СЏ СЃРІСЏР·Рё (Telegram @username вЂ” РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ)</label>
+            <label class="order-label">Контакт для связи (Telegram @username — обязательно)</label>
             <input type="text" name="telegram" required placeholder="@username" class="order-input">
         </div>
         <div class="mb16">
-            <label class="order-label">Р§С‚Рѕ РІР°СЃ РёРЅС‚РµСЂРµСЃСѓРµС‚?</label>
+            <label class="order-label">Что вас интересует?</label>
             <select name="service" class="order-select">
                 <?php foreach ($services as $s): ?>
                 <option value="<?= htmlspecialchars($s['category_key']) ?>" <?= ($selected_service === $s['category_key']) ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($s['title']) ?> (<?= $s['price_uan'] ?>в‚ґ / <?= $s['price_rub'] ?>в‚Ѕ)
+                    <?= htmlspecialchars($s['title']) ?> (<?= $s['price_uan'] ?>₴ / <?= $s['price_rub'] ?>₽)
                 </option>
                 <?php endforeach; ?>
             </select>
@@ -1045,52 +1045,52 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <div class="mb16">
             <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
                 <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
-                <span>РЎРѕС‚СЂСѓРґРЅРёС‡РµСЃС‚РІРѕ вЂ” РµСЃР»Рё РїСЂРёРјСѓ С‚Р°РєРѕР№ Р·Р°РєР°Р·, С‚Рѕ С†РµРЅР° Р±СѓРґРµС‚ 0 в‚Ѕ / 0 в‚ґ</span>
+                <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
             </label>
         </div>
         <div class="mb16">
-            <label class="order-label">Р”РµС‚Р°Р»Рё Р·Р°РєР°Р·Р° (РўР—, РїРѕР¶РµР»Р°РЅРёСЏ)</label>
-            <textarea name="details" required placeholder="РћРїРёС€Рё С†РІРµС‚Р°, РїРµСЂСЃРѕРЅР°Р¶РµР№, С‚РµРєСЃС‚, СЃС‚РёР»СЊ..." class="order-textarea"></textarea>
+            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+            <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
         <div class="file-upload-block mb22">
             <input type="file" name="example_photos[]" accept="image/*" multiple id="s1_refs">
             <div class="file-label-row">
-                <span class="file-label-title">рџ–јпёЏ Р РµС„РµСЂРµРЅСЃС‹ (РґРѕ 5 С„РѕС‚Рѕ)</span>
+                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
                 <label for="s1_refs" class="file-choose-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Р’С‹Р±СЂР°С‚СЊ С„Р°Р№Р»С‹
+                    Выбрать файлы
                 </label>
             </div>
-            <div class="file-name-display" id="s1_refs_name">Р¤Р°Р№Р»С‹ РЅРµ РІС‹Р±СЂР°РЅС‹</div>
-            <div class="file-hint">Р—Р°Р¶РјРё Ctrl (Win) РёР»Рё Cmd (Mac) С‡С‚РѕР±С‹ РІС‹Р±СЂР°С‚СЊ РЅРµСЃРєРѕР»СЊРєРѕ С„Р°Р№Р»РѕРІ</div>
+            <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
         </div>
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>" data-theme="dark" data-size="normal"></div>
         </div>
         <div style="display:grid;gap:8px;margin-top:6px;">
-            <button type="submit" class="order-submit" style="margin-top:0;">РћС‚РїСЂР°РІРёС‚СЊ Р·Р°РєР°Р· Kostlim'Сѓ</button>
-            <button type="button" class="btn-archive-small" onclick="archiveSlot(1)">рџ“¦ РђСЂС…РёРІРёСЂРѕРІР°С‚СЊ Р·Р°РєР°Р·</button>
+            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ Kostlim'у</button>
+            <button type="button" class="btn-archive-small" onclick="archiveSlot(1)">📦 Архивировать заказ</button>
         </div>
     </form>
 
 </div><!-- .order-card -->
 
-<!-- РљРЅРѕРїРєР° РґРѕР±Р°РІРёС‚СЊ Р·Р°РєР°Р· -->
+<!-- Кнопка добавить заказ -->
 <div style="margin-top:10px;">
     <button type="button" id="add-order-btn" class="add-order-btn" onclick="addSlot()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Р”РѕР±Р°РІРёС‚СЊ РµС‰С‘ Р·Р°РєР°Р·
+        Добавить ещё заказ
     </button>
 </div>
 
 </div><!-- #slot-panel-1 -->
 
-<!-- в•ђв•ђв•ђ РЎР›РћРў 2 в•ђв•ђв•ђ -->
+<!-- ═══ СЛОТ 2 ═══ -->
 <div class="slot-panel" id="slot-panel-2" style="display:none;">
 <div class="order-card">
     <div class="slot-header">
-        <div class="slot-header-title">рџ“‹ Р—Р°РєР°Р· в„–2</div>
-        <button class="btn-remove-slot" onclick="removeSlot(2)">вњ• РЈРґР°Р»РёС‚СЊ</button>
+        <div class="slot-header-title">📋 Заказ №2</div>
+        <button class="btn-remove-slot" onclick="removeSlot(2)">✕ Удалить</button>
     </div>
     <form id="form-slot-2" action="" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="rules_accepted" value="1">
@@ -1100,12 +1100,12 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 </div>
 </div>
 
-<!-- в•ђв•ђв•ђ РЎР›РћРў 3 в•ђв•ђв•ђ -->
+<!-- ═══ СЛОТ 3 ═══ -->
 <div class="slot-panel" id="slot-panel-3" style="display:none;">
 <div class="order-card">
     <div class="slot-header">
-        <div class="slot-header-title">рџ“‹ Р—Р°РєР°Р· в„–3</div>
-        <button class="btn-remove-slot" onclick="removeSlot(3)">вњ• РЈРґР°Р»РёС‚СЊ</button>
+        <div class="slot-header-title">📋 Заказ №3</div>
+        <button class="btn-remove-slot" onclick="removeSlot(3)">✕ Удалить</button>
     </div>
     <form id="form-slot-3" action="" method="POST" enctype="multipart/form-data">
         <input type="hidden" name="rules_accepted" value="1">
@@ -1115,50 +1115,50 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 </div>
 </div>
 
-<!-- РљРЅРѕРїРєР° Р°СЂС…РёРІР° -->
+<!-- Кнопка архива -->
 <div id="archive-btn-wrap" style="display:none;margin-top:10px;">
     <button type="button" onclick="openArchiveList()" style="width:100%;background:#16161f;border:1px solid rgba(249,115,22,.3);color:#fdba74;border-radius:10px;padding:11px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.5px;">
-        рџ“‹ РђСЂС…РёРІРёСЂРѕРІР°РЅРЅС‹Рµ Р·Р°РєР°Р·С‹ (<span id="archive-count">0</span>)
+        📋 Архивированные заказы (<span id="archive-count">0</span>)
     </button>
 </div>
 
 </div><!-- .slots-wrap -->
 
 <script>
-// в”Ђв”Ђв”Ђ File input labels в”Ђв”Ђв”Ђ
+// ─── File input labels ───
 document.addEventListener('DOMContentLoaded', function() {
-    // РЎР»РѕС‚ 1
+    // Слот 1
     var s1Screenshot = document.getElementById('s1_screenshot'); if (s1Screenshot) s1Screenshot.addEventListener('change', function() {
         var el = document.getElementById('s1_screenshot_name');
-        el.textContent = this.files[0] ? 'вњ… ' + this.files[0].name : 'Р¤Р°Р№Р» РЅРµ РІС‹Р±СЂР°РЅ';
+        el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
         el.classList.toggle('has-file', !!this.files[0]);
     });
     document.getElementById('s1_refs').addEventListener('change', function() {
         var el = document.getElementById('s1_refs_name');
         if (this.files.length > 0) {
-            el.textContent = 'вњ… ' + this.files.length + ' С„Р°Р№Р»(Р°): ' + Array.from(this.files).map(function(f){return f.name;}).join(', ');
+            el.textContent = '✅ ' + this.files.length + ' файл(а): ' + Array.from(this.files).map(function(f){return f.name;}).join(', ');
             el.classList.add('has-file');
         } else {
-            el.textContent = 'Р¤Р°Р№Р»С‹ РЅРµ РІС‹Р±СЂР°РЅС‹';
+            el.textContent = 'Файлы не выбраны';
             el.classList.remove('has-file');
         }
     });
-    // РЎР»РѕС‚С‹ 2 Рё 3
+    // Слоты 2 и 3
     [2,3].forEach(function(n) {
         var sc = document.getElementById('s'+n+'_screenshot');
         var rf = document.getElementById('s'+n+'_refs');
         if (sc) sc.addEventListener('change', function() {
             var el = document.getElementById('s'+n+'_screenshot_name');
-            el.textContent = this.files[0] ? 'вњ… ' + this.files[0].name : 'Р¤Р°Р№Р» РЅРµ РІС‹Р±СЂР°РЅ';
+            el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
             el.classList.toggle('has-file', !!this.files[0]);
         });
         if (rf) rf.addEventListener('change', function() {
             var el = document.getElementById('s'+n+'_refs_name');
             if (this.files.length > 0) {
-                el.textContent = 'вњ… ' + this.files.length + ' С„Р°Р№Р»(Р°)';
+                el.textContent = '✅ ' + this.files.length + ' файл(а)';
                 el.classList.add('has-file');
             } else {
-                el.textContent = 'Р¤Р°Р№Р»С‹ РЅРµ РІС‹Р±СЂР°РЅС‹';
+                el.textContent = 'Файлы не выбраны';
                 el.classList.remove('has-file');
             }
         });
@@ -1167,18 +1167,18 @@ document.addEventListener('DOMContentLoaded', function() {
     updateArchiveBtn();
 });
 
-// в”Ђв”Ђв”Ђ РўР°Р±-СЃРёСЃС‚РµРјР° в”Ђв”Ђв”Ђ
+// ─── Таб-система ───
 var _slots = [1];
 var _currentSlot = 1;
 
 function switchSlot(n) {
     _currentSlot = n;
-    // РџР°РЅРµР»Рё
+    // Панели
     [1,2,3].forEach(function(i) {
         var p = document.getElementById('slot-panel-' + i);
         if (p) p.style.display = (i === n) ? 'block' : 'none';
     });
-    // РџРёР»СЋР»Рё
+    // Пилюли
     document.querySelectorAll('.slot-pill').forEach(function(p) { p.classList.remove('active'); });
     var pill = document.getElementById('pill-' + n);
     if (pill) pill.classList.add('active');
@@ -1192,32 +1192,32 @@ function addSlot() {
     if (!next) return;
     _slots.push(next);
 
-    // РџРѕРєР°Р·Р°С‚СЊ РїР°РЅРµР»СЊ
+    // Показать панель
     var panel = document.getElementById('slot-panel-' + next);
     if (panel) panel.style.display = 'block';
 
-    // РџРѕРєР°Р·Р°С‚СЊ С‚Р°Р±Р±Р°СЂ
+    // Показать таббар
     var bar = document.getElementById('slots-tabs-bar');
     if (bar) bar.style.display = 'flex';
 
-    // Р”РѕР±Р°РІРёС‚СЊ РїРёР»СЋР»СЋ
+    // Добавить пилюлю
     if (!document.getElementById('pill-' + next)) {
         var pill = document.createElement('button');
         pill.className = 'slot-pill';
         pill.id = 'pill-' + next;
         var slotNum = next;
-        pill.textContent = 'рџ“‹ Р—Р°РєР°Р· в„–' + next;
+        pill.textContent = '📋 Заказ №' + next;
         pill.onclick = function() { switchSlot(slotNum); };
         bar.appendChild(pill);
     }
 
-    // РџРѕРєР°Р·Р°С‚СЊ РїРёР»СЋР»СЋ СЃР»РѕС‚Р° 1 РµСЃР»Рё РµС‘ РЅРµС‚
+    // Показать пилюлю слота 1 если её нет
     if (!document.getElementById('pill-1')) {
         var bar2 = document.getElementById('slots-tabs-bar');
         var pill1 = document.createElement('button');
         pill1.className = 'slot-pill';
         pill1.id = 'pill-1';
-        pill1.textContent = 'рџ“‹ Р—Р°РєР°Р· в„–1';
+        pill1.textContent = '📋 Заказ №1';
         pill1.onclick = function() { switchSlot(1); };
         bar2.insertBefore(pill1, bar2.firstChild);
     }
@@ -1255,7 +1255,7 @@ function updateAddBtn() {
     btn.style.opacity = _slots.length >= 3 ? '.4' : '1';
 }
 
-// в”Ђв”Ђв”Ђ РђСЂС…РёРІ в”Ђв”Ђв”Ђ
+// ─── Архив ───
 var ARCHIVE_KEY = 'kostlim_order_archive';
 function getArchive() { try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY) || '[]'); } catch(e) { return []; } }
 function saveArchive(arr) { localStorage.setItem(ARCHIVE_KEY, JSON.stringify(arr)); }
@@ -1291,7 +1291,7 @@ function showToastMsg(msg, color) {
 
 async function archiveSlot(slot) {
     var form = document.getElementById('form-slot-' + slot);
-    if (!form) { showToastMsg('вќЊ Р¤РѕСЂРјР° РЅРµ РЅР°Р№РґРµРЅР°', '#ef4444'); return; }
+    if (!form) { showToastMsg('❌ Форма не найдена', '#ef4444'); return; }
 
     var data = {};
     form.querySelectorAll('input[name], select[name], textarea[name]').forEach(function(el) {
@@ -1301,10 +1301,10 @@ async function archiveSlot(slot) {
     });
 
     if (!data.username && !data.telegram && !data.details) {
-        showToastMsg('вљ пёЏ Р—Р°РїРѕР»РЅРё С…РѕС‚СЏ Р±С‹ РёРјСЏ, РєРѕРЅС‚Р°РєС‚ РёР»Рё РўР—', '#ef4444'); return;
+        showToastMsg('⚠️ Заполни хотя бы имя, контакт или ТЗ', '#ef4444'); return;
     }
 
-    showToastMsg('вЏі Р—Р°РіСЂСѓР¶Р°СЋ С„РѕС‚Рѕ...', '#6366f1');
+    showToastMsg('⏳ Загружаю фото...', '#6366f1');
 
     var scInput = document.getElementById('s'+slot+'_screenshot');
     if (scInput && scInput.files[0]) {
@@ -1325,7 +1325,7 @@ async function archiveSlot(slot) {
     archive.push({ id: Date.now(), slot: slot, savedAt: new Date().toLocaleString('ru'), data: data });
     saveArchive(archive);
     updateArchiveBtn();
-    showToastMsg('рџ“¦ Р—Р°РєР°Р· Р°СЂС…РёРІРёСЂРѕРІР°РЅ!', '#f97316');
+    showToastMsg('📦 Заказ архивирован!', '#f97316');
 }
 
 function openArchiveList() { renderArchiveList(); document.getElementById('archive-modal').style.display = 'flex'; }
@@ -1335,27 +1335,27 @@ function renderArchiveList() {
     var archive = getArchive();
     var c = document.getElementById('archive-items');
     if (!c) return;
-    if (!archive.length) { c.innerHTML = '<div style="text-align:center;color:#555568;padding:30px;font-size:13px;">РђСЂС…РёРІ РїСѓСЃС‚</div>'; return; }
+    if (!archive.length) { c.innerHTML = '<div style="text-align:center;color:#555568;padding:30px;font-size:13px;">Архив пуст</div>'; return; }
     c.innerHTML = archive.map(function(item, i) {
         var d = item.data || {};
         var photos = '';
         if (d._screenshot_url || (d._refs_urls && d._refs_urls.length)) {
-            photos = '<div style="font-size:10px;color:#34d399;margin-top:4px;">рџ“ё ' +
-                (d._screenshot_url ? 'Р§РµРє вњ“' : '') +
+            photos = '<div style="font-size:10px;color:#34d399;margin-top:4px;">📸 ' +
+                (d._screenshot_url ? 'Чек ✓' : '') +
                 (d._screenshot_url && d._refs_urls && d._refs_urls.length ? ' | ' : '') +
-                (d._refs_urls && d._refs_urls.length ? 'Р РµС„РµСЂРµРЅСЃС‹: ' + d._refs_urls.length + ' С€С‚ вњ“' : '') + '</div>';
+                (d._refs_urls && d._refs_urls.length ? 'Референсы: ' + d._refs_urls.length + ' шт ✓' : '') + '</div>';
         } else {
-            photos = '<div style="font-size:10px;color:#555568;margin-top:4px;">Р‘РµР· С„РѕС‚Рѕ</div>';
+            photos = '<div style="font-size:10px;color:#555568;margin-top:4px;">Без фото</div>';
         }
         return '<div style="background:#0e0e16;border:1px solid #1e1e2c;border-radius:12px;padding:14px;margin-bottom:10px;">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
-                '<div style="font-size:12px;font-weight:800;color:#fdba74;">рџ“¦ ' + item.savedAt + '</div>' +
+                '<div style="font-size:12px;font-weight:800;color:#fdba74;">📦 ' + item.savedAt + '</div>' +
                 '<div style="display:flex;gap:6px;">' +
-                    '<button onclick="loadArchiveItem('+i+')" style="background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.3);color:#fdba74;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">вњЏпёЏ Р—Р°РіСЂСѓР·РёС‚СЊ</button>' +
-                    '<button onclick="deleteArchiveItem('+i+')" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">рџ—‘пёЏ</button>' +
+                    '<button onclick="loadArchiveItem('+i+')" style="background:rgba(249,115,22,.15);border:1px solid rgba(249,115,22,.3);color:#fdba74;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">✏️ Загрузить</button>' +
+                    '<button onclick="deleteArchiveItem('+i+')" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:7px;padding:5px 10px;font-size:10px;font-weight:800;cursor:pointer;font-family:inherit;">🗑️</button>' +
                 '</div>' +
             '</div>' +
-            '<div style="font-size:11px;color:#8a8a96;">рџ‘¤ '+(d.username||'вЂ”')+' | рџЋЁ '+(d.service||'вЂ”')+'</div>' +
+            '<div style="font-size:11px;color:#8a8a96;">👤 '+(d.username||'—')+' | 🎨 '+(d.service||'—')+'</div>' +
             '<div style="font-size:11px;color:#666678;margin-top:2px;">' + ((d.details||'').substring(0,80) + ((d.details||'').length > 80 ? '...' : '')) + '</div>' +
             photos + '</div>';
     }).join('');
@@ -1383,19 +1383,19 @@ function loadArchiveItem(i) {
             inp.type = 'hidden'; inp.name = 'screenshot_url'; inp.value = item.data._screenshot_url;
             form.appendChild(inp);
             var el = document.getElementById('s1_screenshot_name');
-            if (el) { el.innerHTML = 'вњ… Р§РµРє: <a href="'+item.data._screenshot_url+'" target="_blank" style="color:#f97316;">РѕС‚РєСЂС‹С‚СЊ</a>'; el.classList.add('has-file'); }
+            if (el) { el.innerHTML = '✅ Чек: <a href="'+item.data._screenshot_url+'" target="_blank" style="color:#f97316;">открыть</a>'; el.classList.add('has-file'); }
         }
         if (item.data._refs_urls && item.data._refs_urls.length) {
             var inp2 = document.createElement('input');
             inp2.type = 'hidden'; inp2.name = 'refs_urls'; inp2.value = JSON.stringify(item.data._refs_urls);
             form.appendChild(inp2);
             var el2 = document.getElementById('s1_refs_name');
-            if (el2) { el2.textContent = 'вњ… ' + item.data._refs_urls.length + ' СЂРµС„РµСЂРµРЅСЃ(Р°) СЃРѕС…СЂР°РЅРµРЅС‹'; el2.classList.add('has-file'); }
+            if (el2) { el2.textContent = '✅ ' + item.data._refs_urls.length + ' референс(а) сохранены'; el2.classList.add('has-file'); }
         }
     }
     switchSlot(1);
     closeArchiveModal();
-    showToastMsg('вњ… Р—Р°РіСЂСѓР¶РµРЅРѕ!', '#22c55e');
+    showToastMsg('✅ Загружено!', '#22c55e');
 }
 
 function deleteArchiveItem(i) {
@@ -1403,12 +1403,12 @@ function deleteArchiveItem(i) {
 }
 
 function clearAllArchive() {
-    if (!confirm('РЈРґР°Р»РёС‚СЊ РІСЃРµ Р°СЂС…РёРІРёСЂРѕРІР°РЅРЅС‹Рµ Р·Р°РєР°Р·С‹?')) return;
+    if (!confirm('Удалить все архивированные заказы?')) return;
     localStorage.removeItem(ARCHIVE_KEY); updateArchiveBtn(); renderArchiveList();
 }
 
 function copyText(text, msg) {
-    navigator.clipboard.writeText(text).then(function() { showToastMsg('вњ… ' + msg, '#f97316'); });
+    navigator.clipboard.writeText(text).then(function() { showToastMsg('✅ ' + msg, '#f97316'); });
 }
 </script>
 
@@ -1435,20 +1435,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </script>
 
-<!-- в•ђв•ђ РњРћР”РђР›РљРђ РђР РҐРР’Рђ в•ђв•ђ -->
+<!-- ══ МОДАЛКА АРХИВА ══ -->
 <div id="archive-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:center;justify-content:center;">
     <div style="background:#13131a;border:1px solid rgba(249,115,22,.25);border-radius:20px;padding:28px;width:540px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-            <div style="font-size:16px;font-weight:900;color:#fff;">рџ“‹ РђСЂС…РёРІРёСЂРѕРІР°РЅРЅС‹Рµ Р·Р°РєР°Р·С‹</div>
-            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.07);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#8a8a96;font-size:16px;display:flex;align-items:center;justify-content:center;">вњ•</button>
+            <div style="font-size:16px;font-weight:900;color:#fff;">📋 Архивированные заказы</div>
+            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.07);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#8a8a96;font-size:16px;display:flex;align-items:center;justify-content:center;">✕</button>
         </div>
         <div style="font-size:11px;color:#555568;margin-bottom:16px;line-height:1.5;">
-            Р¤РѕС‚Рѕ РЅРµ СЃРѕС…СЂР°РЅСЏСЋС‚СЃСЏ РІ Р°СЂС…РёРІРµ вЂ” С‚РѕР»СЊРєРѕ С‚РµРєСЃС‚РѕРІС‹Рµ РґР°РЅРЅС‹Рµ. РџСЂРё Р·Р°РіСЂСѓР·РєРµ Р·Р°РїРѕР»РЅРё С„РѕС‚Рѕ Р·Р°РЅРѕРІРѕ.
+            Фото не сохраняются в архиве — только текстовые данные. При загрузке заполни фото заново.
         </div>
         <div id="archive-items" style="overflow-y:auto;flex:1;padding-right:4px;scrollbar-width:thin;"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;">
-            <button onclick="clearAllArchive()" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:10px;padding:11px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;">рџ—‘пёЏ РћС‡РёСЃС‚РёС‚СЊ РІСЃС‘</button>
-            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:11px;color:#8a8a96;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Р—Р°РєСЂС‹С‚СЊ</button>
+            <button onclick="clearAllArchive()" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;border-radius:10px;padding:11px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;">🗑️ Очистить всё</button>
+            <button onclick="closeArchiveModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:11px;color:#8a8a96;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Закрыть</button>
         </div>
     </div>
 </div>
@@ -1460,6 +1460,3 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
 <?php endif; ?>
 </body>
 </html>
-
-
-
