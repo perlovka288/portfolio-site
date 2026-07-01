@@ -165,7 +165,25 @@ function _fetchTgAvatarForSite(PDO $pdo, string $tg_id): string {
         $filePath = $fileData['result']['file_path'] ?? '';
         if ($filePath === '') return '';
 
-        return "https://api.telegram.org/file/bot{$botToken}/{$filePath}";
+        $tgUrl = "https://api.telegram.org/file/bot{$botToken}/{$filePath}";
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION)) ?: 'jpg';
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) $ext = 'jpg';
+
+        $dir = dirname(__DIR__) . '/uploads/avatars/';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $localName = 'tg_' . preg_replace('/\D+/', '', $tg_id) . '_' . time() . '.' . $ext;
+        $localPath = $dir . $localName;
+
+        $img = '';
+        $ch = curl_init($tgUrl);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false]);
+        $img = (string)curl_exec($ch);
+        curl_close($ch);
+        if ($img !== '' && strlen($img) > 100 && @file_put_contents($localPath, $img) !== false) {
+            return 'uploads/avatars/' . $localName;
+        }
+
+        return $tgUrl;
     } catch (Throwable $e) {
         error_log('fetch tg avatar error: ' . $e->getMessage());
         return '';

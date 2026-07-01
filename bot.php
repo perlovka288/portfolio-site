@@ -123,7 +123,7 @@ if (isset($update['callback_query'])) {
             'text'       => "✅ *Заказ #{$order_id} принят.*\nОжидаем оплату и чек от клиента.",
             'parse_mode' => 'Markdown',
         ]);
-        safeNotifyClient($pdo, $token, $order_id, mdEscape($payText));
+        safeNotifyClient($pdo, $token, $order_id, $payText, '');
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ принят, реквизиты отправлены']);
         exit;
     }
@@ -1197,7 +1197,7 @@ function prefillClientChatId($pdo, $token, $order_id) {
     }
 }
 
-function safeNotifyClient($pdo, $token, $order_id, $text) {
+function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown') {
     try {
         $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$order_id]);
@@ -1260,11 +1260,14 @@ function safeNotifyClient($pdo, $token, $order_id, $text) {
             if (empty($row['client_chat_id'])) {
                 $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
             }
-            $res = sendTelegram($token, 'sendMessage', [
+            $params = [
                 'chat_id'    => $chat_id,
                 'text'       => $text,
-                'parse_mode' => 'Markdown',
-            ]);
+            ];
+            if ($parseMode !== '') {
+                $params['parse_mode'] = $parseMode;
+            }
+            $res = sendTelegram($token, 'sendMessage', $params);
             $decoded = json_decode((string)$res, true);
             if (!empty($decoded['ok'])) {
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} OK");

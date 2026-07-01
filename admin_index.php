@@ -332,6 +332,44 @@ function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
 }
 
 // ── Админские POST действия над заказом ──────────────────────────
+function requestOrderPaymentFromAdmin(PDO $pdo, int $orderId, bool $isUrgent = false): string
+{
+    $pdo->prepare("UPDATE orders SET status = 'awaiting_payment', payment_status = 'requested', accepted_at = NOW(), is_urgent = ? WHERE id = ?")
+        ->execute([$isUrgent ? 1 : 0, $orderId]);
+
+    $info = [];
+    try {
+        $st = $pdo->prepare("SELECT p.title, p.price_rub, p.price_uan, o.cooperation FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key WHERE o.id = ? LIMIT 1");
+        $st->execute([$orderId]);
+        $info = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {}
+
+    $payText = paymentInstructionsText($orderId, $info, !empty($info['cooperation']));
+    addOrderMessage($pdo, $orderId, 'admin', 'Заказ принят. Клиенту отправлены реквизиты для оплаты.');
+
+    $stmt = $pdo->prepare("SELECT client_chat_id, session_id FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $chatId = trim((string)($row['client_chat_id'] ?? ''));
+    if (($chatId === '' || !is_numeric($chatId)) && !empty($row['session_id'])) {
+        try {
+            $lnk = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $lnk->execute([$row['session_id']]);
+            $chatId = trim((string)($lnk->fetchColumn() ?: ''));
+            if ($chatId !== '') {
+                $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chatId, $orderId]);
+            }
+        } catch (Throwable $e) {}
+    }
+    if ($chatId !== '' && is_numeric($chatId)) {
+        sendTelegramRequest('sendMessage', ['chat_id' => $chatId, 'text' => $payText]);
+    }
+
+    return $isUrgent
+        ? "⚡ Заказ #{$orderId} принят как срочный. Клиенту отправлены реквизиты, срок стартует после чека."
+        : "✅ Заказ #{$orderId} принят. Клиенту отправлены реквизиты, срок стартует после чека.";
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
     $orderId = (int)($_POST['order_id'] ?? 0);
     $action  = trim($_POST['order_action']);
@@ -340,15 +378,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
         try {
             $msgAdmin = '';
             if ($action === 'take_work') {
-                $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$orderId]);
-                setOrderDeadline($pdo, $orderId, false);
-                notifyClientOrderStatus($pdo, $orderId, 'in_progress');
+                $msgAdmin = requestOrderPaymentFromAdmin($pdo, $orderId, false);
                 $msgAdmin = "🚀 Заказ #{$orderId} взят в работу.";
+                $msgAdmin = "✅ Заказ #{$orderId} принят. Клиенту отправлены реквизиты, срок стартует после чека.";
             } elseif ($action === 'urgent') {
-                $pdo->prepare("UPDATE orders SET status = 'urgent' WHERE id = ?")->execute([$orderId]);
-                setOrderDeadline($pdo, $orderId, true);
-                notifyClientOrderStatus($pdo, $orderId, 'urgent');
+                $msgAdmin = requestOrderPaymentFromAdmin($pdo, $orderId, true);
                 $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
+                $msgAdmin = "⚡ Заказ #{$orderId} принят как срочный. Клиенту отправлены реквизиты, срок стартует после чека.";
             } elseif ($action === 'ready') {
                 $pdo->prepare("UPDATE orders SET status = 'ready' WHERE id = ?")->execute([$orderId]);
                 notifyClientOrderStatus($pdo, $orderId, 'ready');
@@ -1120,7 +1156,7 @@ $revenue = $pdo->query("
 $activeValue = $pdo->query("
     SELECT COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END),0) AS rub,
            COALESCE(SUM(CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END),0) AS uan
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','in_progress','urgent')
+    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key WHERE o.status IN ('pending','awaiting_payment','in_progress','urgent')
 ")->fetch(PDO::FETCH_ASSOC) ?: ['rub'=>0,'uan'=>0];
 
 $ordersPerPage  = 15;
@@ -1163,6 +1199,12 @@ $statusLabels = [
     'ready'       => 'Готов',
     'declined'    => 'Отклонён',
 ];
+
+function adminStatusLabel(array $statusLabels, string $status): string
+{
+    if ($status === 'awaiting_payment') return 'Ожидает оплату';
+    return $statusLabels[$status] ?? $status;
+}
 
 $appeals = [];
 $openAppealsCount = 0;
@@ -1331,6 +1373,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
         .status.pending     { background: rgba(249,115,22,.18); color: #fb923c; }
+        .status.awaiting_payment, .status.status-awaiting_payment { background: rgba(234,179,8,.18); color: #fde68a; }
         .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
         .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
         .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
@@ -1340,6 +1383,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
         tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
         tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
+        tr.order-row.status-awaiting_payment td { background: rgba(234,179,8,.06); }
         tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
         .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
         @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
@@ -1647,7 +1691,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <td>#<?= (int)$order['id'] ?></td>
                                             <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
                                             <td>
-                                                <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
+                                                <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars(adminStatusLabel($statusLabels, $order['status'])) ?></span>
                                                 <?php if ($deadlineHtml): ?><br><div style="margin-top:4px;"><?= $deadlineHtml ?></div><?php endif; ?>
                                             </td>
                                             <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
@@ -1879,7 +1923,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     </a>
                                     <span style="color:#2a2a38;">|</span>
                                     <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#8a8a96;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
-                                    <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></span>
+                                    <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars(adminStatusLabel($statusLabels, $viewOrder['status'])) ?></span>
                                     <?php if ($dlBadge): echo $dlBadge; endif; ?>
                                     <?php if (!empty($viewOrder['cooperation'])): ?>
                                         <span style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>

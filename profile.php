@@ -1,9 +1,11 @@
 <?php
 require_once 'includes/session.php';
 require_once 'config/db.php';
+require_once 'includes/order_flow.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
 processTgAutoLink($pdo);
+ensureOrderFlowSchema($pdo);
 
 $adminQuery = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $siteAvatar = (!empty($adminQuery['avatar'])) ? $adminQuery['avatar'] : '';
@@ -17,12 +19,50 @@ if (!function_exists('imgSrc')) {
 }
 
 $adminTgId = getenv('ADMIN_ID') ?: '1710365896';
+$botToken  = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+$siteUrl   = rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/';
 
 $isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
 $sid     = session_id();
 $profile = null;
 $orders  = [];
+
+function profileSendTelegram(string $token, string $method, array $fields): void
+{
+    if ($token === '') return;
+    $ch = curl_init('https://api.telegram.org/bot' . $token . '/' . $method);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 12,
+        CURLOPT_POSTFIELDS => $fields,
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+function profileOwnsOrder(PDO $pdo, int $orderId, string $sid): ?array
+{
+    $stmt = $pdo->prepare("SELECT id, client_chat_id, telegram, status, session_id, is_urgent FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+
+    $linkStmt = $pdo->prepare("SELECT tg_id, tg_username FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+    $linkStmt->execute([$sid]);
+    $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
+
+    $ok = !empty($row['session_id']) && $row['session_id'] === $sid;
+    if ($linkRow) {
+        $tgId = (string)($linkRow['tg_id'] ?? '');
+        $tgUser = ltrim((string)($linkRow['tg_username'] ?? ''), '@');
+        $telegram = ltrim((string)($row['telegram'] ?? ''), '@');
+        if ($tgId !== '' && (string)$row['client_chat_id'] === $tgId) $ok = true;
+        if ($tgUser !== '' && in_array($telegram, [$tgUser, 'https://t.me/' . $tgUser, 't.me/' . $tgUser], true)) $ok = true;
+    }
+    return $ok ? $row : null;
+}
 
 // ── Обработка отмены заказа ──────────────────────────────────
 $cancelMsg = '';
@@ -62,6 +102,60 @@ if (isset($_POST['cancel_order'])) {
 }
 
 // ── Обработка отправки обращения ─────────────────────────────
+$receiptStatus = $_GET['receipt'] ?? '';
+if (isset($_POST['upload_payment_receipt'])) {
+    $receiptOrderId = (int)($_POST['order_id'] ?? 0);
+    $redirect = $_SERVER['PHP_SELF'] . '?order=' . $receiptOrderId;
+    try {
+        $orderRow = profileOwnsOrder($pdo, $receiptOrderId, $sid);
+        if (!$orderRow || $orderRow['status'] !== 'awaiting_payment') {
+            header('Location: ' . $redirect . '&receipt=bad_order');
+            exit;
+        }
+        if (empty($_FILES['payment_receipt']['tmp_name']) || ($_FILES['payment_receipt']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            header('Location: ' . $redirect . '&receipt=bad_file');
+            exit;
+        }
+
+        $tmp = $_FILES['payment_receipt']['tmp_name'];
+        $ext = strtolower(pathinfo((string)($_FILES['payment_receipt']['name'] ?? ''), PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf'], true)) {
+            $ext = 'jpg';
+        }
+        $dir = __DIR__ . '/uploads/orders/';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $fileName = 'receipt_' . $receiptOrderId . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $target = $dir . $fileName;
+        if (!move_uploaded_file($tmp, $target)) {
+            header('Location: ' . $redirect . '&receipt=bad_file');
+            exit;
+        }
+
+        $receiptPath = 'uploads/orders/' . $fileName;
+        $isUrgent = !empty($orderRow['is_urgent']);
+        $deadline = date('Y-m-d H:i:s', time() + ($isUrgent ? 24 * 3600 : 5 * 86400));
+        $newStatus = $isUrgent ? 'urgent' : 'in_progress';
+        $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+            ->execute([$newStatus, $receiptPath, $deadline, $receiptOrderId]);
+        addOrderMessage($pdo, $receiptOrderId, 'client', 'Клиент отправил чек оплаты через сайт.', $receiptPath);
+
+        $adminText = "💳 Чек оплаты по заказу #{$receiptOrderId}\nСтатус: заказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
+        $absoluteReceiptUrl = $siteUrl . ltrim($receiptPath, '/');
+        if ($ext === 'pdf') {
+            profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgId, 'text' => $adminText . "\n" . $absoluteReceiptUrl]);
+        } else {
+            profileSendTelegram($botToken, 'sendPhoto', ['chat_id' => $adminTgId, 'photo' => $absoluteReceiptUrl, 'caption' => $adminText]);
+        }
+
+        header('Location: ' . $redirect . '&receipt=ok');
+        exit;
+    } catch (Throwable $e) {
+        error_log('payment receipt upload error: ' . $e->getMessage());
+        header('Location: ' . $redirect . '&receipt=err');
+        exit;
+    }
+}
+
 $appealMsg = '';
 if (isset($_POST['send_appeal'])) {
     $appealOrderId  = (int)($_POST['appeal_order_id'] ?? 0);
@@ -257,7 +351,8 @@ try {
         }
 
         if (!empty($clauses)) {
-            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id, deadline
+            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id, deadline,
+                           payment_status, payment_receipt, payment_received_at, accepted_at, started_at, declined_reason, is_urgent
                     FROM orders
                     WHERE " . implode(' OR ', $clauses) . "
                     ORDER BY created_at DESC
@@ -353,6 +448,7 @@ function profileDeadlineBadge(?string $deadline, string $status): string
 }
 
 function profileStatusLabel(string $s): string {
+    if ($s === 'awaiting_payment') return 'Ожидает оплату';
     return match($s) {
         'pending'     => 'Ожидает',
         'in_progress' => 'В работе',
@@ -363,6 +459,7 @@ function profileStatusLabel(string $s): string {
     };
 }
 function profileStatusColor(string $s): string {
+    if ($s === 'awaiting_payment') return '#eab308';
     return match($s) {
         'pending'     => '#fb923c',
         'in_progress' => '#60a5fa',
@@ -373,6 +470,7 @@ function profileStatusColor(string $s): string {
     };
 }
 function profileStatusEmoji(string $s): string {
+    if ($s === 'awaiting_payment') return '💳';
     return match($s) {
         'pending'     => '🕐',
         'in_progress' => '🚀',
@@ -420,10 +518,10 @@ $displayName = $profile ? (
     (!empty($profile['tg_username'])  ? '@' . ltrim($profile['tg_username'], '@') : 'Гость')
 ) : 'Гость';
 
-$activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','in_progress','urgent']));
+$activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','awaiting_payment','in_progress','urgent']));
 $finishedOrders = array_filter($orders, fn($o) => in_array($o['status'], ['ready','declined']));
 
-$statusPriority = ['urgent' => 0, 'in_progress' => 1, 'pending' => 2];
+$statusPriority = ['urgent' => 0, 'in_progress' => 1, 'awaiting_payment' => 2, 'pending' => 3];
 usort($activeOrders, function($a, $b) use ($statusPriority) {
     $pa = $statusPriority[$a['status']] ?? 9;
     $pb = $statusPriority[$b['status']] ?? 9;
@@ -501,6 +599,7 @@ body::before {
 .order-card:hover { border-color:var(--border-accent);box-shadow:0 0 20px rgba(249,115,22,0.1); }
 .order-card.status-urgent     { border-color:rgba(244,63,94,0.5);  box-shadow:0 0 18px rgba(244,63,94,0.12);  background:linear-gradient(135deg,rgba(244,63,94,0.06),var(--card)); }
 .order-card.status-in_progress{ border-color:rgba(96,165,250,0.35); box-shadow:0 0 14px rgba(96,165,250,0.08); }
+.order-card.status-awaiting_payment{ border-color:rgba(234,179,8,0.45); box-shadow:0 0 14px rgba(234,179,8,0.08); }
 .order-card.status-pending    { border-color:rgba(249,115,22,0.25); }
 .order-card.status-ready      { border-color:rgba(74,222,128,0.35); background:linear-gradient(135deg,rgba(74,222,128,0.04),var(--card)); }
 .order-card.status-declined   { border-color:rgba(239,68,68,0.2); opacity:.65; }
@@ -741,6 +840,21 @@ body::before {
                 <?php if ($dlBadge): ?><div style="margin-bottom:12px;"><?= $dlBadge ?></div><?php endif; ?>
                 <?php if (!empty($order['details'])): ?>
                 <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
+                <?php endif; ?>
+
+                <?php if ($order['status'] === 'awaiting_payment'): ?>
+                <div class="order-detail-block" style="border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06);">
+                    <strong style="display:block;color:#fde68a;margin-bottom:8px;">Реквизиты отправлены в Telegram и доступны в сообщении от бота.</strong>
+                    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">После оплаты прикрепи чек к этому заказу. Срок начнется только после получения чека.</div>
+                    <form method="POST" enctype="multipart/form-data" style="display:grid;gap:10px;max-width:420px;">
+                        <input type="hidden" name="order_id" value="<?= $oid ?>">
+                        <input type="file" name="payment_receipt" accept="image/*,.pdf" required style="color:#d8d8e8;font-size:12px;">
+                        <button type="submit" name="upload_payment_receipt" class="btn-appeal-submit" style="max-width:240px;">💳 Отправить чек</button>
+                    </form>
+                    <div style="font-size:11px;color:#8a8a96;margin-top:8px;">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank" style="color:#fdba74;">@Perlo_ovka</a></div>
+                </div>
+                <?php elseif (!empty($order['payment_receipt'])): ?>
+                <div style="font-size:12px;color:#86efac;margin-bottom:12px;">✅ Чек оплаты прикреплен к заказу.</div>
                 <?php endif; ?>
 
                 <div class="order-actions-row">
