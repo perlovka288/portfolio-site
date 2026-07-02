@@ -41,6 +41,7 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     $rubDetails    = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
     $uanDetails    = trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера'));
     $cryptoDetails = trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2'));
+    $monoDetails   = trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708'));
 
     return "✅ Заказ #{$orderId} принят. Ожидается оплата.\n\n"
         . "Сумма: {$rub} ₽ / {$uan} ₴\n"
@@ -48,8 +49,28 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
         . "🔗 Реквизиты:\n"
         . "-Рубли: {$rubDetails}\n"
         . "-Гривны: {$uanDetails}\n"
+        . "-Монобанк: {$monoDetails}\n"
         . "-Крипта: {$cryptoDetails}\n\n"
         . "❓ " . paymentSupportLine();
+}
+
+/**
+ * Клавиатура под сообщением с реквизитами: 2 кнопки.
+ * 1) "Оплатить на сайте" — url-кнопка, ведёт сразу в кабинет клиента
+ *    на страницу заказа (профиль), с tg_token для автопривязки TG,
+ *    чтобы клиент попал прямо на форму загрузки чека.
+ * 2) "Оплатить в Telegram" — callback-кнопка. Бот подсказывает
+ *    отправить фото чека сюда же в чат — дальше чек прикрепляется
+ *    к заказу автоматически (существующая логика приёма фото).
+ */
+function paymentKeyboard(int $orderId, string $payUrl): array
+{
+    return [
+        'inline_keyboard' => [
+            [['text' => '💻 Оплатить на сайте', 'url' => $payUrl]],
+            [['text' => '📸 Оплатить в Telegram', 'callback_data' => "cli_pay_tg_{$orderId}"]],
+        ],
+    ];
 }
 
 function addOrderMessage(PDO $pdo, int $orderId, string $author, string $message, string $attachment = ''): void

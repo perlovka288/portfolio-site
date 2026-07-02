@@ -938,7 +938,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
         <p id="rules-hint" style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
     </div>
-    <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin;">
+    <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;">
         <!-- Правила из БД (редактируются в Админке → Правила) -->
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>

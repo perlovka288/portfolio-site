@@ -326,9 +326,15 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
     $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
 
-    // "status" — картинка для сообщений о смене статуса (сейчас: готовность).
-    // Кладётся в assets/notify/status.jpg — если файла нет, шлём просто текст.
-    $photoPath = ($newStatus === 'ready') ? (__DIR__ . '/../assets/notify/status.jpg') : '';
+    // Картинки для сообщений о смене статуса:
+    // - "готово"   → assets/notify/gotovo.jpg (загрузи свой файл с этим именем)
+    // - "срочно"   → assets/notify/pay.jpg
+    // Если файла нет на диске — просто шлём текст без фото.
+    $statusPhotos = [
+        'ready'  => __DIR__ . '/../assets/notify/gotovo.jpg',
+        'urgent' => __DIR__ . '/../assets/notify/pay.jpg',
+    ];
+    $photoPath = $statusPhotos[$newStatus] ?? '';
     if ($photoPath !== '' && is_file($photoPath)) {
         $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendPhoto');
         curl_setopt_array($ch, [
@@ -1522,6 +1528,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
             </section>
 
+            <?php
+            // ── БЛОК DonationAlerts (API) ──
+            // Спрятан по просьбе: основной статистикой теперь считается
+            // ручной блок ниже (Донейшен/Крипта/Монобанк, вводится при
+            // нажатии "Готово"). Код оставлен нетронутым внутри if(false) —
+            // если понадобится снова включить API-статистику, просто
+            // поменяй false на true.
+            if (false):
+            ?>
             <section class="stats-grid">
                 <?php if (!$daConnected): ?>
                     <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
@@ -1535,9 +1550,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
                 <?php endif; ?>
             </section>
+            <?php endif; ?>
 
-            <!-- ── БЛОК ЗАРАБОТКА ПО СПОСОБАМ ОПЛАТЫ ── -->
-            <?php if ($totalRubFromPaid > 0): ?>
+            <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
             <section class="stats-grid" style="margin-bottom:0;">
                 <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
                     <span>💳 Донейшен</span>
@@ -1566,7 +1581,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </div>
                 </div>
             </section>
-            <?php endif; ?>
 
             <!-- ════════════════════════════════════════════════════════════
                  ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ
@@ -2241,9 +2255,12 @@ function activateAdminTab(tab) {
     if (ordPanel) ordPanel.style.display = 'none';
 
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    const stats  = document.querySelector('.stats-grid');
+    // ИСПРАВЛЕНО: раньше был querySelector (только 1-й блок статистики),
+    // из-за чего 2 других .stats-grid (по способам оплаты + итого) не
+    // скрывались на других вкладках и путали разметку.
+    const stats  = document.querySelectorAll('.stats-grid');
     const layout = document.querySelector('.admin-layout');
-    if (stats)  stats.classList.add('tab-hidden');
+    stats.forEach(s => s.classList.add('tab-hidden'));
     if (layout) layout.classList.add('single-column');
     document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
 
@@ -2251,10 +2268,10 @@ function activateAdminTab(tab) {
         document.querySelectorAll(`.panel[data-panel="${n}"]`).forEach(el => el.classList.remove('tab-hidden'));
     });
 
-    if (tab === 'overview')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
+    if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
     else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); if (layout) layout.classList.remove('single-column'); }
     else if (tab === 'price')     { show('price-add','price-manager');      if (layout) layout.classList.remove('single-column'); }
-    else if (tab === 'orders')    { if (stats) stats.classList.remove('tab-hidden'); show('orders'); }
+    else if (tab === 'orders')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
     else if (tab === 'reviews')   { show('reviews'); }
     else if (tab === 'commands')  { show('commands'); }
@@ -2317,6 +2334,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (det) det.classList.remove('tab-hidden');
         const wrapper = document.getElementById('order-detail-panel');
         if (wrapper) wrapper.style.display = 'block';
+        // ВАЖНО: без этого левая колонка (aside, 380px) оставалась пустой,
+        // но зарезервированной сеткой — карточка заказа съезжала вправо.
+        const layoutOrd = document.querySelector('.admin-layout');
+        if (layoutOrd) layoutOrd.classList.add('single-column');
     } else {
         activateAdminTab('overview');
     }
