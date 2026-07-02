@@ -131,7 +131,13 @@ if (isset($_POST['upload_payment_receipt'])) {
             exit;
         }
 
-        $receiptPath = 'uploads/orders/' . $fileName;
+        // Заливаем на ImgBB — постоянная ссылка, надёжно открывается Telegram
+        // sendPhoto (локальный путь на диске мог пропасть при рестарте сервера).
+        $receiptPath = ($ext !== 'pdf') ? uploadReceiptToImgBB($target, 'receipt_' . $receiptOrderId) : '';
+        if ($receiptPath === '') {
+            // Фолбэк — локальный путь как раньше
+            $receiptPath = 'uploads/orders/' . $fileName;
+        }
         $isUrgent = !empty($orderRow['is_urgent']);
         $deadline = date('Y-m-d H:i:s', time() + ($isUrgent ? 24 * 3600 : 5 * 86400));
         $newStatus = $isUrgent ? 'urgent' : 'in_progress';
@@ -140,7 +146,7 @@ if (isset($_POST['upload_payment_receipt'])) {
         addOrderMessage($pdo, $receiptOrderId, 'client', 'Клиент отправил чек оплаты через сайт.', $receiptPath);
 
         $adminText = "💳 Чек оплаты по заказу #{$receiptOrderId}\nСтатус: заказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
-        $absoluteReceiptUrl = $siteUrl . ltrim($receiptPath, '/');
+        $absoluteReceiptUrl = str_starts_with($receiptPath, 'http') ? $receiptPath : ($siteUrl . ltrim($receiptPath, '/'));
         if ($ext === 'pdf') {
             profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgId, 'text' => $adminText . "\n" . $absoluteReceiptUrl]);
         } else {
@@ -583,6 +589,32 @@ body::before {
 }
 .btn-appeal-submit:hover { opacity:.88;transform:translateY(-1px); }
 
+.pay-card {
+    border-radius:14px;padding:18px 18px 16px;position:relative;overflow:hidden;
+    background:linear-gradient(160deg,rgba(234,179,8,.10),rgba(234,179,8,.03));
+    border:1px solid rgba(234,179,8,.35);
+}
+.pay-card::before {
+    content:"";position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,#fbbf24,#f97316);
+}
+.pay-card-title { display:flex;align-items:center;gap:8px;color:#fde68a;font-weight:800;font-size:14px;margin-bottom:10px; }
+.pay-card-title svg { flex-shrink:0; }
+.pay-card-hint { font-size:12px;color:var(--text2);line-height:1.55;margin-bottom:14px; }
+.file-picker-row { display:flex;align-items:center;gap:10px;flex-wrap:wrap; }
+.file-picker-label {
+    display:inline-flex;align-items:center;gap:7px;border:none;border-radius:9px;padding:10px 18px;
+    background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;
+    cursor:pointer;font-family:Montserrat,sans-serif;font-size:12.5px;
+    box-shadow:0 6px 18px rgba(249,115,22,0.3);transition:.2s;white-space:nowrap;
+}
+.file-picker-label:hover { opacity:.88;transform:translateY(-1px); }
+.file-picker-label input[type=file] { display:none; }
+.file-picker-name { font-size:12px;color:#8a8a96;overflow:hidden;text-overflow:ellipsis;max-width:200px;white-space:nowrap; }
+.pay-card-support { font-size:11px;color:#8a8a96;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(234,179,8,.25); }
+.pay-card-support a { color:#fdba74;text-decoration:none;font-weight:700; }
+.pay-card-support a:hover { text-decoration:underline; }
+
 .profile-notice { border-radius:12px;padding:13px 16px;margin-bottom:18px;font-weight:700;font-size:13px; }
 .profile-notice.ok { background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.35);color:#86efac; }
 .profile-notice.err { background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#fca5a5; }
@@ -776,15 +808,25 @@ body::before {
                 <?php endif; ?>
 
                 <?php if ($order['status'] === 'awaiting_payment'): ?>
-                <div class="order-detail-block" style="border-color:rgba(234,179,8,.35);background:rgba(234,179,8,.06);">
-                    <strong style="display:block;color:#fde68a;margin-bottom:8px;">Реквизиты отправлены в Telegram и доступны в сообщении от бота.</strong>
-                    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">После оплаты прикрепи чек к этому заказу. Срок начнется только после получения чека.</div>
-                    <form method="POST" enctype="multipart/form-data" style="display:grid;gap:10px;max-width:420px;">
+                <div class="pay-card">
+                    <div class="pay-card-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+                        Реквизиты отправлены в Telegram
+                    </div>
+                    <div class="pay-card-hint">Полная сумма и реквизиты — в сообщении от бота. После оплаты прикрепи сюда чек: срок заказа начнётся только после получения чека.</div>
+                    <form method="POST" enctype="multipart/form-data">
                         <input type="hidden" name="order_id" value="<?= $oid ?>">
-                        <input type="file" name="payment_receipt" accept="image/*,.pdf" required style="color:#d8d8e8;font-size:12px;">
-                        <button type="submit" name="upload_payment_receipt" class="btn-appeal-submit" style="max-width:240px;">💳 Отправить чек</button>
+                        <div class="file-picker-row">
+                            <label class="file-picker-label" for="receipt-file-<?= $oid ?>">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                                Выбрать файл
+                                <input type="file" id="receipt-file-<?= $oid ?>" name="payment_receipt" accept="image/*,.pdf" required onchange="document.getElementById('receipt-name-<?= $oid ?>').textContent = this.files[0] ? this.files[0].name : 'Файл не выбран';">
+                            </label>
+                            <span class="file-picker-name" id="receipt-name-<?= $oid ?>">Файл не выбран</span>
+                        </div>
+                        <button type="submit" name="upload_payment_receipt" class="btn-appeal-submit">💳 Отправить чек</button>
                     </form>
-                    <div style="font-size:11px;color:#8a8a96;margin-top:8px;">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank" style="color:#fdba74;">@Perlo_ovka</a></div>
+                    <div class="pay-card-support">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank">@Perlo_ovka</a></div>
                 </div>
                 <?php elseif (!empty($order['payment_receipt'])): ?>
                 <div style="font-size:12px;color:#86efac;margin-bottom:12px;">✅ Чек оплаты прикреплен к заказу.</div>

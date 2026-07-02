@@ -38,13 +38,18 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
         $uan = 0;
     }
 
-    $details = trim((string)(getenv('PAYMENT_REQUISITES') ?: 'Рубли: https://www.donationalerts.com/r/andrewkostdzn' . "\n" . 'Гривны: реквизиты карты уточните у дизайнера'));
+    $rubDetails    = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
+    $uanDetails    = trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера'));
+    $cryptoDetails = trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2'));
 
-    return "Заказ #{$orderId} принят. Ожидается оплата.\n\n"
+    return "✅ Заказ #{$orderId} принят. Ожидается оплата.\n\n"
         . "Сумма: {$rub} ₽ / {$uan} ₴\n"
-        . "Обязательно укажите заказ #{$orderId} в комментарии к оплате.\n\n"
-        . "Реквизиты:\n{$details}\n\n"
-        . paymentSupportLine();
+        . "❗ Обязательно укажите заказ #{$orderId} в комментарии к оплате.\n\n"
+        . "🔗 Реквизиты:\n"
+        . "-Рубли: {$rubDetails}\n"
+        . "-Гривны: {$uanDetails}\n"
+        . "-Крипта: {$cryptoDetails}\n\n"
+        . "❓ " . paymentSupportLine();
 }
 
 function addOrderMessage(PDO $pdo, int $orderId, string $author, string $message, string $attachment = ''): void
@@ -57,3 +62,44 @@ function addOrderMessage(PDO $pdo, int $orderId, string $author, string $message
     }
 }
 
+/**
+ * Заливает файл на ImgBB и возвращает публичную постоянную ссылку.
+ * Раньше чек оплаты с сайта сохранялся только на локальный диск сервера —
+ * там, где диск эфемерный (Render/аналоги), файл мог пропасть после
+ * рестарта, а Telegram не мог его подтянуть по ссылке на sendPhoto
+ * ("не приходит сообщение в ТГ"). ImgBB даёт постоянную ссылку сразу.
+ * Возвращает '' если не получилось — тогда вызывающий код должен
+ * откатиться на локальное сохранение как раньше.
+ */
+function uploadReceiptToImgBB(string $tmpPath, string $name = 'receipt'): string
+{
+    if (!is_file($tmpPath)) return '';
+    $keys = array_filter([
+        getenv('IMGBB_API_KEY')  ?: '',
+        getenv('IMGBB_API_KEY2') ?: '',
+        getenv('IMGBB_API_KEY3') ?: '',
+    ]);
+    if (empty($keys)) return '';
+
+    $b64 = base64_encode((string)file_get_contents($tmpPath));
+    foreach ($keys as $apiKey) {
+        try {
+            $ch = curl_init('https://api.imgbb.com/1/upload');
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
+            ]);
+            $res = curl_exec($ch);
+            curl_close($ch);
+            if ($res === false || $res === '') continue;
+            $data = json_decode($res, true);
+            $url  = $data['data']['url'] ?? '';
+            if ($url !== '') return $url;
+        } catch (Throwable $e) {
+            error_log('uploadReceiptToImgBB error: ' . $e->getMessage());
+        }
+    }
+    return '';
+}

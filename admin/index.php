@@ -298,7 +298,7 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     if (($chatId === '' || !is_numeric($chatId)) && !empty($row['session_id'])) {
         try {
             $lnk = $pdo->prepare("
-                SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id
                 FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1
             ");
             $lnk->execute([$row['session_id']]);
@@ -326,16 +326,32 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
     $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
 
-    $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 15,
-        CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
-    ]);
-    $resp = curl_exec($ch);
-    $err  = curl_error($ch);
-    curl_close($ch);
+    // "status" — картинка для сообщений о смене статуса (сейчас: готовность).
+    // Кладётся в assets/notify/status.jpg — если файла нет, шлём просто текст.
+    $photoPath = ($newStatus === 'ready') ? (__DIR__ . '/../assets/notify/status.jpg') : '';
+    if ($photoPath !== '' && is_file($photoPath)) {
+        $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendPhoto');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'caption' => $text, 'parse_mode' => 'HTML', 'photo' => new CURLFile($photoPath)],
+        ]);
+        $resp = curl_exec($ch);
+        $err  = curl_error($ch);
+        curl_close($ch);
+    } else {
+        $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
+        ]);
+        $resp = curl_exec($ch);
+        $err  = curl_error($ch);
+        curl_close($ch);
+    }
 
     $logLine = '[' . date('Y-m-d H:i:s') . "] notifyClient order={$orderId} status={$newStatus} chat={$chatId} err={$err} resp=" . substr((string)$resp, 0, 120) . PHP_EOL;
     @file_put_contents(__DIR__ . '/../bot_debug.log', $logLine, FILE_APPEND);
@@ -418,7 +434,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                         $sess->execute([$orderId]);
                         $sessRow = $sess->fetch(PDO::FETCH_ASSOC);
                         if (!empty($sessRow['session_id'])) {
-                            $lnkQ = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+                            $lnkQ = $pdo->prepare("SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
                             $lnkQ->execute([$sessRow['session_id']]);
                             $lnkR = $lnkQ->fetch(PDO::FETCH_ASSOC);
                             if (!empty($lnkR['chat_id']) && is_numeric($lnkR['chat_id'])) {
@@ -1289,7 +1305,7 @@ if (isset($_POST['send_order_message'])) {
             if ($sendTo === '' || !is_numeric($sendTo)) {
                 if (!empty($orow['session_id'])) {
                     try {
-                        $lq = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+                        $lq = $pdo->prepare("SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
                         $lq->execute([$orow['session_id']]);
                         $lr = $lq->fetch(PDO::FETCH_ASSOC);
                         if (!empty($lr['chat_id']) && is_numeric($lr['chat_id'])) {
@@ -1979,6 +1995,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     $cleanTg = trim($viewOrder['telegram'] ?? '');
                                     $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
                                     $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
+                                    // Новый флоу оплаты (order_flow.php): чек, который клиент прикрепляет
+                                    // ПОСЛЕ принятия заказа, хранится в payment_receipt, а не в screenshot.
+                                    $paymentReceiptSrc = imgSrc($viewOrder['payment_receipt'] ?? '', '../uploads/orders/');
                                     $examples = [];
                                     $raw = $viewOrder['example_photo'] ?? '';
                                     if ($raw !== '') {
@@ -2038,13 +2057,25 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         </div>
 
                                         <!-- Файлы -->
-                                        <?php if ($screenshotSrc !== '' || !empty($examples)): ?>
+                                        <?php if ($screenshotSrc !== '' || $paymentReceiptSrc !== '' || !empty($examples)): ?>
                                         <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
                                             <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
                                             <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+                                                <?php if ($paymentReceiptSrc !== ''): ?>
+                                                <div>
+                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">💳 Чек оплаты</div>
+                                                    <?php if (str_ends_with(strtolower($paymentReceiptSrc), '.pdf')): ?>
+                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:12px 16px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
+                                                    <?php else: ?>
+                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank">
+                                                            <img src="<?= htmlspecialchars($paymentReceiptSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
+                                                        </a>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php endif; ?>
                                                 <?php if ($screenshotSrc !== ''): ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты</div>
+                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты (архив)</div>
                                                     <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank">
                                                         <img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
                                                     </a>

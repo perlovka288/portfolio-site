@@ -255,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             // Метод 1: по session_id текущей сессии
             if ($sid_now !== '') {
                 $lnk = $pdo->prepare("
-                    SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                    SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id
                     FROM tg_links WHERE session_id = ? AND linked = TRUE
                     ORDER BY id DESC LIMIT 1
                 ");
@@ -271,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $telegram_raw)), '@');
                 if ($tg_clean !== '') {
                     $lnk2 = $pdo->prepare("
-                        SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id
+                        SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id
                         FROM tg_links WHERE (tg_username = ? OR tg_username = ?) AND linked = TRUE
                         ORDER BY id DESC LIMIT 1
                     ");
@@ -325,7 +325,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $pr->execute([$service_key]);
             $srv_title = (string)($pr->fetchColumn() ?: $service_key);
             tgEscapeSend($bot_token, $client_chat_id,
-                "✅ *Заказ \#{$order_id} создан\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nОплата пока не нужна\. Как только дизайнер примет заказ — сюда придут реквизиты\."
+                "✅ *Заказ \#{$order_id} создан\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nОплата пока не нужна\. Как только дизайнер примет заказ — сюда придут реквизиты\.",
+                __DIR__ . '/assets/notify/status.jpg'
             );
         }
 
@@ -454,7 +455,21 @@ function tgEsc(string $text): string {
         $text
     );
 }
-function tgEscapeSend(string $token, int $chat_id, string $text): void {
+function tgEscapeSend(string $token, int $chat_id, string $text, string $photoPath = ''): void {
+    if ($photoPath !== '' && is_file($photoPath)) {
+        $ch = curl_init("https://api.telegram.org/bot{$token}/sendPhoto");
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, [
+            'chat_id'    => $chat_id,
+            'caption'    => $text,
+            'parse_mode' => 'MarkdownV2',
+            'photo'      => new CURLFile($photoPath),
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+        return;
+    }
     $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -1027,11 +1042,18 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 
         <div class="mb16">
             <label class="order-label">Ваше имя / никнейм</label>
-            <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
+            <input type="text" name="username" id="remember-username" required placeholder="Например: Влад" class="order-input">
         </div>
         <div class="mb16">
             <label class="order-label">Контакт для связи (Telegram @username — обязательно)</label>
-            <input type="text" name="telegram" required placeholder="@username" class="order-input">
+            <input type="text" name="telegram" id="remember-telegram" required placeholder="@username" class="order-input">
+        </div>
+        <div class="mb16">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:#8a8a96;font-size:12px;">
+                <input type="checkbox" id="remember-identity-cb" checked style="width:auto;margin:0;accent-color:var(--or);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Использовать эти данные по умолчанию
+            </label>
         </div>
         <div class="mb16">
             <label class="order-label">Что вас интересует?</label>
@@ -1375,10 +1397,13 @@ function loadArchiveItem(i) {
             el.value = item.data[name];
         });
 
-        // Inject hidden URL inputs for archive photos['refs_urls'].forEach(function(n) {
-            var old = form.querySelector('[name="'+n+'"]');
-            if (old) old.remove();
-        });
+        // Убираем старые скрытые поля с фото архива перед повторной вставкой,
+        // чтобы при загрузке одного и того же архивного заказа несколько раз
+        // не копились дублирующиеся hidden-инпуты
+        var oldScreenshot = form.querySelector('[name="screenshot_url"]');
+        if (oldScreenshot) oldScreenshot.remove();
+        var oldRefs = form.querySelector('[name="refs_urls"]');
+        if (oldRefs) oldRefs.remove();
         if (item.data._screenshot_url) {
             var inp = document.createElement('input');
             inp.type = 'hidden'; inp.name = 'screenshot_url'; inp.value = item.data._screenshot_url;
@@ -1411,6 +1436,46 @@ function clearAllArchive() {
 function copyText(text, msg) {
     navigator.clipboard.writeText(text).then(function() { showToastMsg('✅ ' + msg, '#f97316'); });
 }
+
+// ─── Запомнить имя/контакт (галочка "Использовать по умолчанию") ───
+var REMEMBER_KEY = 'kostlim_order_identity';
+function loadRememberedIdentity() {
+    var usernameEl = document.getElementById('remember-username');
+    var telegramEl = document.getElementById('remember-telegram');
+    var cb = document.getElementById('remember-identity-cb');
+    if (!usernameEl || !telegramEl || !cb) return;
+    try {
+        var raw = localStorage.getItem(REMEMBER_KEY);
+        if (raw) {
+            var data = JSON.parse(raw);
+            if (data.username) usernameEl.value = data.username;
+            if (data.telegram) telegramEl.value = data.telegram;
+            cb.checked = true;
+        }
+        // Если сохранённых данных ещё нет (первый визит) — оставляем
+        // галочку в состоянии по умолчанию (checked), ничего не трогаем.
+    } catch(e) {}
+}
+function saveRememberedIdentity() {
+    var usernameEl = document.getElementById('remember-username');
+    var telegramEl = document.getElementById('remember-telegram');
+    var cb = document.getElementById('remember-identity-cb');
+    if (!usernameEl || !telegramEl || !cb) return;
+    if (cb.checked) {
+        localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username: usernameEl.value, telegram: telegramEl.value }));
+    } else {
+        localStorage.removeItem(REMEMBER_KEY);
+    }
+}
+document.addEventListener('DOMContentLoaded', function() {
+    loadRememberedIdentity();
+    var usernameEl = document.getElementById('remember-username');
+    var telegramEl = document.getElementById('remember-telegram');
+    var cb = document.getElementById('remember-identity-cb');
+    if (usernameEl) usernameEl.addEventListener('input', saveRememberedIdentity);
+    if (telegramEl) telegramEl.addEventListener('input', saveRememberedIdentity);
+    if (cb) cb.addEventListener('change', saveRememberedIdentity);
+});
 </script>
 
 
@@ -1428,12 +1493,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Основной способ: IntersectionObserver — надёжно ловит момент,
     // когда конец текста реально показался внутри блока, даже на
-    // мобильных с "резиновым" инерционным скроллом (там scrollTop
-    // на глаз никогда не долистывает точно до scrollHeight-clientHeight).
+    // мобильных с "резиновым" инерционным скроллом. threshold:0 —
+    // достаточно, чтобы сентинел хоть чуть-чуть показался (высокий
+    // threshold на элементе высотой 1px ненадёжен из-за округления).
     if (sentinel && 'IntersectionObserver' in window) {
         const io = new IntersectionObserver((entries) => {
             entries.forEach(entry => { if (entry.isIntersecting) enable(); });
-        }, { root: rulesScroll, threshold: 0.99 });
+        }, { root: rulesScroll, threshold: 0 });
         io.observe(sentinel);
     }
 
@@ -1450,6 +1516,11 @@ document.addEventListener('DOMContentLoaded', function() {
     checkScroll();
     setTimeout(checkScroll, 250);
     setTimeout(checkScroll, 1000); // на случай если текст правил ещё дорисовывался
+
+    // Финальная страховка: если по какой-то причине ни один из способов
+    // не сработал (баг браузера, необычная вёрстка и т.п.) — не даём
+    // человеку застрять навсегда. Даём разумное время на прочтение.
+    setTimeout(enable, 8000);
 });
 
 </script>
