@@ -60,6 +60,19 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // Клиент нажал "Оплатить в Telegram" под сообщением с реквизитами —
+    // просто подсказываем прислать фото/файл чека сюда же. Дальше чек
+    // прикрепляется к заказу автоматически (см. блок приёма фото ниже).
+    if (strpos($callback_data, 'cli_pay_tg_') === 0) {
+        $order_id = (int)str_replace('cli_pay_tg_', '', $callback_data);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $cal_chat_id,
+            'text'    => "📸 Отправьте сюда фото (или файл) чека оплаты по заказу #{$order_id} — я автоматически прикреплю его к заказу и запущу работу.",
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Жду чек 📎']);
+        exit;
+    }
+
     // ── Только для админа ──
     if ($caller_id !== $admin_id) {
         sendTelegram($token, 'answerCallbackQuery', [
@@ -123,7 +136,21 @@ if (isset($update['callback_query'])) {
             'text'       => "✅ *Заказ #{$order_id} принят.*\nОжидаем оплату и чек от клиента.",
             'parse_mode' => 'Markdown',
         ]);
-        safeNotifyClient($pdo, $token, $order_id, $payText, '');
+
+        // Ссылка "оплатить на сайте" — сразу в кабинет клиента на страницу
+        // этого заказа. Если TG уже привязан к чату — добавляем tg_token,
+        // чтобы сайт узнал клиента автоматически (без повторного логина).
+        $payUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
+        try {
+            $ccidStmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+            $ccidStmt->execute([$order_id]);
+            $ccid = (int)$ccidStmt->fetchColumn();
+            if ($ccid > 0) {
+                $payUrl .= '&tg_token=' . autoLinkGenerateToken($pdo, $ccid, []);
+            }
+        } catch (Throwable $e) {}
+
+        safeNotifyClient($pdo, $token, $order_id, $payText, '', paymentKeyboard($order_id, $payUrl));
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ принят, реквизиты отправлены']);
         exit;
     }
@@ -168,14 +195,16 @@ if (isset($update['callback_query'])) {
             'text'       => "⚡️ *Заказ #{$order_id} переведён в СРОЧНЫЙ режим.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента
+        // Уведомляем клиента (с картинкой статуса)
         safeNotifyClient($pdo, $token, $order_id,
-            "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*"
+            "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*",
+            'Markdown', null, __DIR__ . '/assets/notify/status.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '⚡ Заказ срочный']);
         exit;
     }
 
+    
     // Выполнен
     if (strpos($callback_data, 'adm_ready_') === 0) {
         $order_id = (int)str_replace('adm_ready_', '', $callback_data);
@@ -190,9 +219,10 @@ if (isset($update['callback_query'])) {
             'text'       => "✅ *Заказ #{$order_id} выполнен.*",
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента
+        // Уведомляем клиента (с картинкой "готово", если файл загружен в assets/notify/gotovo.jpg)
         safeNotifyClient($pdo, $token, $order_id,
-            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}"
+            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}",
+            'Markdown', null, __DIR__ . '/assets/notify/gotovo.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ выполнен']);
         exit;
@@ -1197,7 +1227,7 @@ function prefillClientChatId($pdo, $token, $order_id) {
     }
 }
 
-function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown') {
+function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown', $replyMarkup = null, $photoPath = '') {
     try {
         $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
         $stmt->execute([$order_id]);
@@ -1260,14 +1290,31 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
             if (empty($row['client_chat_id'])) {
                 $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
             }
-            $params = [
-                'chat_id'    => $chat_id,
-                'text'       => $text,
-            ];
-            if ($parseMode !== '') {
-                $params['parse_mode'] = $parseMode;
+            if ($photoPath !== '' && is_file($photoPath)) {
+                $params = [
+                    'chat_id' => $chat_id,
+                    'caption' => $text,
+                ];
+                if ($parseMode !== '') {
+                    $params['parse_mode'] = $parseMode;
+                }
+                if ($replyMarkup !== null) {
+                    $params['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
+                }
+                $res = sendTelegramFile($token, 'sendPhoto', array_merge($params, ['photo' => new CURLFile($photoPath)]));
+            } else {
+                $params = [
+                    'chat_id'    => $chat_id,
+                    'text'       => $text,
+                ];
+                if ($parseMode !== '') {
+                    $params['parse_mode'] = $parseMode;
+                }
+                if ($replyMarkup !== null) {
+                    $params['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
+                }
+                $res = sendTelegram($token, 'sendMessage', $params);
             }
-            $res = sendTelegram($token, 'sendMessage', $params);
             $decoded = json_decode((string)$res, true);
             if (!empty($decoded['ok'])) {
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} OK");
