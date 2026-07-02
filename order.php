@@ -698,6 +698,12 @@ body::before {
     filter: grayscale(0.5);
     transform: none;
 }
+@keyframes rulesReadyPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(249,115,22,.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(249,115,22,0); }
+    100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
+}
+.rules-agree-btn.is-ready { animation: rulesReadyPulse 1s ease-out; }
 .msg-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: 700; font-size: 13px; }
 .msg-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-size: 13px; }
 .mb16 { margin-bottom: 16px; }
@@ -930,13 +936,12 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             На главную к портфолио
         </a>
         <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
-        <p style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
+        <p id="rules-hint" style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
     </div>
     <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin;">
         <!-- Правила из БД (редактируются в Админке → Правила) -->
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>
-            <div id="rules-end-sentinel" style="height:1px;"></div>
         </div>
     </div>
     <div style="margin-bottom: 20px;">
@@ -1485,42 +1490,43 @@ document.addEventListener('DOMContentLoaded', function() {
 document.addEventListener('DOMContentLoaded', function() {
     const rulesScroll = document.getElementById('rules-scroll');
     const agreeBtn = document.getElementById('agree-btn');
-    const sentinel = document.getElementById('rules-end-sentinel');
+    const hint = document.getElementById('rules-hint');
 
     if (!rulesScroll || !agreeBtn) return;
 
-    const enable = () => { agreeBtn.disabled = false; };
+    var unlocked = false;
+    var pollTimer = null;
 
-    // Основной способ: IntersectionObserver — надёжно ловит момент,
-    // когда конец текста реально показался внутри блока, даже на
-    // мобильных с "резиновым" инерционным скроллом. threshold:0 —
-    // достаточно, чтобы сентинел хоть чуть-чуть показался (высокий
-    // threshold на элементе высотой 1px ненадёжен из-за округления).
-    if (sentinel && 'IntersectionObserver' in window) {
-        const io = new IntersectionObserver((entries) => {
-            entries.forEach(entry => { if (entry.isIntersecting) enable(); });
-        }, { root: rulesScroll, threshold: 0 });
-        io.observe(sentinel);
+    function unlock() {
+        if (unlocked) return;
+        unlocked = true;
+        agreeBtn.disabled = false;
+        agreeBtn.classList.add('is-ready');
+        if (hint) hint.textContent = '✅ Правила прочитаны — можно продолжать';
+        if (pollTimer) clearInterval(pollTimer);
     }
 
-    // Запасной способ (старые браузеры без IntersectionObserver
-    // или если сам сентинел почему-то не найден) — прежняя проверка,
-    // но с увеличенным допуском.
-    const checkScroll = () => {
-        if (rulesScroll.scrollHeight <= rulesScroll.clientHeight ||
-            (rulesScroll.scrollHeight - rulesScroll.clientHeight - rulesScroll.scrollTop) < 24) {
-            enable();
-        }
-    };
-    rulesScroll.addEventListener('scroll', checkScroll);
-    checkScroll();
-    setTimeout(checkScroll, 250);
-    setTimeout(checkScroll, 1000); // на случай если текст правил ещё дорисовывался
+    function isAtBottom() {
+        // Большой допуск (30px) — надёжно ловит момент долистывания
+        // на любых устройствах, даже с "резиновым" инерционным скроллом.
+        return (rulesScroll.scrollHeight - rulesScroll.clientHeight) <= (rulesScroll.scrollTop + 30);
+    }
 
-    // Финальная страховка: если по какой-то причине ни один из способов
-    // не сработал (баг браузера, необычная вёрстка и т.п.) — не даём
-    // человеку застрять навсегда. Даём разумное время на прочтение.
-    setTimeout(enable, 8000);
+    // Если текст целиком помещается без скролла — сразу открываем кнопку
+    if (rulesScroll.scrollHeight <= rulesScroll.clientHeight + 5) {
+        unlock();
+    } else {
+        // Опрашиваем позицию скролла раз в 200мс — не зависим от того,
+        // корректно ли браузер шлёт события scroll (на некоторых мобильных
+        // при инерционном скролле события могут идти нестабильно).
+        pollTimer = setInterval(function() { if (isAtBottom()) unlock(); }, 200);
+        rulesScroll.addEventListener('scroll', function() { if (isAtBottom()) unlock(); });
+        rulesScroll.addEventListener('touchmove', function() { if (isAtBottom()) unlock(); });
+
+        // Финальная страховка: даже если всё вышеперечисленное почему-то
+        // не сработало — не даём человеку застрять навсегда.
+        setTimeout(unlock, 6000);
+    }
 });
 
 </script>
