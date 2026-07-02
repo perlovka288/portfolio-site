@@ -333,6 +333,7 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     $statusPhotos = [
         'ready'  => __DIR__ . '/../assets/notify/gotovo.jpg',
         'urgent' => __DIR__ . '/../assets/notify/pay.jpg',
+        'status' => __DIR__ . '/../assets/notify/status.jpg',
     ];
     $photoPath = $statusPhotos[$newStatus] ?? '';
     if ($photoPath !== '' && is_file($photoPath)) {
@@ -390,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 setOrderDeadline($pdo, $orderId, true);
                 notifyClientOrderStatus($pdo, $orderId, 'urgent');
                 $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
-            } elseif ($action === 'ready') {
+            } elseif ($action === 'status') {
                 $payMethod   = $_POST['pay_method']   ?? 'other';
                 $paidAmount  = (float)($_POST['paid_amount'] ?? 0);
                 $paidCurrency= in_array($_POST['paid_currency'] ?? '', ['RUB','USD','UAH']) ? $_POST['paid_currency'] : 'RUB';
