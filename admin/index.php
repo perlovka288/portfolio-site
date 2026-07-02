@@ -5,9 +5,11 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require_once 'auth.php';
 require_once '../config/db.php';
+require_once __DIR__ . '/../includes/order_flow.php';
 require_once __DIR__ . '/psd_manager.php';
 require_once __DIR__ . '/bot_commands.php';
 ensureBotCommandTables($pdo);
+ensureOrderFlowSchema($pdo);
 
 try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
@@ -328,11 +330,11 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
 
     // Картинки для сообщений о смене статуса:
     // - "готово"   → assets/notify/gotovo.jpg (загрузи свой файл с этим именем)
-    // - "срочно"   → assets/notify/pay.jpg
+    // - "срочно"   → assets/notify/fast.jpg (согласно ТЗ п.2.4)
     // Если файла нет на диске — просто шлём текст без фото.
     $statusPhotos = [
         'ready'  => __DIR__ . '/../assets/notify/gotovo.jpg',
-        'urgent' => __DIR__ . '/../assets/notify/pay.jpg',
+        'urgent' => __DIR__ . '/../assets/notify/fast.jpg',
         'status' => __DIR__ . '/../assets/notify/status.jpg',
     ];
     $photoPath = $statusPhotos[$newStatus] ?? '';
@@ -366,8 +368,7 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
 
 function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
 {
-    $interval = $isUrgent ? '+1 day' : '+5 days';
-    $deadline = (new \DateTime())->modify($interval)->format('Y-m-d H:i:s');
+    $deadline = calculateOrderDeadline($isUrgent); // 120ч обычный / 24ч срочный
     try {
         $pdo->prepare("UPDATE orders SET deadline = ? WHERE id = ?")->execute([$deadline, $orderId]);
     } catch (\Throwable $e) {}
@@ -2355,7 +2356,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="font-size:18px;font-weight:900;color:#fff;margin-bottom:18px;">✅ Отметить как готово</div>
         <form method="POST" id="ready-form">
             <input type="hidden" name="order_id" id="ready-order-id">
-            <input type="hidden" name="order_action" value="ready">
+            <input type="hidden" name="order_action" value="status">
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#fdba74;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
@@ -2387,6 +2388,9 @@ function openReadyModal(orderId) {
 }
 function closeReadyModal() {
     document.getElementById('ready-modal').style.display = 'none';
+}
+function selectPayMethod(radioEl) {
+    if (radioEl && radioEl.value) selectPayMethod2(radioEl.value);
 }
 function selectPayMethod2(method) {
     _selectedPayMethod = method;

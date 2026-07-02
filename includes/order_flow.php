@@ -10,6 +10,7 @@ function ensureOrderFlowSchema(PDO $pdo): void
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_reason TEXT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_urgent BOOLEAN NOT NULL DEFAULT FALSE");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_receipt_count INT NOT NULL DEFAULT 0");
         $pdo->exec("CREATE TABLE IF NOT EXISTS order_messages (
             id SERIAL PRIMARY KEY,
             order_id INT NOT NULL,
@@ -27,6 +28,50 @@ function ensureOrderFlowSchema(PDO $pdo): void
 function paymentSupportLine(): string
 {
     return "По вопросам оплаты пишите - @Perlo_ovka";
+}
+
+/**
+ * Единая функция расчёта дедлайна заказа.
+ * Обычный заказ — ровно 5 суток (120 часов), срочный — ровно 24 часа.
+ * Отсчёт всегда идёт от момента вызова (получения оплаты / прикрепления чека).
+ */
+function calculateOrderDeadline(bool $isUrgent): string
+{
+    $hours = $isUrgent ? 24 : 120; // 24ч срочный / 120ч (5 суток) обычный
+    return date('Y-m-d H:i:s', time() + $hours * 3600);
+}
+
+/**
+ * Скачивает файл из Telegram (по file_id) и сохраняет его локально.
+ * Возвращает true при успехе.
+ */
+function downloadTelegramFileToLocal(string $token, string $fileId, string $destPath): bool
+{
+    try {
+        $ch = curl_init("https://api.telegram.org/bot{$token}/getFile");
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_POSTFIELDS     => ['file_id' => $fileId],
+        ]);
+        $resp = curl_exec($ch);
+        curl_close($ch);
+        $data = json_decode((string)$resp, true);
+        $filePath = $data['result']['file_path'] ?? '';
+        if ($filePath === '') return false;
+
+        $fileUrl = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+        $bytes = @file_get_contents($fileUrl);
+        if ($bytes === false || strlen($bytes) < 50) return false;
+
+        $dir = dirname($destPath);
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        return (bool)@file_put_contents($destPath, $bytes);
+    } catch (Throwable $e) {
+        error_log('downloadTelegramFileToLocal error: ' . $e->getMessage());
+        return false;
+    }
 }
 
 function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCooperation = false): string
@@ -68,7 +113,7 @@ function paymentKeyboard(int $orderId, string $payUrl): array
     return [
         'inline_keyboard' => [
             [['text' => '💻 Оплатить на сайте', 'url' => $payUrl]],
-            [['text' => '📸 Оплатить в Telegram', 'callback_data' => "cli_pay_tg_{$orderId}"]],
+            [['text' => '📸 Скинуть чек в ТГ', 'callback_data' => "cli_pay_tg_{$orderId}"]],
         ],
     ];
 }

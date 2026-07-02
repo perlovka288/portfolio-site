@@ -365,6 +365,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                     ['text' => '⚡️ Принять срочный / оплата', 'callback_data' => "adm_accept_urgent_{$order_id}"],
                 ],
                 [
+                    ['text' => '🤝 Сотрудничество', 'callback_data' => "adm_coop_{$order_id}"],
+                    ['text' => '✅ Принять в очередь', 'callback_data' => "adm_queue_{$order_id}"],
+                ],
+                [
                     ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],
                     ['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"],
                 ],
@@ -704,6 +708,34 @@ body::before {
     100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
 }
 .rules-agree-btn.is-ready { animation: rulesReadyPulse 1s ease-out; }
+/* ── Стилизованный чекбокс согласия с анимацией ── */
+.agree-check-row { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+.agree-check-row input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.agree-check-box {
+    position: relative;
+    flex-shrink: 0;
+    width: 24px; height: 24px;
+    border-radius: 7px;
+    border: 2px solid #2a2a3a;
+    background: #171720;
+    transition: border-color .2s, background .2s, transform .15s;
+}
+.agree-check-box svg {
+    position: absolute; inset: 0; margin: auto;
+    width: 15px; height: 15px;
+    stroke: #fff; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 20; stroke-dashoffset: 20;
+    transition: stroke-dashoffset .25s ease .05s;
+}
+.agree-check-row input[type="checkbox"]:checked ~ .agree-check-box {
+    background: linear-gradient(135deg, var(--or2), var(--or));
+    border-color: var(--or);
+    box-shadow: var(--or-glow-sm);
+    transform: scale(1.06);
+}
+.agree-check-row input[type="checkbox"]:checked ~ .agree-check-box svg { stroke-dashoffset: 0; }
+.agree-check-row input[type="checkbox"]:focus-visible ~ .agree-check-box { outline: 2px solid var(--or); outline-offset: 2px; }
+.agree-check-label { color: #c8c8d4; font-size: 13px; font-weight: 700; }
 .msg-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: 700; font-size: 13px; }
 .msg-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-size: 13px; }
 .mb16 { margin-bottom: 16px; }
@@ -936,14 +968,22 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             На главную к портфолио
         </a>
         <h2 style="color:#fff; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1px; font-size:20px;">Правила заказа</h2>
-        <p id="rules-hint" style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Пожалуйста, прокрутите правила до конца, чтобы кнопка стала активной.</p>
+        <p id="rules-hint" style="color:#8a8a96; margin:0; line-height:1.55; font-size:13px;">Ознакомьтесь с правилами и подтвердите согласие.</p>
     </div>
-    <div id="rules-scroll" style="max-height: 160px; overflow-y: auto; margin-bottom: 20px; padding-right: 10px; border-bottom: 1px solid #1f1f2a; scrollbar-width: thin; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;">
-        <!-- Правила из БД (редактируются в Админке → Правила) -->
+    <div id="rules-scroll" style="margin-bottom: 20px; padding-right: 2px; border-bottom: 1px solid #1f1f2a; padding-bottom: 20px;">
+        <!-- Правила из БД (редактируются в Админке → Правила). Прокрутка отключена — весь текст виден сразу. -->
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>
         </div>
-        <div id="rules-end-sentinel" style="height:1px;"></div>
+    </div>
+    <div style="margin-bottom: 16px;">
+        <label class="agree-check-row">
+            <input type="checkbox" name="agree_rules" id="agree-checkbox" value="1" required>
+            <span class="agree-check-box">
+                <svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"/></svg>
+            </span>
+            <span class="agree-check-label">Я прочитал(а) и согласен(на) с правилами</span>
+        </label>
     </div>
     <div style="margin-bottom: 20px;">
         <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
@@ -952,7 +992,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         </label>
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-        <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;" disabled>Согласиться</button>
+        <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;">Согласиться</button>
         <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
 </form>
@@ -1489,63 +1529,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const rulesScroll = document.getElementById('rules-scroll');
+    // Кнопка "Согласиться" активна по умолчанию — прокрутка правил
+    // до конца больше не требуется. Чекбокс согласия отмечается
+    // отдельно и просто подсвечивает кнопку анимацией.
     const agreeBtn = document.getElementById('agree-btn');
-    const hint = document.getElementById('rules-hint');
-    const sentinel = document.getElementById('rules-end-sentinel');
-
-    if (!rulesScroll || !agreeBtn) return;
-
-    var unlocked = false;
-    var pollTimer = null;
-
-    function unlock() {
-        if (unlocked) return;
-        unlocked = true;
-        agreeBtn.disabled = false;
-        agreeBtn.classList.add('is-ready');
-        if (hint) hint.textContent = '✅ Правила прочитаны — можно продолжать';
-        if (pollTimer) clearInterval(pollTimer);
+    const checkbox = document.getElementById('agree-checkbox');
+    if (agreeBtn && checkbox) {
+        agreeBtn.classList.toggle('is-ready', checkbox.checked);
+        checkbox.addEventListener('change', function() {
+            agreeBtn.classList.toggle('is-ready', checkbox.checked);
+        });
     }
-
-    function isAtBottom() {
-        // Большой допуск (30px) — надёжно ловит момент долистывания
-        // на любых устройствах, даже с "резиновым" инерционным скроллом.
-        return (rulesScroll.scrollHeight - rulesScroll.clientHeight) <= (rulesScroll.scrollTop + 30);
-    }
-
-    // Если текст целиком помещается без скролла — сразу открываем кнопку
-    if (rulesScroll.scrollHeight <= rulesScroll.clientHeight + 5) {
-        unlock();
-        return;
-    }
-
-    // ── ОСНОВНОЙ способ: IntersectionObserver ──
-    // Следит за невидимым "маячком" в самом конце текста правил.
-    // В отличие от сравнения scrollHeight/scrollTop (которое может
-    // ошибаться на дробных пикселях, при зуме на телефоне или если
-    // страница ещё не до конца отрисовалась), этот способ срабатывает
-    // ровно в момент, когда конец текста реально появляется в поле
-    // зрения — это и есть самая частая причина, почему кнопка не
-    // разблокировалась, хотя человек долистал до конца.
-    if (sentinel && 'IntersectionObserver' in window) {
-        const obs = new IntersectionObserver(function(entries) {
-            entries.forEach(function(entry) {
-                if (entry.isIntersecting) unlock();
-            });
-        }, { root: rulesScroll, threshold: 0.01 });
-        obs.observe(sentinel);
-    }
-
-    // ── Подстраховка: старые способы работают параллельно ──
-    pollTimer = setInterval(function() { if (isAtBottom()) unlock(); }, 200);
-    rulesScroll.addEventListener('scroll', function() { if (isAtBottom()) unlock(); });
-    rulesScroll.addEventListener('touchmove', function() { if (isAtBottom()) unlock(); });
-    rulesScroll.addEventListener('wheel', function() { if (isAtBottom()) unlock(); });
-
-    // Финальная страховка: даже если всё вышеперечисленное почему-то
-    // не сработало — не даём человеку застрять навсегда.
-    setTimeout(unlock, 6000);
 });
 
 </script>

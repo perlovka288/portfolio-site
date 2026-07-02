@@ -139,7 +139,7 @@ if (isset($_POST['upload_payment_receipt'])) {
             $receiptPath = 'uploads/orders/' . $fileName;
         }
         $isUrgent = !empty($orderRow['is_urgent']);
-        $deadline = date('Y-m-d H:i:s', time() + ($isUrgent ? 24 * 3600 : 5 * 86400));
+        $deadline = calculateOrderDeadline($isUrgent);
         $newStatus = $isUrgent ? 'urgent' : 'in_progress';
         $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
             ->execute([$newStatus, $receiptPath, $deadline, $receiptOrderId]);

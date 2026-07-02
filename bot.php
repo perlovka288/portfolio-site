@@ -67,7 +67,7 @@ if (isset($update['callback_query'])) {
         $order_id = (int)str_replace('cli_pay_tg_', '', $callback_data);
         sendTelegram($token, 'sendMessage', [
             'chat_id' => $cal_chat_id,
-            'text'    => "📸 Отправьте сюда фото (или файл) чека оплаты по заказу #{$order_id} — я автоматически прикреплю его к заказу и запущу работу.",
+            'text'    => "Скиньте сюда чек оплаты",
         ]);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Жду чек 📎']);
         exit;
@@ -158,7 +158,7 @@ if (isset($update['callback_query'])) {
     // Взять в работу
     if (strpos($callback_data, 'adm_work_') === 0) {
         $order_id = (int)str_replace('adm_work_', '', $callback_data);
-        $deadline = date('Y-m-d H:i:s', time() + 5 * 86400); // +5 дней
+        $deadline = calculateOrderDeadline(false); // 5 суток (120ч)
         $pdo->prepare("UPDATE orders SET status = 'in_progress', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
         prefillClientChatId($pdo, $token, $order_id); // <-- пре-поиск chat_id
         sendTelegram($token, 'editMessageReplyMarkup', [
@@ -182,7 +182,7 @@ if (isset($update['callback_query'])) {
     // Срочный
     if (strpos($callback_data, 'adm_urgent_') === 0) {
         $order_id = (int)str_replace('adm_urgent_', '', $callback_data);
-        $deadline = date('Y-m-d H:i:s', time() + 24 * 3600); // +24 часа
+        $deadline = calculateOrderDeadline(true); // 24 часа
         $pdo->prepare("UPDATE orders SET status = 'urgent', deadline = ? WHERE id = ?")->execute([$deadline, $order_id]);
         prefillClientChatId($pdo, $token, $order_id);
         sendTelegram($token, 'editMessageReplyMarkup', [
@@ -195,10 +195,10 @@ if (isset($update['callback_query'])) {
             'text'       => "⚡️ *Заказ #{$order_id} переведён в СРОЧНЫЙ режим.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента (с картинкой статуса)
+        // Уведомляем клиента (с картинкой fast.jpg — согласно ТЗ п.2.4)
         safeNotifyClient($pdo, $token, $order_id,
             "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*",
-            'Markdown', null, __DIR__ . '/assets/notify/status.jpg'
+            'Markdown', null, __DIR__ . '/assets/notify/fast.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '⚡ Заказ срочный']);
         exit;
@@ -266,6 +266,46 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // 🤝 Отметить заказ как сотрудничество (из уведомления о новом заказе)
+    if (strpos($callback_data, 'adm_coop_') === 0) {
+        $order_id = (int)str_replace('adm_coop_', '', $callback_data);
+        $clientTg = '';
+        try {
+            $pdo->prepare("UPDATE orders SET cooperation = TRUE WHERE id = ?")->execute([$order_id]);
+            $tgStmt = $pdo->prepare("SELECT telegram FROM orders WHERE id = ? LIMIT 1");
+            $tgStmt->execute([$order_id]);
+            $clientTg = trim((string)$tgStmt->fetchColumn());
+        } catch (Throwable $e) {}
+        $cleanCoopTg = str_replace(['@', 'https://t.me/'], '', $clientTg);
+        $coopLink = $cleanCoopTg !== '' ? "https://t.me/{$cleanCoopTg}" : '';
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "🤝 Заказ #{$order_id} отмечен как сотрудничество" . ($coopLink !== '' ? "\n👤 Профиль клиента: {$coopLink}" : ''),
+            'parse_mode' => 'HTML',
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🤝 Отмечено как сотрудничество']);
+        exit;
+    }
+
+    // ✅ Принять заказ сразу в очередь — минуя оплату
+    if (strpos($callback_data, 'adm_queue_') === 0) {
+        $order_id = (int)str_replace('adm_queue_', '', $callback_data);
+        $deadline = calculateOrderDeadline(false);
+        $pdo->prepare("UPDATE orders SET status = 'in_progress', payment_status = 'skipped', accepted_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+            ->execute([$deadline, $order_id]);
+        prefillClientChatId($pdo, $token, $order_id);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "✅ *Заказ #{$order_id} принят в очередь, минуя оплату.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
+            'parse_mode' => 'Markdown',
+        ]);
+        safeNotifyClient($pdo, $token, $order_id,
+            "✅ *Ваш заказ #{$order_id} принят и поставлен в очередь!*\n\nДедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов."
+        );
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ в очереди']);
+        exit;
+    }
+
     sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
     exit;
 }
@@ -324,42 +364,87 @@ if (isset($update['message'])) {
     }
 
     $receiptFileId = '';
+    $receiptIsDocument = false;
     if (!empty($update['message']['photo'])) {
         $photos = $update['message']['photo'];
         $last = end($photos);
         $receiptFileId = (string)($last['file_id'] ?? '');
     } elseif (!empty($update['message']['document']['file_id'])) {
+        // Поддержка изображений, отправленных как документ — сохраняет
+        // оригинальный формат (webp, gif, bmp, tiff и т.д.), в отличие
+        // от 'photo', где Telegram всегда пересжимает в jpeg.
         $receiptFileId = (string)$update['message']['document']['file_id'];
+        $receiptIsDocument = true;
     }
 
     if ($receiptFileId !== '' && (string)$chat_id !== $admin_id) {
         try {
-            $stmt = $pdo->prepare("SELECT id, is_urgent FROM orders WHERE client_chat_id = ? AND status = 'awaiting_payment' ORDER BY accepted_at DESC NULLS LAST, id DESC LIMIT 1");
+            // Ищем либо заказ, ожидающий оплату (первый чек), либо заказ,
+            // которому только что запустили работу и куда клиент долистывает
+            // ещё чеки (до 3 штук суммарно).
+            $stmt = $pdo->prepare("
+                SELECT id, is_urgent, payment_receipt_count FROM orders
+                WHERE client_chat_id = ?
+                  AND (status = 'awaiting_payment' OR (payment_status = 'receipt_received' AND payment_receipt_count < 3))
+                ORDER BY accepted_at DESC NULLS LAST, id DESC LIMIT 1
+            ");
             $stmt->execute([(string)$chat_id]);
             $payOrder = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($payOrder) {
-                $order_id = (int)$payOrder['id'];
-                $isUrgent = !empty($payOrder['is_urgent']);
-                $deadline = date('Y-m-d H:i:s', time() + ($isUrgent ? 24 * 3600 : 5 * 86400));
-                $newStatus = $isUrgent ? 'urgent' : 'in_progress';
-                $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
-                    ->execute([$newStatus, $receiptFileId, $deadline, $order_id]);
-                addOrderMessage($pdo, $order_id, 'client', 'Клиент отправил чек оплаты.', $receiptFileId);
+                $order_id      = (int)$payOrder['id'];
+                $isFirstReceipt = ($payOrder['payment_receipt_count'] ?? 0) < 1;
+                $receiptCount  = min(3, (int)($payOrder['payment_receipt_count'] ?? 0) + 1);
+
+                // Каждый чек сохраняется под своим уникальным именем — fast.jpg
+                // это отдельная статичная декоративная картинка для уведомления
+                // "заказ срочный" (см. п.2.4 ТЗ) и чеками НЕ перезаписывается.
+                $receiptLocalPath = 'uploads/orders/receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.jpg';
+                $receiptAbsPath   = __DIR__ . '/' . $receiptLocalPath;
+                $savedLocally     = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
+                $receiptStoreValue = $savedLocally ? $receiptLocalPath : $receiptFileId;
+
+                if ($isFirstReceipt) {
+                    $isUrgent   = !empty($payOrder['is_urgent']);
+                    $deadline   = calculateOrderDeadline($isUrgent);
+                    $newStatus  = $isUrgent ? 'urgent' : 'in_progress';
+                    $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_receipt_count = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+                        ->execute([$newStatus, $receiptStoreValue, $receiptCount, $deadline, $order_id]);
+                } else {
+                    // Доп. фото чека (2-е / 3-е) — прикрепляем, дедлайн не пересчитываем
+                    $deadlineStmt = $pdo->prepare("SELECT deadline FROM orders WHERE id = ? LIMIT 1");
+                    $deadlineStmt->execute([$order_id]);
+                    $deadline = (string)$deadlineStmt->fetchColumn();
+                    $pdo->prepare("UPDATE orders SET payment_receipt_count = ? WHERE id = ?")->execute([$receiptCount, $order_id]);
+                }
+                addOrderMessage($pdo, $order_id, 'client', "Клиент отправил чек оплаты ({$receiptCount}/3).", $receiptStoreValue);
 
                 sendTelegram($token, 'sendPhoto', [
                     'chat_id'    => $admin_id,
                     'photo'      => $receiptFileId,
-                    'caption'    => "💳 Чек оплаты по заказу #{$order_id}\nСтатус: срок запущен до " . date('d.m.Y H:i', strtotime($deadline)),
+                    'caption'    => "💳 Чек оплаты по заказу #{$order_id} ({$receiptCount}/3)\nСтатус: срок запущен до " . date('d.m.Y H:i', strtotime($deadline)),
                     'parse_mode' => 'HTML',
                 ]);
+
+                if ($isFirstReceipt) {
+                    sendTelegram($token, 'sendMessage', [
+                        'chat_id'    => $admin_id,
+                        'text'       => "✅ *Чек получен по заказу #{$order_id}.*\nЗаказ переведён в работу. Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*",
+                        'parse_mode' => 'Markdown',
+                    ]);
+                }
+
+                // Ссылка в кабинет клиента на страницу заказа
+                $profileUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
+                try {
+                    $profileUrl .= '&tg_token=' . autoLinkGenerateToken($pdo, (int)$chat_id, []);
+                } catch (Throwable $e) {}
+
                 sendTelegram($token, 'sendMessage', [
-                    'chat_id'    => $admin_id,
-                    'text'       => "✅ *Чек получен по заказу #{$order_id}.*\nЗаказ переведён в работу. Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*",
-                    'parse_mode' => 'Markdown',
-                ]);
-                sendTelegram($token, 'sendMessage', [
-                    'chat_id'    => $chat_id,
-                    'text'       => "✅ Чек по заказу #{$order_id} получен.\nЗаказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)),
+                    'chat_id'      => $chat_id,
+                    'text'         => "Чек отправлен, ожидайте своего заказа. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)) . ". Отследить можно на сайте",
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [[['text' => '👤 Открыть профиль', 'url' => $profileUrl]]],
+                    ], JSON_UNESCAPED_UNICODE),
                 ]);
                 exit;
             }
