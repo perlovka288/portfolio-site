@@ -221,7 +221,7 @@ if (isset($update['callback_query'])) {
         ]);
         // Уведомляем клиента (с картинкой "готово", если файл загружен в assets/notify/gotovo.jpg)
         safeNotifyClient($pdo, $token, $order_id,
-            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}",
+            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://kostlimdzn.shop/review.php?order={$order_id}",
             'Markdown', null, __DIR__ . '/assets/notify/gotovo.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ выполнен']);
