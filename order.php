@@ -943,6 +943,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <div style="color:#e0e0ec; font-size:13px; line-height:1.65;">
             <?= $orderRulesHtml ?>
         </div>
+        <div id="rules-end-sentinel" style="height:1px;"></div>
     </div>
     <div style="margin-bottom: 20px;">
         <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
@@ -1491,6 +1492,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const rulesScroll = document.getElementById('rules-scroll');
     const agreeBtn = document.getElementById('agree-btn');
     const hint = document.getElementById('rules-hint');
+    const sentinel = document.getElementById('rules-end-sentinel');
 
     if (!rulesScroll || !agreeBtn) return;
 
@@ -1515,18 +1517,35 @@ document.addEventListener('DOMContentLoaded', function() {
     // Если текст целиком помещается без скролла — сразу открываем кнопку
     if (rulesScroll.scrollHeight <= rulesScroll.clientHeight + 5) {
         unlock();
-    } else {
-        // Опрашиваем позицию скролла раз в 200мс — не зависим от того,
-        // корректно ли браузер шлёт события scroll (на некоторых мобильных
-        // при инерционном скролле события могут идти нестабильно).
-        pollTimer = setInterval(function() { if (isAtBottom()) unlock(); }, 200);
-        rulesScroll.addEventListener('scroll', function() { if (isAtBottom()) unlock(); });
-        rulesScroll.addEventListener('touchmove', function() { if (isAtBottom()) unlock(); });
-
-        // Финальная страховка: даже если всё вышеперечисленное почему-то
-        // не сработало — не даём человеку застрять навсегда.
-        setTimeout(unlock, 6000);
+        return;
     }
+
+    // ── ОСНОВНОЙ способ: IntersectionObserver ──
+    // Следит за невидимым "маячком" в самом конце текста правил.
+    // В отличие от сравнения scrollHeight/scrollTop (которое может
+    // ошибаться на дробных пикселях, при зуме на телефоне или если
+    // страница ещё не до конца отрисовалась), этот способ срабатывает
+    // ровно в момент, когда конец текста реально появляется в поле
+    // зрения — это и есть самая частая причина, почему кнопка не
+    // разблокировалась, хотя человек долистал до конца.
+    if (sentinel && 'IntersectionObserver' in window) {
+        const obs = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) unlock();
+            });
+        }, { root: rulesScroll, threshold: 0.01 });
+        obs.observe(sentinel);
+    }
+
+    // ── Подстраховка: старые способы работают параллельно ──
+    pollTimer = setInterval(function() { if (isAtBottom()) unlock(); }, 200);
+    rulesScroll.addEventListener('scroll', function() { if (isAtBottom()) unlock(); });
+    rulesScroll.addEventListener('touchmove', function() { if (isAtBottom()) unlock(); });
+    rulesScroll.addEventListener('wheel', function() { if (isAtBottom()) unlock(); });
+
+    // Финальная страховка: даже если всё вышеперечисленное почему-то
+    // не сработало — не даём человеку застрять навсегда.
+    setTimeout(unlock, 6000);
 });
 
 </script>
