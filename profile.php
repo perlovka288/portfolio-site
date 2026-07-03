@@ -1071,5 +1071,21 @@ function toggleHistory() {
     }
 })();
 </script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+(function(){
+    try {
+        var tg = window.Telegram && window.Telegram.WebApp;
+        if (!tg || !tg.initData) return;
+        tg.ready();
+        fetch('/tg_webapp_auth.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'text/plain' },
+            body: tg.initData
+        }).catch(function(){});
+    } catch (e) {}
+})();
+</script>
 </body>
 </html>

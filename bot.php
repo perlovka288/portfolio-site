@@ -1663,17 +1663,64 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
 
     // Собираем фото
     $photos = [];
-    foreach (['payment_receipt' => 'Чек оплаты', 'screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
-        if (empty($item[$field])) continue;
-        if ($field === 'payment_receipt' && !str_starts_with((string)$item[$field], 'http')) {
-            $photos[] = ['file' => $item[$field], 'label' => $label, 'is_local' => false];
-            continue;
+
+    // Чек оплаты (payment_receipt) — может быть:
+    //  1) полный URL (ImgBB) — используем как есть
+    //  2) просто имя файла на диске (uploads/orders/имя.jpg) — оборачиваем в CURLFile
+    //  3) "сырой" Telegram file_id (старые заказы, до перехода на ImgBB) — передаём как есть
+    if (!empty($item['payment_receipt'])) {
+        $val = (string)$item['payment_receipt'];
+        if (str_starts_with($val, 'http')) {
+            $photos[] = ['file' => $val, 'label' => 'Чек оплаты', 'is_local' => false];
+        } else {
+            $path = __DIR__ . '/uploads/orders/' . basename($val);
+            if (is_file($path)) {
+                $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => 'Чек оплаты', 'is_local' => true];
+            } else {
+                // Похоже на Telegram file_id (не найден локально и не URL) — пробуем как есть
+                $photos[] = ['file' => $val, 'label' => 'Чек оплаты', 'is_local' => false];
+            }
         }
-        $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
+    }
+
+    // Старое поле screenshot (легаси, до перехода на "оплата после одобрения")
+    if (!empty($item['screenshot'])) {
+        $path = __DIR__ . '/uploads/orders/' . basename((string)$item['screenshot']);
         if (is_file($path)) {
-            $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => $label, 'is_local' => true];
-        } elseif (str_starts_with((string)$item[$field], 'http')) {
-            $photos[] = ['file' => $item[$field], 'label' => $label, 'is_local' => false];
+            $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => 'Чек оплаты', 'is_local' => true];
+        } elseif (str_starts_with((string)$item['screenshot'], 'http')) {
+            $photos[] = ['file' => $item['screenshot'], 'label' => 'Чек оплаты', 'is_local' => false];
+        }
+    }
+
+    // Референсы (example_photo) — хранится как JSON-массив Cloudinary-ссылок
+    // (см. order.php: $example_img_json = json_encode($example_imgs)), а НЕ
+    // как одна ссылка. Раньше код пытался использовать всю JSON-строку
+    // целиком как один URL/имя файла — она не проходила ни одну проверку
+    // (не начинается на "http", не существует как локальный файл) и просто
+    // молча пропускалась, поэтому референсы никогда не приходили в Telegram.
+    if (!empty($item['example_photo'])) {
+        $raw = (string)$item['example_photo'];
+        $refUrls = [];
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $u) {
+                $u = trim((string)$u);
+                if ($u !== '') $refUrls[] = $u;
+            }
+        } elseif ($raw !== '') {
+            // Легаси-формат — одна ссылка/один локальный файл без JSON-обёртки
+            $refUrls[] = $raw;
+        }
+        foreach ($refUrls as $u) {
+            if (str_starts_with($u, 'http')) {
+                $photos[] = ['file' => $u, 'label' => 'Референс', 'is_local' => false];
+                continue;
+            }
+            $path = __DIR__ . '/uploads/orders/' . basename($u);
+            if (is_file($path)) {
+                $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => 'Референс', 'is_local' => true];
+            }
         }
     }
 
@@ -1718,12 +1765,22 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
         // Несколько фото — mediaGroup без кнопок (ограничение TG), потом текст+кнопки
         $hasLocal = array_filter($photos, fn($p) => $p['is_local']);
         if ($hasLocal) {
+            // Смешанный альбом (часть фото — локальные файлы, часть — ссылки,
+            // например чек лежит на диске, а референсы на Cloudinary). Раньше
+            // для ссылок код тоже пытался использовать "attach://" — эта схема
+            // работает ТОЛЬКО для реально прикреплённых через multipart файлов,
+            // а не текстовых URL-полей, из-за чего Telegram отклонял вообще
+            // весь альбом целиком (ни чек, ни референсы не приходили).
             $post = ['chat_id' => $admin_id];
             $mediaPayload = [];
             foreach ($photos as $i => $p) {
-                $key = 'photo' . $i;
-                $post[$key] = $p['file'];
-                $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$key}"];
+                if ($p['is_local']) {
+                    $key = 'photo' . $i;
+                    $post[$key] = $p['file'];
+                    $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$key}"];
+                } else {
+                    $mediaPayload[] = ['type' => 'photo', 'media' => $p['file']];
+                }
             }
             $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
             $ch = curl_init("https://api.telegram.org/bot{$token}/sendMediaGroup");
@@ -1804,8 +1861,8 @@ function buildOrderCard($item, $price_info, $site_url) {
         $msg .= "📝 *Причина отказа:* " . mdEscape($item['declined_reason']) . "\n";
     }
 
-    // Photos (screenshot / example) are sent as media album separately
-    if (!empty($item['screenshot']) || !empty($item['example_photo'])) {
+    // Photos (receipt / example) are sent as media album separately
+    if (!empty($item['screenshot']) || !empty($item['example_photo']) || !empty($item['payment_receipt'])) {
         $msg .= "📸 *Файлы:* отправлены как альбом (фото ниже)\n";
     } else {
         $msg .= "📸 *Файлы:* _не прикреплены_\n";
@@ -1862,23 +1919,33 @@ function sendOrderPhotos($token, $chat_id, $item) {
     botLog("sendOrderPhotos: order={$item['id']} start");
     // collect available photos
     $media = [];
-    foreach (['screenshot' => 'Чек оплаты', 'example_photo' => 'Референс'] as $field => $label) {
-        if (empty($item[$field])) continue;
-        $path = __DIR__ . '/uploads/orders/' . basename($item[$field]);
+
+    if (!empty($item['screenshot'])) {
+        $path = __DIR__ . '/uploads/orders/' . basename((string)$item['screenshot']);
         if (is_file($path)) {
-            botLog("sendOrderPhotos: found local file {$path}");
-            $media[] = [
-                'type' => 'photo',
-                'media' => curl_file_create($path),
-                'caption' => "{$label} к заказу #{$item['id']}",
-            ];
-        } elseif (str_starts_with($item[$field], 'http://') || str_starts_with($item[$field], 'https://')) {
-            botLog("sendOrderPhotos: found remote URL {$item[$field]}");
-            $media[] = [
-                'type' => 'photo',
-                'media' => $item[$field],
-                'caption' => "{$label} к заказу #{$item['id']}",
-            ];
+            $media[] = ['type' => 'photo', 'media' => curl_file_create($path), 'caption' => "Чек оплаты к заказу #{$item['id']}"];
+        } elseif (str_starts_with((string)$item['screenshot'], 'http')) {
+            $media[] = ['type' => 'photo', 'media' => $item['screenshot'], 'caption' => "Чек оплаты к заказу #{$item['id']}"];
+        }
+    }
+
+    // example_photo хранится как JSON-массив ссылок (см. order.php), а не
+    // одна ссылка/файл — раньше это никак не парсилось и референсы всегда
+    // молча пропускались.
+    if (!empty($item['example_photo'])) {
+        $decoded = json_decode((string)$item['example_photo'], true);
+        $refUrls = is_array($decoded) ? $decoded : [(string)$item['example_photo']];
+        foreach ($refUrls as $u) {
+            $u = trim((string)$u);
+            if ($u === '') continue;
+            if (str_starts_with($u, 'http')) {
+                $media[] = ['type' => 'photo', 'media' => $u, 'caption' => "Референс к заказу #{$item['id']}"];
+                continue;
+            }
+            $path = __DIR__ . '/uploads/orders/' . basename($u);
+            if (is_file($path)) {
+                $media[] = ['type' => 'photo', 'media' => curl_file_create($path), 'caption' => "Референс к заказу #{$item['id']}"];
+            }
         }
     }
 
@@ -1906,15 +1973,21 @@ function sendOrderPhotos($token, $chat_id, $item) {
     }
 
     if ($useFiles) {
-        // When uploading local files, attach each as "photoN" and reference via "attach://photoN" in media array
+        // Смешанный альбом: локальные файлы — через attach://, ссылки — напрямую
+        // ("attach://" работает только для реально прикреплённых multipart-файлов,
+        // иначе Telegram отклоняет весь альбом целиком).
         $post = ['chat_id' => $chat_id];
         $mediaPayload = [];
         $i = 0;
         foreach ($media as $m) {
-            $i++;
-            $attachKey = "photo{$i}";
-            $post[$attachKey] = $m['media'];
-            $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
+            if ($m['media'] instanceof CURLFile) {
+                $i++;
+                $attachKey = "photo{$i}";
+                $post[$attachKey] = $m['media'];
+                $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
+            } else {
+                $mediaPayload[] = ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']];
+            }
         }
         $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
         $res = sendTelegramFile($token, 'sendMediaGroup', $post);

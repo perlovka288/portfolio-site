@@ -279,3 +279,68 @@ function _fetchTgAvatarForSite(PDO $pdo, string $tg_id): string {
         return '';
     }
 }
+
+/**
+ * ── Telegram Mini App (Web App) — проверенная авто-привязка ──────────
+ *
+ * В отличие от старой схемы (?tg_token=... в URL, который нужно было
+ * генерировать заранее и который "протухал"), Telegram сам передаёт
+ * данные пользователя при открытии сайта через кнопку web_app — без
+ * какого-либо токена в ссылке вообще. НО эти данные нельзя использовать
+ * напрямую (window.Telegram.WebApp.initDataUnsafe) — это НЕПРОВЕРЕННЫЕ
+ * данные, их может подделать кто угодно через консоль браузера
+ * (например, вписать себе чужой tg_id и стать в системе другим
+ * пользователем — это реальная уязвимость, которую видел в чужом коде).
+ *
+ * Поэтому сюда должна приходить ПОДПИСАННАЯ строка initData целиком
+ * (Telegram.WebApp.initData, а не initDataUnsafe), а эта функция
+ * пересчитывает HMAC-подпись с использованием секретного токена бота
+ * и сверяет её — подделать это невозможно, не зная токен бота.
+ * Алгоритм — официальный, из документации Telegram Mini Apps.
+ *
+ * Возвращает распарсенные и провеенные данные пользователя, либо null
+ * если подпись неверна / данные устарели (> 24ч — защита от повторного
+ * использования один раз "слитой" ссылки/initData).
+ */
+function verifyTelegramWebAppInitData(string $initData, string $botToken): ?array
+{
+    if ($initData === '' || $botToken === '') return null;
+
+    parse_str($initData, $data);
+    $hash = (string)($data['hash'] ?? '');
+    if ($hash === '') return null;
+    unset($data['hash']);
+
+    ksort($data);
+    $pairs = [];
+    foreach ($data as $k => $v) {
+        $pairs[] = $k . '=' . $v;
+    }
+    $dataCheckString = implode("\n", $pairs);
+
+    $secretKey    = hash_hmac('sha256', $botToken, 'WebAppData', true);
+    $computedHash = hash_hmac('sha256', $dataCheckString, $secretKey);
+
+    if (!hash_equals($computedHash, $hash)) {
+        return null; // подпись не сошлась — данные подделаны или устарели
+    }
+
+    $authDate = (int)($data['auth_date'] ?? 0);
+    if ($authDate <= 0 || (time() - $authDate) > 86400) {
+        return null; // старше 24ч — не доверяем (защита от replay)
+    }
+
+    $user = [];
+    if (!empty($data['user'])) {
+        $decoded = json_decode((string)$data['user'], true);
+        if (is_array($decoded)) $user = $decoded;
+    }
+    if (empty($user['id'])) return null;
+
+    return [
+        'id'         => (int)$user['id'],
+        'username'   => (string)($user['username'] ?? ''),
+        'first_name' => (string)($user['first_name'] ?? ''),
+        'photo_url'  => (string)($user['photo_url'] ?? ''),
+    ];
+}
