@@ -965,9 +965,11 @@ body::after {
                 <!-- Профиль -->
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
                     <?php if (!empty($rv['tg_photo_url'])): ?>
-                         <img src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);"
-                          onerror="this.style.display='none'">
-
+                         <img src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);flex-shrink:0;"
+                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                         <div style="display:none;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
+                            <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
+                         </div>
                     <?php else: ?>
                         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
                             <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>

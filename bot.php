@@ -123,7 +123,7 @@ if (isset($update['callback_query'])) {
             $st->execute([$order_id]);
             $info = $st->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {}
-        $payText = paymentInstructionsText($order_id, $info, !empty($info['cooperation']));
+        $payText = paymentInstructionsText($order_id, $info, !empty($info['cooperation']), $urgentAccept);
         addOrderMessage($pdo, $order_id, 'admin', "Заказ принят. Клиенту отправлены реквизиты.");
 
         sendTelegram($token, 'editMessageReplyMarkup', [
@@ -150,7 +150,7 @@ if (isset($update['callback_query'])) {
             }
         } catch (Throwable $e) {}
 
-        safeNotifyClient($pdo, $token, $order_id, $payText, '', paymentKeyboard($order_id, $payUrl));
+        safeNotifyClient($pdo, $token, $order_id, $payText, 'Markdown', paymentKeyboard($order_id, $payUrl), __DIR__ . '/assets/notify/pay.jpg');
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ принят, реквизиты отправлены']);
         exit;
     }
@@ -221,7 +221,7 @@ if (isset($update['callback_query'])) {
         ]);
         // Уведомляем клиента (с картинкой "готово", если файл загружен в assets/notify/gotovo.jpg)
         safeNotifyClient($pdo, $token, $order_id,
-            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://kostlimdzn.shop/review.php?order={$order_id}",
+            "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}",
             'Markdown', null, __DIR__ . '/assets/notify/gotovo.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ выполнен']);
@@ -270,19 +270,34 @@ if (isset($update['callback_query'])) {
     if (strpos($callback_data, 'adm_coop_') === 0) {
         $order_id = (int)str_replace('adm_coop_', '', $callback_data);
         $clientTg = '';
+        $deadline = calculateOrderDeadline(false); // сотрудничество идёт в обычном темпе (120ч)
         try {
-            $pdo->prepare("UPDATE orders SET cooperation = TRUE WHERE id = ?")->execute([$order_id]);
+            $pdo->prepare("UPDATE orders SET cooperation = TRUE, status = 'in_progress', payment_status = 'skipped', accepted_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+                ->execute([$deadline, $order_id]);
             $tgStmt = $pdo->prepare("SELECT telegram FROM orders WHERE id = ? LIMIT 1");
             $tgStmt->execute([$order_id]);
             $clientTg = trim((string)$tgStmt->fetchColumn());
         } catch (Throwable $e) {}
+        prefillClientChatId($pdo, $token, $order_id);
         $cleanCoopTg = str_replace(['@', 'https://t.me/'], '', $clientTg);
         $coopLink = $cleanCoopTg !== '' ? "https://t.me/{$cleanCoopTg}" : '';
+        $deadlineText = date('d.m.Y в H:i', strtotime($deadline));
+
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "🤝 Заказ #{$order_id} отмечен как сотрудничество" . ($coopLink !== '' ? "\n👤 Профиль клиента: {$coopLink}" : ''),
+            'text'       => "🤝 Заказ #{$order_id} отмечен как сотрудничество" . ($coopLink !== '' ? "\n👤 Профиль клиента: {$coopLink}" : '') . "\n📅 Дедлайн: {$deadlineText}",
             'parse_mode' => 'HTML',
         ]);
+
+        addOrderMessage($pdo, $order_id, 'admin', 'Заказ принят по сотрудничеству, минуя оплату.');
+        safeNotifyClient($pdo, $token, $order_id,
+            "🤝 *Заказ #{$order_id} принят по сотрудничеству!*\n\n"
+            . "✅ Оплата не требуется — договорённость в силе.\n"
+            . "📅 Дедлайн: *{$deadlineText}*\n"
+            . "🚀 Дизайнер уже приступает к работе.\n\n"
+            . "❓ Если есть вопросы — пишите: @Perlo_ovka",
+            'Markdown', null, __DIR__ . '/assets/notify/sot.jpg'
+        );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🤝 Отмечено как сотрудничество']);
         exit;
     }
@@ -300,7 +315,7 @@ if (isset($update['callback_query'])) {
             'parse_mode' => 'Markdown',
         ]);
         safeNotifyClient($pdo, $token, $order_id,
-            "✅ *Ваш заказ #{$order_id} принят и поставлен в очередь!*\n\nДедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов."
+            "✅ *Ваш заказ #{$order_id} принят и поставлен в очередь!*\n\n📅 Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов.\n\n❓ Если есть вопросы — пишите: @Perlo_ovka"
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ в очереди']);
         exit;
@@ -353,7 +368,8 @@ if (isset($update['message'])) {
         addOrderMessage($pdo, $order_id, 'admin', 'Заказ отклонён. Причина: ' . $reason);
         prefillClientChatId($pdo, $token, $order_id);
         safeNotifyClient($pdo, $token, $order_id,
-            "🔴 *Заказ #{$order_id} отклонён.*\n\nПричина: " . mdEscape($reason) . "\n\nПо вопросам: @Perlo_ovka"
+            "🔴 *Заказ #{$order_id} отклонён.*\n\n📝 Причина: " . mdEscape($reason) . "\n\n❓ По всем вопросам пишите: @Perlo_ovka",
+            'Markdown', null, __DIR__ . '/assets/notify/otkaz.jpg'
         );
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
@@ -403,10 +419,21 @@ if (isset($update['message'])) {
                 // Каждый чек сохраняется под своим уникальным именем — fast.jpg
                 // это отдельная статичная декоративная картинка для уведомления
                 // "заказ срочный" (см. п.2.4 ТЗ) и чеками НЕ перезаписывается.
-                $receiptLocalPath = 'uploads/orders/receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.jpg';
-                $receiptAbsPath   = __DIR__ . '/' . $receiptLocalPath;
-                $savedLocally     = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
-                $receiptStoreValue = $savedLocally ? $receiptLocalPath : $receiptFileId;
+                $receiptFileName = 'receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.jpg';
+                $receiptAbsPath  = __DIR__ . '/uploads/orders/' . $receiptFileName;
+                $savedLocally    = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
+
+                // Заливаем на ImgBB — постоянная ссылка, которая гарантированно
+                // откроется и в админке на сайте, и в Telegram sendPhoto (локальный
+                // диск на Render эфемерный и может обнулиться после рестарта).
+                $receiptStoreValue = $savedLocally ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id) : '';
+                if ($receiptStoreValue === '') {
+                    // Фолбэк: просто имя файла (БЕЗ префикса 'uploads/orders/' —
+                    // так его ожидает imgSrc() в админке, которая сама этот
+                    // префикс достраивает; путь с префиксом даёт битую двойную
+                    // ссылку и картинка не отображается на сайте).
+                    $receiptStoreValue = $savedLocally ? $receiptFileName : $receiptFileId;
+                }
 
                 if ($isFirstReceipt) {
                     $isUrgent   = !empty($payOrder['is_urgent']);
@@ -611,6 +638,14 @@ if (isset($update['message'])) {
                 }
             }
             $price_msg .= "\n";
+        }
+        $priceImgPath = __DIR__ . '/assets/notify/price.jpg';
+        if (is_file($priceImgPath)) {
+            sendTelegramFile($token, 'sendPhoto', [
+                'chat_id' => $chat_id,
+                'photo'   => new CURLFile($priceImgPath),
+                'caption' => '📋 Актуальный прайс-лист',
+            ]);
         }
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $chat_id,
@@ -1142,7 +1177,7 @@ function showCabinet($pdo, $token, $chat_id) {
         if (empty($orders)) {
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $chat_id,
-                'text'       => "📂 *Личный кабинет*\n\nУ вас пока нет заказов.\n\nПосле оформления заказа они будут отображаться тут\n\nА так же вы будете получать уведомления при изменении статуса заказа",
+                'text'       => "📂 *Личный кабинет*\n\nУ вас пока нет привязанных заказов.\n\nЧтобы привязать заказ, отправьте команду:\n`/status_НОМЕР_ЗАКАЗА`\n\nНомер заказа вы получили на сайте при оформлении.",
                 'parse_mode' => 'Markdown',
             ]);
             return;
@@ -1461,8 +1496,8 @@ function orderKeyboard($order_id, $status, $telegram) {
 
     if ($status === 'pending') {
         $keyboard['inline_keyboard'][] = [
-            ['text' => '✅ Принять / оплата', 'callback_data' => "adm_accept_{$order_id}"],
-            ['text' => '⚡️ Принять срочный', 'callback_data' => "adm_accept_urgent_{$order_id}"],
+            ['text' => '✅ Обычный (5 сут.)', 'callback_data' => "adm_accept_{$order_id}"],
+            ['text' => '⚡️ Срочный (24ч, +50%)', 'callback_data' => "adm_accept_urgent_{$order_id}"],
         ];
         $keyboard['inline_keyboard'][] = [
             ['text' => '❌ Отклонить', 'callback_data' => "adm_dec_{$order_id}"],

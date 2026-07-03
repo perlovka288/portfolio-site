@@ -135,8 +135,10 @@ if (isset($_POST['upload_payment_receipt'])) {
         // sendPhoto (локальный путь на диске мог пропасть при рестарте сервера).
         $receiptPath = ($ext !== 'pdf') ? uploadReceiptToImgBB($target, 'receipt_' . $receiptOrderId) : '';
         if ($receiptPath === '') {
-            // Фолбэк — локальный путь как раньше
-            $receiptPath = 'uploads/orders/' . $fileName;
+            // Фолбэк — просто имя файла (БЕЗ префикса 'uploads/orders/' —
+            // imgSrc() в админке сама достраивает этот префикс; путь с
+            // префиксом давал битую двойную ссылку на картинку).
+            $receiptPath = $fileName;
         }
         $isUrgent = !empty($orderRow['is_urgent']);
         $deadline = calculateOrderDeadline($isUrgent);
@@ -146,7 +148,7 @@ if (isset($_POST['upload_payment_receipt'])) {
         addOrderMessage($pdo, $receiptOrderId, 'client', 'Клиент отправил чек оплаты через сайт.', $receiptPath);
 
         $adminText = "💳 Чек оплаты по заказу #{$receiptOrderId}\nСтатус: заказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
-        $absoluteReceiptUrl = str_starts_with($receiptPath, 'http') ? $receiptPath : ($siteUrl . ltrim($receiptPath, '/'));
+        $absoluteReceiptUrl = str_starts_with($receiptPath, 'http') ? $receiptPath : ($siteUrl . 'uploads/orders/' . ltrim($receiptPath, '/'));
         if ($ext === 'pdf') {
             profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgId, 'text' => $adminText . "\n" . $absoluteReceiptUrl]);
         } else {
@@ -479,6 +481,22 @@ $cancelledId     = (int)($_GET['cancelled'] ?? 0);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Профиль | Kostlim Design</title>
+<?php
+// Иконка сайта в браузерной вкладке (была только на index.php — теперь и тут).
+// Примечание: реальный favicon в вкладке браузера НЕ подчиняется CSS страницы,
+// поэтому "круглым" он станет только если сама картинка аватарки — круглая/с
+// прозрачным фоном. На самой странице (в шапке) иконка уже круглая — там это
+// обычный <img class="avatar-mini"> с border-radius:50%, а не системный favicon.
+$_favicon_url = $siteAvatar !== '' ? imgSrc($siteAvatar) : '';
+?>
+<?php if ($_favicon_url): ?>
+<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>" sizes="any">
+<link rel="apple-touch-icon" href="<?= htmlspecialchars($_favicon_url) ?>">
+<link rel="shortcut icon" href="<?= htmlspecialchars($_favicon_url) ?>">
+<?php else: ?>
+<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
+<link rel="apple-touch-icon" href="https://i.imgur.com/w9NThbA.png">
+<?php endif; ?>
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {

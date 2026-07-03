@@ -74,23 +74,37 @@ function downloadTelegramFileToLocal(string $token, string $fileId, string $dest
     }
 }
 
-function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCooperation = false): string
+function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCooperation = false, bool $isUrgent = false): string
 {
-    $rub = (int)($priceInfo['price_rub'] ?? 0);
-    $uan = (int)($priceInfo['price_uan'] ?? 0);
+    $baseRub = (int)($priceInfo['price_rub'] ?? 0);
+    $baseUan = (int)($priceInfo['price_uan'] ?? 0);
     if ($isCooperation) {
-        $rub = 0;
-        $uan = 0;
+        $baseRub = 0;
+        $baseUan = 0;
     }
+
+    // Срочный заказ (24ч вместо 5 суток) — наценка +50% к стоимости
+    $rub = $isUrgent ? (int)round($baseRub * 1.5) : $baseRub;
+    $uan = $isUrgent ? (int)round($baseUan * 1.5) : $baseUan;
 
     $rubDetails    = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
     $uanDetails    = trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера'));
     $cryptoDetails = trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2'));
     $monoDetails   = trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708'));
 
-    return "✅ Заказ #{$orderId} принят. Ожидается оплата.\n\n"
-        . "Сумма: {$rub} ₽ / {$uan} ₴\n"
-        . "❗ Обязательно укажите заказ #{$orderId} в комментарии к оплате.\n\n"
+    $header = $isUrgent
+        ? "⚡ *Заказ #{$orderId} принят как СРОЧНЫЙ.* Ожидается оплата.\n\n"
+        : "✅ *Заказ #{$orderId} принят.* Ожидается оплата.\n\n";
+
+    $priceBlock = "💰💰💰 *К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴* 💰💰💰\n\n";
+    if ($isUrgent && !$isCooperation) {
+        $priceBlock = "Базовая стоимость: {$baseRub} ₽ / {$baseUan} ₴\n"
+            . "⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rub - $baseRub) . " ₽ / +" . ($uan - $baseUan) . " ₴\n\n"
+            . "💰💰💰 *ИТОГО К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴* 💰💰💰\n\n";
+    }
+
+    return $header
+        . $priceBlock
         . "🔗 Реквизиты:\n"
         . "-Рубли: {$rubDetails}\n"
         . "-Гривны: {$uanDetails}\n"

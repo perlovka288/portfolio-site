@@ -46,6 +46,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tg_photo_url = $tgProfile['tg_photo_url']  ?? '';
         $tg_id_val    = (string)($tgProfile['tg_id'] ?? '');
 
+        // Подтягиваем/обновляем аватарку клиента на постоянный хостинг
+        // (Cloudinary) — иначе в карточке отзыва она либо отсутствовала
+        // (никогда не была загружена), либо была "сырой" ссылкой Telegram,
+        // которая протухает и в итоге вообще не отображается.
+        if ($tg_id_val !== '') {
+            $tg_photo_url = ensureTgAvatarFresh($pdo, $sid, $tg_id_val, $tg_photo_url);
+            if ($tg_photo_url !== ($tgProfile['tg_photo_url'] ?? '')) {
+                try {
+                    $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ? AND linked = TRUE")
+                        ->execute([$tg_photo_url, $sid]);
+                } catch (Throwable $e) {}
+            }
+        }
+
         // Cooldown 5 minutes for non-admins
         $isAdminReview = ($tg_id_val === '1710365896' || $tg_id_val === (getenv('ADMIN_ID') ?: '1710365896'));
         if (!$isAdminReview) {
