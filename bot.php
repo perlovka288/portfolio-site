@@ -642,18 +642,29 @@ if (isset($update['message'])) {
             $price_msg .= "\n";
         }
         $priceImgPath = __DIR__ . '/assets/notify/price.jpg';
-        if (is_file($priceImgPath)) {
+        $priceFitsCaption = is_file($priceImgPath) && mb_strlen($price_msg) <= 1024;
+        if ($priceFitsCaption) {
+            // Помещается целиком в подпись — одно сообщение: фото + весь текст
             sendTelegramFile($token, 'sendPhoto', [
-                'chat_id' => $chat_id,
-                'photo'   => new CURLFile($priceImgPath),
-                'caption' => '📋 Актуальный прайс-лист',
+                'chat_id'    => $chat_id,
+                'photo'      => new CURLFile($priceImgPath),
+                'caption'    => $price_msg,
+                'parse_mode' => 'Markdown',
+            ]);
+        } else {
+            if (is_file($priceImgPath)) {
+                sendTelegramFile($token, 'sendPhoto', [
+                    'chat_id' => $chat_id,
+                    'photo'   => new CURLFile($priceImgPath),
+                    'caption' => '📋 Актуальный прайс-лист',
+                ]);
+            }
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => $price_msg,
+                'parse_mode' => 'Markdown',
             ]);
         }
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $chat_id,
-            'text'       => $price_msg,
-            'parse_mode' => 'Markdown',
-        ]);
         foreach ($prices as $p) {
             if (empty($p['image'])) continue;
             $path = __DIR__ . '/uploads/' . basename($p['image']);
@@ -1289,7 +1300,58 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
             'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
         ]);
 
-    } catch (Exception $e) {
+        // ── Показываем фото, прикреплённые к заказу (референсы + чек) ──
+        // Раньше при просмотре заказа через бота клиент видел только текст —
+        // приложенные им же самим фото (референсы к ТЗ, чек оплаты) нигде
+        // не показывались, хотя он их отправлял.
+        $orderPhotos = [];
+        if (!empty($order['example_photo'])) {
+            $decodedRefs = json_decode((string)$order['example_photo'], true);
+            $refList = is_array($decodedRefs) ? $decodedRefs : [(string)$order['example_photo']];
+            foreach ($refList as $u) {
+                $u = trim((string)$u);
+                if ($u !== '' && str_starts_with($u, 'http')) {
+                    $orderPhotos[] = ['media' => $u, 'caption' => ($orderPhotos === [] ? '📸 Референсы к заказу #' . $order['id'] : '')];
+                }
+            }
+        }
+        if (!empty($order['payment_receipt'])) {
+            $rv = (string)$order['payment_receipt'];
+            if (str_starts_with($rv, 'http')) {
+                $orderPhotos[] = ['media' => $rv, 'caption' => '💳 Чек оплаты'];
+            } else {
+                $rpath = __DIR__ . '/uploads/orders/' . basename($rv);
+                if (is_file($rpath)) {
+                    $orderPhotos[] = ['media' => new CURLFile(realpath($rpath)), 'caption' => '💳 Чек оплаты'];
+                }
+            }
+        }
+        if (count($orderPhotos) === 1) {
+            $only = $orderPhotos[0];
+            sendTelegramFile($token, 'sendPhoto', [
+                'chat_id' => $chat_id,
+                'photo'   => $only['media'],
+                'caption' => $only['caption'],
+            ]);
+        } elseif (count($orderPhotos) > 1) {
+            $mediaPayload = [];
+            $post = ['chat_id' => $chat_id];
+            $i = 0;
+            foreach ($orderPhotos as $p) {
+                if ($p['media'] instanceof CURLFile) {
+                    $i++;
+                    $key = "photo{$i}";
+                    $post[$key] = $p['media'];
+                    $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$key}", 'caption' => $p['caption']];
+                } else {
+                    $mediaPayload[] = ['type' => 'photo', 'media' => $p['media'], 'caption' => $p['caption']];
+                }
+            }
+            $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+            sendTelegramFile($token, 'sendMediaGroup', $post);
+        }
+
+    } catch (Throwable $e) {
         botLog("showClientOrderDetails error: " . $e->getMessage());
         sendTelegram($token, 'sendMessage', [
             'chat_id' => $chat_id,
@@ -1461,10 +1523,15 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 200));
             }
         } else {
-            botLog("safeNotifyClient order={$order_id} no chat_id. telegram=" . ($row['telegram'] ?? ''));
+            // Если не нашли chat_id вообще никаким способом — это САМАЯ частая
+            // причина "клиенту ничего не приходит". Важно: если клиент НИ РАЗУ
+            // не писал боту /start — это ограничение самого Telegram (бот
+            // технически не может первым написать пользователю, это защита от
+            // спама на уровне платформы, обойти нельзя никаким кодом).
+            botLog("safeNotifyClient order={$order_id} NO CHAT_ID FOUND — client_chat_id empty, no tg_links match, getChat failed. telegram=" . ($row['telegram'] ?? '') . " session_id=" . ($row['session_id'] ?? ''));
         }
-    } catch (Exception $e) {
-        botLog("safeNotifyClient error order={$order_id}: " . $e->getMessage());
+    } catch (Throwable $e) {
+        botLog("safeNotifyClient error order={$order_id}: " . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     }
 }
 
