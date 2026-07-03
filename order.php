@@ -401,12 +401,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         curl_exec($ch); curl_close($ch);
                     }
                 } else {
-                    // Несколько фото — sendMediaGroup через URL (multipart)
+                    // Несколько фото — sendMediaGroup через URL (multipart).
+                    // reply_markup (кнопки) Telegram НЕ поддерживает у альбомов —
+                    // это ограничение самого API, а не недоработка кода, поэтому
+                    // кнопки в любом случае идут отдельным сообщением. Но сам
+                    // текст заказа теперь по возможности вкладываем в подпись
+                    // первого фото альбома (если помещается в лимit в 1024
+                    // символа) — тогда не дублируется отдельным сообщением.
+                    $fitsAsCaption = mb_strlen($full_msg_text) <= 1024;
                     $mediaPayload = [];
                     foreach ($photos_to_send as $i => $url) {
                         $mediaItem = ['type' => 'photo', 'media' => $url];
                         if ($i === 0) {
-                            $mediaItem['caption'] = '📸 Фото к заказу #' . $order_id;
+                            $mediaItem['caption']    = $fitsAsCaption ? $full_msg_text : ('📸 Фото к заказу #' . $order_id);
                             $mediaItem['parse_mode'] = 'HTML';
                         }
                         $mediaPayload[] = $mediaItem;
@@ -422,12 +429,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         ],
                     ]);
                     curl_exec($ch); curl_close($ch);
-                    // Текст + кнопки отдельным сообщением
+                    // Кнопки управления — отдельным сообщением (иначе никак,
+                    // Telegram не разрешает reply_markup у альбомов). Текст
+                    // дублируем только если он не поместился в подпись выше.
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
                         CURLOPT_POSTFIELDS => [
                             'chat_id'      => $my_chat_id,
-                            'text'         => $full_msg_text,
+                            'text'         => $fitsAsCaption ? '👆 Управление заказом #' . $order_id : $full_msg_text,
                             'parse_mode'   => 'HTML',
                             'reply_markup' => json_encode($keyboard),
                         ]]);

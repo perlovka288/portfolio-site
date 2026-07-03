@@ -33,8 +33,12 @@ if ($user === null) {
 }
 
 try {
-    _saveTgToSession($pdo, session_id(), $user['id'], $user['username'], $user['first_name']);
+    _saveTgToSession($pdo, session_id(), $user['id'], $user['username'], $user['first_name'], $user['photo_url']);
     $_SESSION['_tg_linked'] = true;
+    // Флаг ставится ТОЛЬКО здесь, после успешной проверки HMAC-подписи —
+    // именно на него опирается вход в админку (admin/auth.php), в отличие
+    // от обычной привязки заказов через tg_links, которую подделать проще.
+    $_SESSION['_tg_verified_id'] = (string)$user['id'];
     echo json_encode(['ok' => true]);
 } catch (Throwable $e) {
     error_log('tg_webapp_auth error: ' . $e->getMessage());

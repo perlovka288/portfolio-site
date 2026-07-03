@@ -12,23 +12,23 @@ if (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true) {
     return;
 }
 
-// Try Telegram-based recognition: if this session is linked to ADMIN_TELEGRAM_ID in tg_links, promote to admin
-try {
-    require_once __DIR__ . '/../config/db.php';
-    $sid = session_id();
-    $stmt = $pdo->prepare("SELECT tg_id, linked FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    $adminTg = getenv('ADMIN_TELEGRAM_ID') ?: (getenv('ADMIN_ID') ?: '');
-    if ($row && (int)($row['linked'] ?? 0) === 1) {
-        $tg_id = (string)($row['tg_id'] ?? '');
-        if ($tg_id !== '' && $adminTg !== '' && (string)$tg_id === (string)$adminTg) {
-            $_SESSION['admin_logged'] = true;
-            return;
-        }
-    }
-} catch (Throwable $e) {
-    // ignore DB errors and fall through to normal login
+$adminTg = getenv('ADMIN_TELEGRAM_ID') ?: (getenv('ADMIN_ID') ?: '');
+
+// ── Единственный Telegram-путь входа в админку — через ПРОВЕРЕННЫЙ
+// Telegram Mini App (см. tg_webapp_auth.php). $_SESSION['_tg_verified_id']
+// выставляется ТОЛЬКО после того, как сервер пересчитал HMAC-подпись
+// initData секретным токеном бота — подделать эту сессию невозможно,
+// не зная сам токен бота.
+//
+// Раньше здесь была проверка через общую таблицу tg_links (куда сессия
+// попадала по ?tg_token=... из обычной ссылки) — эта ссылка была
+// многоразовой в течение 72ч и давала admin_logged=true любому, кто её
+// просто открыл (например, если она засветилась на демонстрации экрана).
+// Такой путь для входа в АДМИНКУ больше не используется — только для
+// обычной привязки заказов клиентам, где цена ошибки на порядки ниже.
+if (!empty($_SESSION['_tg_verified_id']) && $adminTg !== '' && (string)$_SESSION['_tg_verified_id'] === (string)$adminTg) {
+    $_SESSION['admin_logged'] = true;
+    return;
 }
 
 // Not an admin — redirect to login

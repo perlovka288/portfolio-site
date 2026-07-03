@@ -450,20 +450,22 @@ if (isset($update['message'])) {
                 }
                 addOrderMessage($pdo, $order_id, 'client', "Клиент отправил чек оплаты ({$receiptCount}/3).", $receiptStoreValue);
 
+                // Раньше это были 2 отдельных сообщения (фото с короткой
+                // подписью + следом текст "заказ переведён в работу") —
+                // теперь всё приходит одним сообщением: фото + вся инфа в подписи.
+                $adminCaption = "💳 Чек оплаты по заказу #{$order_id} ({$receiptCount}/3)\n"
+                    . "📅 Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
+                if ($isFirstReceipt) {
+                    $adminCaption = "✅ *Чек получен по заказу #{$order_id} ({$receiptCount}/3)*\n"
+                        . "Заказ переведён в работу.\n"
+                        . "📅 Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*";
+                }
                 sendTelegram($token, 'sendPhoto', [
                     'chat_id'    => $admin_id,
                     'photo'      => $receiptFileId,
-                    'caption'    => "💳 Чек оплаты по заказу #{$order_id} ({$receiptCount}/3)\nСтатус: срок запущен до " . date('d.m.Y H:i', strtotime($deadline)),
-                    'parse_mode' => 'HTML',
+                    'caption'    => $adminCaption,
+                    'parse_mode' => 'Markdown',
                 ]);
-
-                if ($isFirstReceipt) {
-                    sendTelegram($token, 'sendMessage', [
-                        'chat_id'    => $admin_id,
-                        'text'       => "✅ *Чек получен по заказу #{$order_id}.*\nЗаказ переведён в работу. Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*",
-                        'parse_mode' => 'Markdown',
-                    ]);
-                }
 
                 // Ссылка в кабинет клиента на страницу заказа
                 $profileUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
@@ -1427,6 +1429,18 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
                     $params['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
                 }
                 $res = sendTelegramFile($token, 'sendPhoto', array_merge($params, ['photo' => new CURLFile($photoPath)]));
+                $decodedPhoto = json_decode((string)$res, true);
+                if (empty($decodedPhoto['ok'])) {
+                    // Фото не ушло (битый файл / подпись > 1024 симв. / любая
+                    // другая причина) — САМОЕ ГЛАВНОЕ, чтобы клиент в любом
+                    // случае получил текст. Раньше при ошибке sendPhoto клиент
+                    // не получал вообще ничего — ни фото, ни текста.
+                    botLog("safeNotifyClient order={$order_id} sendPhoto FAILED, falling back to text: " . substr((string)$res, 0, 300));
+                    $fallbackParams = ['chat_id' => $chat_id, 'text' => $text];
+                    if ($parseMode !== '') $fallbackParams['parse_mode'] = $parseMode;
+                    if ($replyMarkup !== null) $fallbackParams['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
+                    $res = sendTelegram($token, 'sendMessage', $fallbackParams);
+                }
             } else {
                 $params = [
                     'chat_id'    => $chat_id,
@@ -2100,8 +2114,12 @@ function autoLinkGenerateToken(PDO $pdo, int $tg_chat_id, array $from): string {
         botLog("autoLink token generated for tg_id={$tg_chat_id}");
     } catch (Throwable $e) {
         botLog("autoLink generate error: " . $e->getMessage());
-        // Возвращаем просто tg_id как fallback (менее безопасно но рабочее)
-        return 'tgid_' . $tg_chat_id;
+        // Раньше тут был fallback вида "tgid_<id>" — небезопасный (принимался
+        // без проверки, см. фикс в includes/session.php::processTgAutoLink).
+        // Теперь просто отдаём пустую строку — ссылка на сайт всё равно
+        // будет работать, только без автопривязки TG (человек привяжется
+        // сам через сайт как обычно).
+        return '';
     }
 
     return $token;

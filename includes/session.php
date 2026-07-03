@@ -73,23 +73,27 @@ function processTgAutoLink(PDO $pdo): void {
             expires_at    TIMESTAMP DEFAULT NOW() + INTERVAL '72 hours'
         )");
 
-        // Fallback: прямой tg_id в токене
-        if (str_starts_with($token, 'tgid_')) {
-            $tg_id = (int)substr($token, 5);
-            if ($tg_id > 0) {
-                _saveTgToSession($pdo, $sid, $tg_id, '', '');
-            }
-            return;
-        }
+        // ⚠️ УДАЛЕНО: раньше здесь был "запасной" вариант токена вида
+        // "tgid_<число>", который принимался БЕЗ какой-либо проверки —
+        // то есть ссылка вида ?tg_token=tgid_1710365896 (а chat id админа
+        // виден прямо в сообщениях бота на скриншотах) давала мгновенный
+        // доступ под ЛЮБЫМ tg_id, включая админский. Это была реальная
+        // дыра, а не гипотетическая — убрано полностью.
 
-        // Полноценный токен
+        // Полноценный токен — теперь ещё и одноразовый (раньше проверялся
+        // только срок действия (72ч), но не флаг "использован", то есть
+        // одну и ту же ссылку можно было применять повторно сколько угодно
+        // раз в течение 3 суток кем угодно, кто её увидел — например, на
+        // скринкасте/демонстрации экрана).
         $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name
                                FROM tg_auto_links
-                               WHERE token=? AND expires_at > NOW()
+                               WHERE token=? AND expires_at > NOW() AND used = FALSE
                                LIMIT 1");
         $stmt->execute([$token]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) return;
+
+        $pdo->prepare("UPDATE tg_auto_links SET used = TRUE WHERE token = ?")->execute([$token]);
 
         _saveTgToSession($pdo, $sid, (int)$row['tg_id'], $row['tg_username'], $row['tg_first_name']);
 
@@ -99,13 +103,71 @@ function processTgAutoLink(PDO $pdo): void {
     }
 }
 
-function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, string $fname): void {
+/**
+ * Заливает картинку по произвольной ссылке (например photo_url из Telegram
+ * Mini App initData) на постоянный хостинг (Cloudinary). Используется, когда
+ * ссылка уже есть на руках и НЕ нужно спрашивать её через Bot API (которое
+ * работает только для пользователей, хоть раз писавших боту /start —
+ * это ограничение Telegram, а не наш баг).
+ */
+function _persistAvatarToCloudinary(string $rawUrl, string $tg_id): string
+{
+    if ($rawUrl === '') return '';
+    try {
+        $ch = curl_init($rawUrl);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_SSL_VERIFYPEER => false]);
+        $imgData = curl_exec($ch);
+        curl_close($ch);
+        if ($imgData === false || strlen((string)$imgData) < 100) return $rawUrl;
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'tgava_');
+        file_put_contents($tmpFile, $imgData);
+        $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
+        $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
+        $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+        $ts  = time();
+        $sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$ts}{$cloudSecret}");
+        $cch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
+        curl_setopt_array($cch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_POSTFIELDS     => [
+                'file'      => new CURLFile($tmpFile),
+                'api_key'   => $cloudKey,
+                'timestamp' => $ts,
+                'signature' => $sig,
+                'folder'    => 'avatars',
+                'public_id' => "tg_{$tg_id}",
+            ],
+        ]);
+        $cResp = curl_exec($cch);
+        curl_close($cch);
+        @unlink($tmpFile);
+        $cData = $cResp ? json_decode($cResp, true) : null;
+        return !empty($cData['secure_url']) ? $cData['secure_url'] : $rawUrl;
+    } catch (Throwable $e) {
+        error_log('_persistAvatarToCloudinary error: ' . $e->getMessage());
+        return $rawUrl;
+    }
+}
+
+function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, string $fname, string $photoUrlHint = ''): void {
     // 1. Сохраняем в сессию
     $_SESSION['tg_chat_id']   = $tg_id;
     $_SESSION['tg_username']  = $uname;
     $_SESSION['_tg_linked']   = true;
 
-    $photo = _fetchTgAvatarForSite($pdo, (string)$tg_id);
+    // Приоритет — фото, пришедшее напрямую из Telegram Mini App (initData),
+    // если оно есть: оно доступно ВСЕГДА, когда у пользователя открыт публичный
+    // аватар, независимо от того, писал ли он вообще что-то боту.
+    // getUserProfilePhotos (Bot API), наоборот, отдаёт фото ТОЛЬКО тем
+    // пользователям, кто хотя бы раз нажал /start в самом боте — именно
+    // из-за этого у части людей вместо аватарки была просто буква.
+    $photo = $photoUrlHint !== ''
+        ? _persistAvatarToCloudinary($photoUrlHint, (string)$tg_id)
+        : _fetchTgAvatarForSite($pdo, (string)$tg_id);
 
     // 2. Обновляем/создаём запись в tg_links чтобы заказы привязывались
     try {

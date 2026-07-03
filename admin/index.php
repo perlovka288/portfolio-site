@@ -1446,6 +1446,43 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
         tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
         tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
+
+        /* ── Карточки заказов в админке: весь прямоугольник — кликабельный ── */
+        .admin-orders-cards { display: flex; flex-direction: column; gap: 10px; }
+        .admin-order-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #14141c;
+            border: 1px solid #23232f;
+            border-radius: 14px;
+            padding: 14px 18px;
+            cursor: pointer;
+            transition: border-color .18s, box-shadow .18s, transform .12s, background .18s;
+        }
+        .admin-order-card:hover, .admin-order-card:focus-visible {
+            border-color: rgba(249,115,22,.55);
+            box-shadow: 0 0 0 1px rgba(249,115,22,.25), 0 8px 24px rgba(249,115,22,.10);
+            background: #17171f;
+            transform: translateY(-1px);
+            outline: none;
+        }
+        .admin-order-card.status-urgent { border-color: rgba(239,68,68,.35); }
+        .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.3), 0 8px 24px rgba(239,68,68,.12); }
+        .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
+        .admin-order-card-main { flex: 1; min-width: 0; }
+        .admin-order-card-client { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+        .admin-order-card-client span { color: #8a8a96; font-weight: 500; margin-left: 6px; }
+        .admin-order-card-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .admin-order-card-price { text-align: right; font-size: 13px; font-weight: 800; color: #fff; flex-shrink: 0; }
+        .admin-order-card-price span { color: #8a8a96; font-weight: 500; }
+        .admin-order-card-accept { flex-shrink: 0; }
+        .admin-order-card-chevron { color: #4a4a58; font-size: 18px; flex-shrink: 0; transition: color .18s, transform .18s; }
+        .admin-order-card:hover .admin-order-card-chevron { color: #f97316; transform: translateX(3px); }
+        @media (max-width: 640px) {
+            .admin-order-card { flex-wrap: wrap; }
+            .admin-order-card-price { order: 3; margin-left: 58px; }
+        }
         tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
         .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
         @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
@@ -1776,44 +1813,43 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             </form>
                             <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
                         </div>
-                        <div class="admin-table-wrap">
-                            <table style="min-width:520px;">
-                                <thead><tr><th>ID</th><th>Клиент</th><th>Статус / Срок</th><th>Сумма</th><th>Действие</th></tr></thead>
-                                <tbody>
-                                    <?php foreach ($recentOrders as $order): ?>
-                                        <?php
-                                            $isUrgent = $order['status'] === 'urgent';
-                                            $deadlineHtml = '';
-                                            if (!empty($order['deadline'])) {
-                                                $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
-                                            } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
-                                                $deadlineHtml = deadlineBadge($order['created_at'], $isUrgent);
-                                            }
-                                        ?>
-                                        <tr class="order-row status-<?= htmlspecialchars($order['status']) ?>">
-                                            <td>#<?= (int)$order['id'] ?></td>
-                                            <td><?= htmlspecialchars($order['username']??'Клиент') ?><br><span style="color:#8a8a96;"><?= htmlspecialchars($order['telegram']??'') ?></span></td>
-                                            <td>
-                                                <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
-                                                <?php if ($deadlineHtml): ?><br><div style="margin-top:4px;"><?= $deadlineHtml ?></div><?php endif; ?>
-                                            </td>
-                                            <td><?= (int)($order['price_rub']??0) ?> ₽<br><span style="color:#8a8a96;"><?= (int)($order['price_uan']??0) ?> ₴</span></td>
-                                            <td style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                                                <?php if (!empty($order['cooperation'])): ?>
-                                                    <span style="color:#fb923c;font-size:12px;padding:4px 8px;border:1px solid rgba(251,146,60,.2);border-radius:8px;">Сотрудничество</span>
-                                                <?php endif; ?>
-                                                <a class="btn-panel" href="<?= $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'] ?>" style="background:#262640;margin-top:0;padding:8px 12px;">Открыть</a>
-                                                <?php if ($order['status'] === 'pending'): ?>
-                                                    <form method="POST" style="margin:0;">
-                                                        <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                                        <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;margin-top:0;padding:8px 12px;">Принять</button>
-                                                    </form>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                        <div class="admin-orders-cards">
+                            <?php foreach ($recentOrders as $order): ?>
+                                <?php
+                                    $isUrgent = $order['status'] === 'urgent';
+                                    $deadlineHtml = '';
+                                    if (!empty($order['deadline'])) {
+                                        $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
+                                    } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
+                                        $deadlineHtml = deadlineBadge($order['created_at'], $isUrgent);
+                                    }
+                                    $viewUrl = $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'];
+                                ?>
+                                <div class="admin-order-card status-<?= htmlspecialchars($order['status']) ?>" onclick="window.location.href='<?= htmlspecialchars($viewUrl) ?>'" role="link" tabindex="0" onkeypress="if(event.key==='Enter')window.location.href='<?= htmlspecialchars($viewUrl) ?>'">
+                                    <div class="admin-order-card-id">#<?= (int)$order['id'] ?></div>
+                                    <div class="admin-order-card-main">
+                                        <div class="admin-order-card-client"><?= htmlspecialchars($order['username']??'Клиент') ?> <span><?= htmlspecialchars($order['telegram']??'') ?></span></div>
+                                        <div class="admin-order-card-status-row">
+                                            <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
+                                            <?php if ($deadlineHtml): ?><?= $deadlineHtml ?><?php endif; ?>
+                                            <?php if (!empty($order['cooperation'])): ?>
+                                                <span style="color:#fb923c;font-size:11px;padding:3px 8px;border:1px solid rgba(251,146,60,.25);border-radius:8px;">Сотрудничество</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <div class="admin-order-card-price"><?= (int)($order['price_rub']??0) ?> ₽<br><span><?= (int)($order['price_uan']??0) ?> ₴</span></div>
+                                    <?php if ($order['status'] === 'pending'): ?>
+                                        <form method="POST" style="margin:0;" onclick="event.stopPropagation();">
+                                            <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
+                                            <button type="submit" name="order_action" value="take_work" class="btn-panel admin-order-card-accept" style="background:#10b981;margin-top:0;padding:8px 14px;">Принять</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <span class="admin-order-card-chevron">→</span>
+                                </div>
+                            <?php endforeach; ?>
+                            <?php if (empty($recentOrders)): ?>
+                                <div style="color:#8a8a96;padding:20px;text-align:center;">Заказов нет.</div>
+                            <?php endif; ?>
                         </div>
                         <?php if ($ordersTotalPages > 1): ?>
                             <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
