@@ -316,26 +316,34 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     if ($chatId === '' || !is_numeric($chatId)) return;
 
     $statusMessages = [
-        'in_progress' => "🎨 Ваш заказ #<b>{$orderId}</b> взят в работу! Дизайнер уже начал выполнение.",
-        'urgent'      => "⚡ Ваш заказ #<b>{$orderId}</b> помечен как срочный — срок сдачи 24 часа.",
-        'ready'       => "🎉 Ваш заказ #<b>{$orderId}</b> готов! Дизайнер свяжется для передачи файлов.",
-        'declined'    => "❌ К сожалению, ваш заказ #<b>{$orderId}</b> был отклонён. Для уточнений напишите дизайнеру.",
+        'in_progress'  => "🎨 Ваш заказ #<b>{$orderId}</b> взят в работу! Дизайнер уже начал выполнение.",
+        'urgent'       => "⚡ Ваш заказ #<b>{$orderId}</b> помечен как срочный — срок сдачи 24 часа.",
+        'ready'        => "🎉 Ваш заказ #<b>{$orderId}</b> готов! Дизайнер свяжется для передачи файлов.",
+        // Раньше этот текст отличался от того, что шлёт бот при отказе через
+        // Telegram-кнопки (там указывается причина + фото otkaz.jpg) — теперь
+        // одинаково, независимо от того, откуда админ нажал "Отклонить".
+        'declined'     => "🔴 <b>Заказ #{$orderId} отклонён.</b>",
+        // Раньше у "Сотрудничество" из веб-панели не было отдельного текста
+        // вообще (кнопки не существовало) — теперь текст 1-в-1 с ботом.
+        'cooperation'  => "🤝 <b>Заказ #{$orderId} принят по сотрудничеству!</b>\n\n✅ Оплата не требуется — договорённость в силе.\n🚀 Дизайнер уже приступает к работе.",
     ];
 
     $text = $statusMessages[$newStatus] ?? null;
     if (!$text) return;
 
     $profileUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
-    $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>";
+    $text .= "\n\n🔗 <a href=\"{$profileUrl}\">Открыть заказ</a>\n\n❓ Если есть вопросы — пишите: @Perlo_ovka";
 
-    // Картинки для сообщений о смене статуса:
-    // - "готово"   → assets/notify/gotovo.jpg (загрузи свой файл с этим именем)
-    // - "срочно"   → assets/notify/fast.jpg (согласно ТЗ п.2.4)
-    // Если файла нет на диске — просто шлём текст без фото.
+    // Картинки для сообщений о смене статуса — теперь у КАЖДОГО статуса есть
+    // своя картинка, идентично тому, что шлёт бот при действии через Telegram
+    // (раньше "Отклонить"/"Взять в работу", нажатые из веб-панели, уходили
+    // вообще без фото — теперь единообразно).
     $statusPhotos = [
-        'ready'  => __DIR__ . '/../assets/notify/gotovo.jpg',
-        'urgent' => __DIR__ . '/../assets/notify/fast.jpg',
-        'status' => __DIR__ . '/../assets/notify/status.jpg',
+        'ready'       => __DIR__ . '/../assets/notify/gotovo.jpg',
+        'urgent'      => __DIR__ . '/../assets/notify/fast.jpg',
+        'declined'    => __DIR__ . '/../assets/notify/otkaz.jpg',
+        'cooperation' => __DIR__ . '/../assets/notify/sot.jpg',
+        'status'      => __DIR__ . '/../assets/notify/status.jpg',
     ];
     $photoPath = $statusPhotos[$newStatus] ?? '';
     if ($photoPath !== '' && is_file($photoPath)) {
@@ -349,6 +357,20 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
         $resp = curl_exec($ch);
         $err  = curl_error($ch);
         curl_close($ch);
+        $decodedResp = json_decode((string)$resp, true);
+        if (empty($decodedResp['ok'])) {
+            // Фото не ушло — не оставляем клиента совсем без уведомления
+            $ch2 = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+            curl_setopt_array($ch2, [
+                CURLOPT_POST           => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_POSTFIELDS     => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
+            ]);
+            $resp = curl_exec($ch2);
+            $err  = curl_error($ch2);
+            curl_close($ch2);
+        }
     } else {
         $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
         curl_setopt_array($ch, [
@@ -415,6 +437,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
 💰 Получено: <b>{$_sym}" . number_format($paidAmount, 2, '.', ' ') . "</b>"]]);
                 curl_exec($_ch); curl_close($_ch);
                 $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
+            } elseif ($action === 'cooperation') {
+                $deadline = calculateOrderDeadline(false);
+                $pdo->prepare("UPDATE orders SET cooperation = TRUE, status = 'in_progress', payment_status = 'skipped', accepted_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+                    ->execute([$deadline, $orderId]);
+                notifyClientOrderStatus($pdo, $orderId, 'cooperation');
+                $msgAdmin = "🤝 Заказ #{$orderId} отмечен как сотрудничество.";
             } elseif ($action === 'decline') {
                 $pdo->prepare("UPDATE orders SET status = 'declined' WHERE id = ?")->execute([$orderId]);
                 notifyClientOrderStatus($pdo, $orderId, 'declined');
@@ -2248,6 +2276,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <button type="submit" name="order_action" value="take_work" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚀 Взять в работу</button>
                                                 <button type="submit" name="order_action" value="urgent" style="border:1px solid rgba(239,184,74,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(239,184,74,.15);color:#efb84a;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">⚡ Сделать срочным</button>
+                                                <button type="submit" name="order_action" value="cooperation" onclick="return confirm('Отметить заказ как сотрудничество? Оплата не потребуется.')" style="border:1px solid rgba(250,204,21,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(250,204,21,.12);color:#facc15;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🤝 Сотрудничество</button>
                                                 <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>

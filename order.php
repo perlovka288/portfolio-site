@@ -356,20 +356,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $full_msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
 
             $clean_tg = str_replace(['@', 'https://t.me/'], '', $telegram_raw);
+            // Новая структура (вместо 6-7 кнопок одним полотном): сначала
+            // только "Принять заказ" / "Отклонить" / "Написать клиенту",
+            // а конкретные варианты (обычный/срочный/сотрудничество/очередь,
+            // без объяснения/причина/бан) открываются подменю по клику —
+            // см. orderTopMenuKeyboard() в bot.php.
             $keyboard = ['inline_keyboard' => [
                 [
-                    ['text' => '✅ Обычный (5 сут.)', 'callback_data' => "adm_accept_{$order_id}"],
-                    ['text' => '❌ Отклонить',       'callback_data' => "adm_dec_{$order_id}"],
+                    ['text' => '🟢 Принять заказ', 'callback_data' => "adm_menu_accept_{$order_id}"],
+                    ['text' => '🔴 Отклонить',      'callback_data' => "adm_menu_decline_{$order_id}"],
                 ],
                 [
-                    ['text' => '⚡️ Срочный (24ч, +50%)', 'callback_data' => "adm_accept_urgent_{$order_id}"],
-                ],
-                [
-                    ['text' => '🤝 Сотрудничество', 'callback_data' => "adm_coop_{$order_id}"],
-                    ['text' => '✅ Принять в очередь', 'callback_data' => "adm_queue_{$order_id}"],
-                ],
-                [
-                    ['text' => '🚫 В чёрный список', 'callback_data' => "adm_ban_{$order_id}"],
                     ['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"],
                 ],
             ]];

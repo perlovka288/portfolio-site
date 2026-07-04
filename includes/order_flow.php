@@ -20,8 +20,57 @@ function ensureOrderFlowSchema(PDO $pdo): void
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
         $pdo->exec("CREATE INDEX IF NOT EXISTS idx_order_messages_order ON order_messages(order_id, created_at)");
+
+        // Настройки сайта (ключ-значение) — сейчас используется для режима
+        // "приём заказов вкл/выкл" (режим отпуска), но можно переиспользовать
+        // и под другие простые флаги в будущем.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (
+            setting_key VARCHAR(64) PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )");
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Режим "приём заказов" — вкл/выкл (аналог "режима отпуска" из ТЗ).
+ * Когда выключено, форма заказа на сайте вежливо отказывает вместо приёма.
+ */
+function isOrdersAvailable(PDO $pdo): bool
+{
+    try {
+        $stmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'orders_available' LIMIT 1");
+        $val = $stmt ? $stmt->fetchColumn() : false;
+        if ($val === false) return true; // по умолчанию приём включён
+        return $val !== '0';
+    } catch (Throwable $e) {
+        return true;
+    }
+}
+
+function setOrdersAvailable(PDO $pdo, bool $available, string $returnDate = ''): void
+{
+    try {
+        $pdo->exec("INSERT INTO site_settings (setting_key, value) VALUES ('orders_available', " . ($available ? "'1'" : "'0'") . ")
+                    ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value");
+        if ($returnDate !== '') {
+            $esc = str_replace("'", "''", $returnDate);
+            $pdo->exec("INSERT INTO site_settings (setting_key, value) VALUES ('orders_return_date', '{$esc}')
+                        ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value");
+        }
+    } catch (Throwable $e) {
+        error_log('setOrdersAvailable error: ' . $e->getMessage());
+    }
+}
+
+function getOrdersReturnDate(PDO $pdo): string
+{
+    try {
+        $stmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'orders_return_date' LIMIT 1");
+        return (string)($stmt ? $stmt->fetchColumn() : '');
+    } catch (Throwable $e) {
+        return '';
     }
 }
 

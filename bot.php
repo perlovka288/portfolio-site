@@ -109,6 +109,65 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Новая двухуровневая структура кнопок (см. ТЗ по упрощению меню) ──
+    // Раньше на карточке нового заказа сразу было 6-7 кнопок одним полотном.
+    // Теперь сначала только "Принять заказ" / "Отклонить" / "Написать
+    // клиенту", а конкретные варианты открываются подменю по клику —
+    // карточка выглядит чище, логика та же самая.
+    if (strpos($callback_data, 'adm_menu_accept_') === 0) {
+        $order_id = (int)str_replace('adm_menu_accept_', '', $callback_data);
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(orderAcceptSubmenuKeyboard($order_id), JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    if (strpos($callback_data, 'adm_menu_decline_') === 0) {
+        $order_id = (int)str_replace('adm_menu_decline_', '', $callback_data);
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(orderDeclineSubmenuKeyboard($order_id), JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    if (strpos($callback_data, 'adm_back_top_') === 0) {
+        $order_id = (int)str_replace('adm_back_top_', '', $callback_data);
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(orderTopMenuKeyboard($order_id, getOrderTelegram($pdo, $order_id)), JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // 🚫 Отказать без объяснения — мгновенный отказ, без набора /decline_ID причина
+    if (strpos($callback_data, 'adm_dec_noreason_') === 0) {
+        $order_id = (int)str_replace('adm_dec_noreason_', '', $callback_data);
+        $reason = 'Без объяснения причины';
+        $pdo->prepare("UPDATE orders SET status = 'declined', declined_reason = ? WHERE id = ?")->execute([$reason, $order_id]);
+        addOrderMessage($pdo, $order_id, 'admin', 'Заказ отклонён без объяснения причины.');
+        prefillClientChatId($pdo, $token, $order_id);
+        safeNotifyClient($pdo, $token, $order_id,
+            "🔴 <b>Заказ #{$order_id} отклонён.</b>\n\n❓ По всем вопросам пишите: @Perlo_ovka",
+            'HTML', null, __DIR__ . '/assets/notify/otkaz.jpg'
+        );
+        sendTelegram($token, 'editMessageReplyMarkup', ['chat_id' => $cal_chat_id, 'message_id' => $msg_id, 'reply_markup' => json_encode(['inline_keyboard' => []])]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "❌ <b>Заказ #{$order_id} отклонён без объяснения.</b>",
+            'parse_mode' => 'HTML',
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '❌ Отклонён']);
+        exit;
+    }
+
     // Принять заказ и запросить оплату
     if (strpos($callback_data, 'adm_accept_') === 0) {
         $urgentAccept = strpos($callback_data, 'adm_accept_urgent_') === 0;
@@ -1548,19 +1607,48 @@ function mainKeyboard($isAdmin) {
 }
 
 // Постоянное Reply-меню для админа
-function adminReplyKeyboard() {
+function adminReplyKeyboard($pdo = null) {
+    // Счётчик очереди прямо на кнопке — чтобы не заходить каждый раз внутрь,
+    // чтобы посмотреть, сколько сейчас заказов в работе.
+    $queueLabel = '📦 Заказы и Очередь';
+    $availLabel = '🌴 Режим приёма: —';
+    if ($pdo !== null) {
+        try {
+            $active = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status IN ('pending','awaiting_payment','in_progress','urgent')")->fetchColumn();
+            $urgent = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status = 'urgent'")->fetchColumn();
+            $queueLabel = "📦 Заказы и Очередь ({$active}" . ($urgent > 0 ? ", 🔥{$urgent}" : '') . ")";
+        } catch (Throwable $e) {}
+        try {
+            $isAvailable = isOrdersAvailable($pdo);
+            $availLabel = $isAvailable ? '🟢 Приём заказов: ВКЛ' : '🔴 Приём заказов: ВЫКЛ';
+        } catch (Throwable $e) {}
+    }
     return [
         'keyboard' => [
-            [['text' => '🗂 Очередь заказов'],   ['text' => '📊 Статистика']],
-            [['text' => '🔗 Привязки TG'],       ['text' => '💾 Бэкап БД']],
-            [['text' => '🐛 Диагностика БД'],    ['text' => '🔧 Починить БД']],
-            [['text' => '📣 Рассылка клиентам']],
-            [['text' => '🗑 Очистить все заказы']],
+            [['text' => $queueLabel],             ['text' => '📊 Статистика']],
+            [['text' => '📣 Рассылка клиентам'],   ['text' => '🔗 Привязки / Настройки']],
+            [['text' => '⚙️ Управление БД'],       ['text' => $availLabel]],
             [['text' => '◀️ Главное меню']],
         ],
         'resize_keyboard'   => true,
         'one_time_keyboard' => false,
         'input_field_placeholder' => 'Выбери действие…',
+    ];
+}
+
+// Подменю "⚙️ Управление БД" — раньше это были 4 отдельные кнопки прямо
+// в основном меню (мозолили глаза, хотя нужны редко); теперь спрятаны сюда.
+function adminDbReplyKeyboard() {
+    return [
+        'keyboard' => [
+            [['text' => '💾 Бэкап БД'],          ['text' => '🐛 Диагностика БД']],
+            [['text' => '🔧 Починить БД'],       ['text' => '📝 Логи ошибок']],
+            [['text' => '🗑 Очистить все заказы']],
+            [['text' => '◀️ Назад в меню']],
+        ],
+        'resize_keyboard'   => true,
+        'one_time_keyboard' => false,
+        'input_field_placeholder' => 'Управление БД…',
     ];
 }
 
@@ -1573,17 +1661,50 @@ function adminKeyboard() {
     ];
 }
 
+/**
+ * Новая структура кнопок нового заказа (вместо плоской сетки из 6-7 кнопок):
+ * 🟢 Принять заказ / 🔴 Отклонить / 💬 Написать клиенту — а дальше по клику
+ * открывается подменю с конкретными вариантами. Меньше визуального шума,
+ * логика та же — просто в два клика вместо одного.
+ */
+function orderTopMenuKeyboard($order_id, $telegram) {
+    $rows = [
+        [
+            ['text' => '🟢 Принять заказ', 'callback_data' => "adm_menu_accept_{$order_id}"],
+            ['text' => '🔴 Отклонить',      'callback_data' => "adm_menu_decline_{$order_id}"],
+        ],
+    ];
+    $clean_tg = cleanTelegramUsername($telegram);
+    if ($clean_tg !== '') {
+        $rows[] = [['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$clean_tg}"]];
+    }
+    return ['inline_keyboard' => $rows];
+}
+
+function orderAcceptSubmenuKeyboard($order_id) {
+    return ['inline_keyboard' => [
+        [['text' => '✅ Обычный (5 сут.)',        'callback_data' => "adm_accept_{$order_id}"]],
+        [['text' => '⚡️ Срочный (24ч, +50%)',      'callback_data' => "adm_accept_urgent_{$order_id}"]],
+        [['text' => '🤝 Сотрудничество',            'callback_data' => "adm_coop_{$order_id}"]],
+        [['text' => '📥 Просто в очередь',          'callback_data' => "adm_queue_{$order_id}"]],
+        [['text' => '◀️ Назад',                     'callback_data' => "adm_back_top_{$order_id}"]],
+    ]];
+}
+
+function orderDeclineSubmenuKeyboard($order_id) {
+    return ['inline_keyboard' => [
+        [['text' => '🚫 Без объяснения',    'callback_data' => "adm_dec_noreason_{$order_id}"]],
+        [['text' => '✍️ Указать причину',   'callback_data' => "adm_dec_{$order_id}"]],
+        [['text' => '⛔ В чёрный список',    'callback_data' => "adm_ban_{$order_id}"]],
+        [['text' => '◀️ Назад',             'callback_data' => "adm_back_top_{$order_id}"]],
+    ]];
+}
+
 function orderKeyboard($order_id, $status, $telegram) {
     $keyboard = ['inline_keyboard' => []];
 
     if ($status === 'pending') {
-        $keyboard['inline_keyboard'][] = [
-            ['text' => '✅ Обычный (5 сут.)', 'callback_data' => "adm_accept_{$order_id}"],
-            ['text' => '⚡️ Срочный (24ч, +50%)', 'callback_data' => "adm_accept_urgent_{$order_id}"],
-        ];
-        $keyboard['inline_keyboard'][] = [
-            ['text' => '❌ Отклонить', 'callback_data' => "adm_dec_{$order_id}"],
-        ];
+        return orderTopMenuKeyboard($order_id, $telegram);
     }
 
     if ($status === 'awaiting_payment') {

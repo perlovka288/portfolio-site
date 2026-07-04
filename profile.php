@@ -101,6 +101,110 @@ if (isset($_POST['cancel_order'])) {
     exit;
 }
 
+// ── Редактирование ТЗ заказа клиентом (пока заказ не взят в работу) ──
+$editMsg = '';
+if (isset($_POST['edit_order_details'])) {
+    $editId      = (int)($_POST['order_id'] ?? 0);
+    $newDetails  = trim((string)($_POST['new_details'] ?? ''));
+    try {
+        $stmt = $pdo->prepare("SELECT id, client_chat_id, telegram, status, session_id FROM orders WHERE id = ? LIMIT 1");
+        $stmt->execute([$editId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Редактировать можно, только пока заказ ещё не взят в работу —
+        // после этого дизайнер уже мог начать по исходному ТЗ, менять его
+        // задним числом небезопасно для обеих сторон.
+        if ($row && in_array($row['status'], ['pending', 'awaiting_payment'], true) && $newDetails !== '' && mb_strlen($newDetails) <= 4000) {
+            $linkStmt = $pdo->prepare("SELECT tg_id, tg_username FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $linkStmt->execute([$sid]);
+            $linkRow = $linkStmt->fetch(PDO::FETCH_ASSOC);
+            $canEdit = false;
+            if ($linkRow) {
+                $tgId   = (string)($linkRow['tg_id'] ?? '');
+                $tgUser = ltrim((string)($linkRow['tg_username'] ?? ''), '@');
+                if ($tgId !== '' && (string)$row['client_chat_id'] === $tgId) {
+                    $canEdit = true;
+                } elseif (!empty($tgUser) && (
+                    ltrim((string)$row['telegram'], '@') === $tgUser ||
+                    '@' . $tgUser === (string)$row['telegram']
+                )) {
+                    $canEdit = true;
+                } elseif (!empty($row['session_id']) && $row['session_id'] === $sid) {
+                    $canEdit = true;
+                }
+            }
+            if ($canEdit) {
+                $pdo->prepare("UPDATE orders SET details = ? WHERE id = ?")->execute([$newDetails, $editId]);
+                addOrderMessage($pdo, $editId, 'client', 'Клиент отредактировал ТЗ заказа.');
+                // Раньше админу уходил короткий текст-обрывок с новым ТЗ —
+                // теперь целиком пересылается обновлённая карточка заказа,
+                // в том же виде, что и при создании (услуга, цена, контакт,
+                // полное ТЗ) — чтобы не листать сайт, чтобы увидеть контекст.
+                try {
+                    $tkn = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
+                    $adminIdEnv = getenv('ADMIN_TELEGRAM_ID') ?: getenv('ADMIN_ID') ?: '';
+                    if ($tkn !== '' && $adminIdEnv !== '') {
+                        $fullStmt = $pdo->prepare("
+                            SELECT o.id, o.service_key, o.telegram, o.username, o.client_ip, o.cooperation,
+                                   p.title AS price_title, p.price_rub, p.price_uan
+                            FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key
+                            WHERE o.id = ? LIMIT 1
+                        ");
+                        $fullStmt->execute([$editId]);
+                        $full = $fullStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+                        $cardText = "✏️ <b>ЗАКАЗ #{$editId} ОТРЕДАКТИРОВАН КЛИЕНТОМ</b>\n\n";
+                        $cardText .= "👤 Клиент: " . htmlspecialchars($full['username'] ?? 'Клиент') . "\n";
+                        if (!empty($full['telegram'])) {
+                            $cardText .= "📞 Контакт: " . htmlspecialchars($full['telegram']) . "\n";
+                        }
+                        $cardText .= "🎨 Услуга: " . htmlspecialchars($full['price_title'] ?? $full['service_key'] ?? '—') . "\n";
+                        if (!empty($full['price_rub']) || !empty($full['price_uan'])) {
+                            $cardText .= "💰 Стоимость: " . (int)($full['price_rub'] ?? 0) . "₽ / " . (int)($full['price_uan'] ?? 0) . "₴\n";
+                        }
+                        if (!empty($full['cooperation'])) {
+                            $cardText .= "🤝 Отмечено как сотрудничество\n";
+                        }
+                        $cardText .= "\n📝 <b>НОВОЕ ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n" . htmlspecialchars($newDetails) . "\n";
+                        if (!empty($full['client_ip'])) {
+                            $cardText .= "\n🌐 IP: " . htmlspecialchars($full['client_ip']);
+                        }
+
+                        $editKeyboard = ['inline_keyboard' => [
+                            [
+                                ['text' => '🟢 Принять заказ', 'callback_data' => "adm_menu_accept_{$editId}"],
+                                ['text' => '🔴 Отклонить',      'callback_data' => "adm_menu_decline_{$editId}"],
+                            ],
+                        ]];
+                        $cleanTgForBtn = ltrim((string)($full['telegram'] ?? ''), '@');
+                        if ($cleanTgForBtn !== '') {
+                            $editKeyboard['inline_keyboard'][] = [['text' => '💬 Написать клиенту', 'url' => "https://t.me/{$cleanTgForBtn}"]];
+                        }
+
+                        $ch = curl_init("https://api.telegram.org/bot{$tkn}/sendMessage");
+                        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8,
+                            CURLOPT_POSTFIELDS => [
+                                'chat_id'      => $adminIdEnv,
+                                'text'         => $cardText,
+                                'parse_mode'   => 'HTML',
+                                'reply_markup' => json_encode($editKeyboard, JSON_UNESCAPED_UNICODE),
+                            ]]);
+                        curl_exec($ch); curl_close($ch);
+                    }
+                } catch (Throwable $e) {}
+                $editMsg = 'edit_ok';
+            } else {
+                $editMsg = 'edit_denied';
+            }
+        } else {
+            $editMsg = 'edit_denied';
+        }
+    } catch (Throwable $e) {
+        $editMsg = 'edit_error';
+    }
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?edited=' . $editId . '&edit_status=' . $editMsg);
+    exit;
+}
+
 // ── Обработка отправки обращения ─────────────────────────────
 $receiptStatus = $_GET['receipt'] ?? '';
 if (isset($_POST['upload_payment_receipt'])) {
@@ -153,6 +257,21 @@ if (isset($_POST['upload_payment_receipt'])) {
             profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgId, 'text' => $adminText . "\n" . $absoluteReceiptUrl]);
         } else {
             profileSendTelegram($botToken, 'sendPhoto', ['chat_id' => $adminTgId, 'photo' => $absoluteReceiptUrl, 'caption' => $adminText]);
+        }
+
+        // Раньше при загрузке чека ЧЕРЕЗ САЙТ клиент не получал никакого
+        // подтверждения в Telegram — это сообщение уходило только когда чек
+        // присылали прямо в бота. Теперь текст одинаковый в обоих случаях.
+        $clientChatId = trim((string)($orderRow['client_chat_id'] ?? ''));
+        if ($clientChatId !== '' && is_numeric($clientChatId)) {
+            $clientProfileUrl = rtrim($siteUrl, '/') . '/profile.php?order=' . $receiptOrderId;
+            profileSendTelegram($botToken, 'sendMessage', [
+                'chat_id'      => $clientChatId,
+                'text'         => "Чек отправлен, ожидайте своего заказа. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)) . ". Отследить можно на сайте",
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [[['text' => '👤 Открыть профиль', 'url' => $clientProfileUrl]]],
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
         }
 
         header('Location: ' . $redirect . '&receipt=ok');
@@ -474,6 +593,8 @@ usort($finishedOrders, fn($a, $b) => (int)$b['id'] <=> (int)$a['id']);
 $expandedOrderId = (int)($_GET['order'] ?? 0);
 $appealStatus    = $_GET['appeal'] ?? '';
 $cancelledId     = (int)($_GET['cancelled'] ?? 0);
+$editedId        = (int)($_GET['edited'] ?? 0);
+$editStatus      = $_GET['edit_status'] ?? '';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -578,6 +699,7 @@ body::before {
 
 /* ── Миниатюры прикреплённых файлов (референсы/чек) + лайтбокс ── */
 .order-thumbs-row { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; }
+.order-thumb-link { display:block; line-height:0; text-decoration:none; }
 .order-thumb {
     width:52px; height:52px; object-fit:cover; border-radius:10px;
     border:1px solid var(--border); cursor:pointer;
@@ -603,13 +725,37 @@ body::before {
 #order-lightbox-close {
     position:absolute; top:18px; right:22px;
     width:40px; height:40px; border-radius:50%;
-    background:linear-gradient(135deg,var(--or2),var(--or)); color:#fff;
+    background:linear-gradient(135deg,var(--accent2),var(--accent)); color:#fff;
     border:none; font-size:20px; line-height:1; cursor:pointer;
     display:flex; align-items:center; justify-content:center;
-    box-shadow:var(--or-glow); transition:transform .15s, opacity .15s;
+    box-shadow:0 6px 20px rgba(249,115,22,.45); transition:transform .15s, opacity .15s;
 }
 #order-lightbox-close:hover { transform:scale(1.08); opacity:.9; }
 .order-detail-block { background:rgba(0,0,0,0.2);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word; }
+
+/* ── Редактирование ТЗ ── */
+.order-detail-row { display:flex; align-items:flex-start; gap:8px; margin-bottom:12px; }
+.order-detail-row .order-detail-block { flex:1; margin-bottom:0; }
+.order-edit-btn {
+    flex-shrink:0; width:32px; height:32px; border-radius:9px;
+    background:rgba(255,255,255,0.04); border:1px solid var(--border);
+    color:var(--text2); cursor:pointer; display:flex; align-items:center; justify-content:center;
+    transition:background .18s, border-color .18s, color .18s, transform .15s;
+}
+.order-edit-btn:hover {
+    background:rgba(249,115,22,.12); border-color:rgba(249,115,22,.4);
+    color:var(--accent); transform:translateY(-1px);
+}
+.order-edit-form { display:none; margin:-4px 0 12px; }
+.order-edit-form.open { display:block; }
+.order-edit-form textarea {
+    width:100%; background:rgba(0,0,0,0.25); border:1px solid var(--border);
+    border-radius:10px; padding:12px 14px; color:#fff; font-size:13px;
+    line-height:1.6; font-family:inherit; resize:vertical; margin-bottom:10px;
+    transition:border-color .18s;
+}
+.order-edit-form textarea:focus { outline:none; border-color:rgba(249,115,22,.5); }
+.order-edit-form-actions { display:flex; gap:10px; }
 .order-actions-row { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px; }
 .btn-cancel-order {
     display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:9px;
@@ -754,6 +900,11 @@ body::before {
 <?php if ($cancelledId > 0): ?>
 <div class="profile-notice info">✅ Заказ #<?= $cancelledId ?> отменён и убран из очереди.</div>
 <?php endif; ?>
+<?php if ($editedId > 0 && $editStatus === 'edit_ok'): ?>
+<div class="profile-notice info">✅ ТЗ заказа #<?= $editedId ?> обновлено. Дизайнер уведомлён.</div>
+<?php elseif ($editedId > 0 && $editStatus !== ''): ?>
+<div class="profile-notice info" style="border-color:rgba(239,68,68,.3);color:#f87171;">❌ Не удалось изменить ТЗ (заказ уже взят в работу или произошла ошибка).</div>
+<?php endif; ?>
 <?php if ($appealStatus === 'err_order_id'): ?>
 <div class="profile-notice err">❌ Не удалось отправить обращение. Неверный ID заказа.</div>
 <?php elseif ($appealStatus === 'err_subject_short'): ?>
@@ -855,8 +1006,26 @@ body::before {
 
             <div class="order-card-expanded <?= $isExpanded ? 'open' : '' ?>" id="exp-<?= $oid ?>">
                 <?php if ($dlBadge): ?><div style="margin-bottom:12px;"><?= $dlBadge ?></div><?php endif; ?>
+                <?php $canEditDetails = in_array($order['status'], ['pending', 'awaiting_payment'], true); ?>
                 <?php if (!empty($order['details'])): ?>
-                <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
+                <div class="order-detail-row">
+                    <div class="order-detail-block" id="details-view-<?= $oid ?>"><?= htmlspecialchars($order['details']) ?></div>
+                    <?php if ($canEditDetails): ?>
+                    <button type="button" class="order-edit-btn" onclick="toggleOrderEdit(<?= $oid ?>)" title="Редактировать ТЗ">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                    </button>
+                    <?php endif; ?>
+                </div>
+                <?php if ($canEditDetails): ?>
+                <form method="POST" class="order-edit-form" id="edit-form-<?= $oid ?>">
+                    <input type="hidden" name="order_id" value="<?= $oid ?>">
+                    <textarea name="new_details" maxlength="4000" rows="4"><?= htmlspecialchars($order['details']) ?></textarea>
+                    <div class="order-edit-form-actions">
+                        <button type="submit" name="edit_order_details" class="btn-appeal-submit" style="padding:9px 16px;">💾 Сохранить</button>
+                        <button type="button" class="btn-appeal-toggle" onclick="toggleOrderEdit(<?= $oid ?>)">Отмена</button>
+                    </div>
+                </form>
+                <?php endif; ?>
                 <?php endif; ?>
 
                 <?php
@@ -877,7 +1046,7 @@ body::before {
                 <?php if (!empty($thumbUrls)): ?>
                 <div class="order-thumbs-row">
                     <?php foreach ($thumbUrls as $th): ?>
-                        <img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onclick="openOrderLightbox(this.src)" onerror="this.style.display='none'">
+                        <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
@@ -1023,7 +1192,7 @@ body::before {
             <?php if (!empty($thumbUrlsHist)): ?>
             <div class="order-thumbs-row">
                 <?php foreach ($thumbUrlsHist as $th): ?>
-                    <img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onclick="openOrderLightbox(this.src)" onerror="this.style.display='none'">
+                    <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
@@ -1107,6 +1276,50 @@ function toggleOrder(id) {
     const isOpen = exp.classList.contains('open');
     exp.classList.toggle('open', !isOpen);
     hdr.setAttribute('aria-expanded', !isOpen ? 'true' : 'false');
+}
+
+// ── Лайтбокс для миниатюр референсов/чека ──
+// Миниатюра — это обычная ссылка <a href="полное фото" target="_blank">.
+// Если что-то в JS пойдёт не так — сработает обычное открытие фото в новой
+// вкладке (это уже гарантированно работает всегда, браузер это умеет сам).
+// Если JS отработал нормально — вместо этого открывается красивый лайтбокс
+// поверх страницы, а переход по ссылке отменяется через preventDefault().
+function openOrderLightbox(event, src) {
+    try {
+        let overlay = document.getElementById('order-lightbox-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'order-lightbox-overlay';
+            overlay.innerHTML = '<button type="button" id="order-lightbox-close" onclick="closeOrderLightbox()">&times;</button><img id="order-lightbox-img" src="" alt="">';
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeOrderLightbox();
+            });
+            document.body.appendChild(overlay);
+        }
+        document.getElementById('order-lightbox-img').src = src;
+        overlay.classList.add('open');
+        if (event) event.preventDefault();
+        return false;
+    } catch (e) {
+        // Лайтбокс не смог открыться — пусть отработает обычная ссылка
+        return true;
+    }
+}
+function closeOrderLightbox() {
+    const overlay = document.getElementById('order-lightbox-overlay');
+    if (overlay) overlay.classList.remove('open');
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeOrderLightbox();
+});
+
+// ── Редактирование ТЗ ──
+function toggleOrderEdit(id) {
+    const form = document.getElementById('edit-form-' + id);
+    const view = document.getElementById('details-view-' + id);
+    if (!form) return;
+    form.classList.toggle('open');
+    if (view) view.style.display = form.classList.contains('open') ? 'none' : '';
 }
 
 function toggleAppeal(id) {
