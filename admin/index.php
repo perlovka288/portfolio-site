@@ -949,6 +949,15 @@ if (isset($_POST['upload_site_avatar'])) {
     }
 }
 
+// ===================== ОЧИСТКА ЛОГА БОТА =====================
+if (isset($_POST['clear_bot_log'])) {
+    $logFileToClear = __DIR__ . '/../bot_debug.log';
+    if (is_file($logFileToClear)) {
+        @file_put_contents($logFileToClear, '');
+    }
+    $message = '✅ Лог очищен.';
+}
+
 // ===================== PORTFOLIO =====================
 if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     $title        = trim($_POST['title'] ?? '');
@@ -1554,6 +1563,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
             <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
+            <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
         </nav>
 
         <div class="admin-content">
@@ -1856,6 +1866,43 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <?php for ($p = 1; $p <= $ordersTotalPages; $p++): ?>
                                     <a href="<?= $_SERVER['PHP_SELF'] . '?orders_page=' . $p . ($orders_status !== '' ? '&orders_status=' . urlencode($orders_status) : '') ?>" class="btn-panel" style="width:auto;padding:8px 12px;margin-top:0;<?= $p === $orders_page ? '' : 'opacity:0.7;' ?>"><?= $p ?></a>
                                 <?php endfor; ?>
+                            </div>
+                        <?php endif; ?>
+                    </section>
+
+                    <!-- ════ ЛОГИ ════ -->
+                    <section class="panel" data-panel="logs">
+                        <h2>📝 Логи ошибок бота</h2>
+                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
+                            Последние записи из <code>bot_debug.log</code> — сюда пишутся все сбои доставки
+                            сообщений клиентам, ошибки БД и т.п. Полезно, когда что-то "не приходит" и
+                            непонятно почему.
+                        </p>
+                        <?php
+                            $logFilePath = __DIR__ . '/../bot_debug.log';
+                            $logLines = [];
+                            if (is_file($logFilePath)) {
+                                $allLines = @file($logFilePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+                                $logLines = array_slice($allLines, -200); // последние 200 строк
+                                $logLines = array_reverse($logLines);     // новые сверху
+                            }
+                        ?>
+                        <?php if (empty($logLines)): ?>
+                            <div style="color:#8a8a96;padding:20px;text-align:center;border:1px dashed #2a2a38;border-radius:12px;">
+                                Логов пока нет (или файл ещё не создан — появится после первой ошибки).
+                                <br><span style="font-size:11px;">Диск на Render эфемерный — после рестарта сервера старые логи пропадают.</span>
+                            </div>
+                        <?php else: ?>
+                            <form action="" method="POST" style="margin-bottom:10px;" onsubmit="return confirm('Очистить лог-файл?');">
+                                <button type="submit" name="clear_bot_log" value="1" class="btn-panel" style="background:#3a1a1a;width:auto;padding:8px 14px;margin-top:0;">🗑️ Очистить лог</button>
+                            </form>
+                            <div style="max-height:520px;overflow-y:auto;background:#0c0c12;border:1px solid #23232f;border-radius:12px;padding:14px;font-family:monospace;font-size:12px;line-height:1.7;">
+                                <?php foreach ($logLines as $line): ?>
+                                    <?php
+                                        $isError = (stripos($line, 'error') !== false || stripos($line, 'failed') !== false || stripos($line, 'no chat_id') !== false);
+                                    ?>
+                                    <div style="color:<?= $isError ? '#f87171' : '#a0a0b0' ?>;white-space:pre-wrap;word-break:break-all;padding:3px 0;border-bottom:1px solid #17171f;"><?= htmlspecialchars($line) ?></div>
+                                <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
                     </section>

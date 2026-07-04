@@ -150,7 +150,7 @@ if (isset($update['callback_query'])) {
             }
         } catch (Throwable $e) {}
 
-        safeNotifyClient($pdo, $token, $order_id, $payText, 'Markdown', paymentKeyboard($order_id, $payUrl), __DIR__ . '/assets/notify/pay.jpg');
+        safeNotifyClient($pdo, $token, $order_id, $payText, 'HTML', paymentKeyboard($order_id, $payUrl), __DIR__ . '/assets/notify/pay.jpg');
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Заказ принят, реквизиты отправлены']);
         exit;
     }
@@ -291,12 +291,12 @@ if (isset($update['callback_query'])) {
 
         addOrderMessage($pdo, $order_id, 'admin', 'Заказ принят по сотрудничеству, минуя оплату.');
         safeNotifyClient($pdo, $token, $order_id,
-            "🤝 *Заказ #{$order_id} принят по сотрудничеству!*\n\n"
+            "🤝 <b>Заказ #{$order_id} принят по сотрудничеству!</b>\n\n"
             . "✅ Оплата не требуется — договорённость в силе.\n"
-            . "📅 Дедлайн: *{$deadlineText}*\n"
+            . "📅 Дедлайн: <b>{$deadlineText}</b>\n"
             . "🚀 Дизайнер уже приступает к работе.\n\n"
             . "❓ Если есть вопросы — пишите: @Perlo_ovka",
-            'Markdown', null, __DIR__ . '/assets/notify/sot.jpg'
+            'HTML', null, __DIR__ . '/assets/notify/sot.jpg'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '🤝 Отмечено как сотрудничество']);
         exit;
@@ -311,11 +311,12 @@ if (isset($update['callback_query'])) {
         prefillClientChatId($pdo, $token, $order_id);
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "✅ *Заказ #{$order_id} принят в очередь, минуя оплату.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
-            'parse_mode' => 'Markdown',
+            'text'       => "✅ <b>Заказ #{$order_id} принят в очередь, минуя оплату.</b>\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
+            'parse_mode' => 'HTML',
         ]);
         safeNotifyClient($pdo, $token, $order_id,
-            "✅ *Ваш заказ #{$order_id} принят и поставлен в очередь!*\n\n📅 Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов.\n\n❓ Если есть вопросы — пишите: @Perlo_ovka"
+            "✅ <b>Ваш заказ #{$order_id} принят и поставлен в очередь!</b>\n\n📅 Дедлайн: <b>" . date('d.m.Y в H:i', strtotime($deadline)) . "</b>\n\nМы сообщим вам, когда заказ будет готов.\n\n❓ Если есть вопросы — пишите: @Perlo_ovka",
+            'HTML'
         );
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Заказ в очереди']);
         exit;
@@ -368,13 +369,13 @@ if (isset($update['message'])) {
         addOrderMessage($pdo, $order_id, 'admin', 'Заказ отклонён. Причина: ' . $reason);
         prefillClientChatId($pdo, $token, $order_id);
         safeNotifyClient($pdo, $token, $order_id,
-            "🔴 *Заказ #{$order_id} отклонён.*\n\n📝 Причина: " . mdEscape($reason) . "\n\n❓ По всем вопросам пишите: @Perlo_ovka",
-            'Markdown', null, __DIR__ . '/assets/notify/otkaz.jpg'
+            "🔴 <b>Заказ #{$order_id} отклонён.</b>\n\n📝 Причина: " . htmlspecialchars($reason, ENT_QUOTES) . "\n\n❓ По всем вопросам пишите: @Perlo_ovka",
+            'HTML', null, __DIR__ . '/assets/notify/otkaz.jpg'
         );
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "❌ *Заказ #{$order_id} отклонён.*\nПричина: " . mdEscape($reason),
-            'parse_mode' => 'Markdown',
+            'text'       => "❌ <b>Заказ #{$order_id} отклонён.</b>\nПричина: " . htmlspecialchars($reason, ENT_QUOTES),
+            'parse_mode' => 'HTML',
         ]);
         exit;
     }

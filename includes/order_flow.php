@@ -87,20 +87,28 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     $rub = $isUrgent ? (int)round($baseRub * 1.5) : $baseRub;
     $uan = $isUrgent ? (int)round($baseUan * 1.5) : $baseUan;
 
-    $rubDetails    = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
-    $uanDetails    = trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера'));
-    $cryptoDetails = trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2'));
-    $monoDetails   = trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708'));
+    $rubDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn')), ENT_QUOTES);
+    $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера')), ENT_QUOTES);
+    $cryptoDetails = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2')), ENT_QUOTES);
+    $monoDetails   = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708')), ENT_QUOTES);
 
+    // ВАЖНО: раньше это форматировалось звёздочками (*bold*) под parse_mode
+    // "Markdown" (старый режим v1). Это ЛОМАЛО ВСЮ отправку любого сообщения,
+    // где встречается "@Perlo_ovka" (или вообще любой текст с одиночным "_") —
+    // Markdown v1 считает "_" началом курсива, и без парной закрывающей "_"
+    // Telegram отклоняет ВЕСЬ запрос целиком с ошибкой "can't parse entities",
+    // то есть не уходило вообще ничего — ни текст, ни фото. Поэтому теперь
+    // используется HTML-разметка (<b>...</b>) и parse_mode="HTML" — она не
+    // страдает от одиночных подчёркиваний.
     $header = $isUrgent
-        ? "⚡ *Заказ #{$orderId} принят как СРОЧНЫЙ.* Ожидается оплата.\n\n"
-        : "✅ *Заказ #{$orderId} принят.* Ожидается оплата.\n\n";
+        ? "⚡ <b>Заказ #{$orderId} принят как СРОЧНЫЙ.</b> Ожидается оплата.\n\n"
+        : "✅ <b>Заказ #{$orderId} принят.</b> Ожидается оплата.\n\n";
 
-    $priceBlock = "💰💰💰 *К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴* 💰💰💰\n\n";
+    $priceBlock = "💰💰💰 <b>К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
     if ($isUrgent && !$isCooperation) {
         $priceBlock = "Базовая стоимость: {$baseRub} ₽ / {$baseUan} ₴\n"
             . "⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rub - $baseRub) . " ₽ / +" . ($uan - $baseUan) . " ₴\n\n"
-            . "💰💰💰 *ИТОГО К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴* 💰💰💰\n\n";
+            . "💰💰💰 <b>ИТОГО К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
     }
 
     return $header

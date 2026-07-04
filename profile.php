@@ -575,6 +575,40 @@ body::before {
 
 .order-card-expanded { border-top:1px solid var(--border);padding:18px 20px;display:none; }
 .order-card-expanded.open { display:block; }
+
+/* ── Миниатюры прикреплённых файлов (референсы/чек) + лайтбокс ── */
+.order-thumbs-row { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; }
+.order-thumb {
+    width:52px; height:52px; object-fit:cover; border-radius:10px;
+    border:1px solid var(--border); cursor:pointer;
+    transition:border-color .18s, transform .15s, box-shadow .18s;
+}
+.order-thumb:hover {
+    border-color:rgba(249,115,22,.6);
+    box-shadow:0 0 0 1px rgba(249,115,22,.25), 0 6px 16px rgba(249,115,22,.15);
+    transform:translateY(-2px);
+}
+#order-lightbox-overlay {
+    display:none; position:fixed; inset:0; z-index:9999;
+    background:rgba(5,5,8,.92); backdrop-filter:blur(4px);
+    align-items:center; justify-content:center; padding:24px;
+    animation:orderLightboxFade .15s ease;
+}
+#order-lightbox-overlay.open { display:flex; }
+@keyframes orderLightboxFade { from{opacity:0;} to{opacity:1;} }
+#order-lightbox-overlay img {
+    max-width:90vw; max-height:88vh; border-radius:14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.6); border:1px solid rgba(249,115,22,.25);
+}
+#order-lightbox-close {
+    position:absolute; top:18px; right:22px;
+    width:40px; height:40px; border-radius:50%;
+    background:linear-gradient(135deg,var(--or2),var(--or)); color:#fff;
+    border:none; font-size:20px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--or-glow); transition:transform .15s, opacity .15s;
+}
+#order-lightbox-close:hover { transform:scale(1.08); opacity:.9; }
 .order-detail-block { background:rgba(0,0,0,0.2);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word; }
 .order-actions-row { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px; }
 .btn-cancel-order {
@@ -825,6 +859,29 @@ body::before {
                 <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
                 <?php endif; ?>
 
+                <?php
+                    // Собираем миниатюры: референсы (example_photo — JSON-массив ссылок) + чек
+                    $thumbUrls = [];
+                    if (!empty($order['example_photo'])) {
+                        $decodedThumbs = json_decode((string)$order['example_photo'], true);
+                        $thumbList = is_array($decodedThumbs) ? $decodedThumbs : [(string)$order['example_photo']];
+                        foreach ($thumbList as $tu) {
+                            $tu = trim((string)$tu);
+                            if ($tu !== '') $thumbUrls[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
+                        }
+                    }
+                    if (!empty($order['payment_receipt'])) {
+                        $thumbUrls[] = ['url' => imgSrc((string)$order['payment_receipt'], 'uploads/orders/'), 'label' => 'Чек оплаты'];
+                    }
+                ?>
+                <?php if (!empty($thumbUrls)): ?>
+                <div class="order-thumbs-row">
+                    <?php foreach ($thumbUrls as $th): ?>
+                        <img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onclick="openOrderLightbox(this.src)" onerror="this.style.display='none'">
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
                 <?php if ($order['status'] === 'awaiting_payment'): ?>
                 <div class="pay-card">
                     <div class="pay-card-title">
@@ -947,6 +1004,28 @@ body::before {
         <div class="order-card-expanded <?= $isExpanded ? 'open' : '' ?>" id="exp-<?= $oid ?>">
             <?php if (!empty($order['details'])): ?>
             <div class="order-detail-block"><?= htmlspecialchars($order['details']) ?></div>
+            <?php endif; ?>
+
+            <?php
+                $thumbUrlsHist = [];
+                if (!empty($order['example_photo'])) {
+                    $decodedThumbsH = json_decode((string)$order['example_photo'], true);
+                    $thumbListH = is_array($decodedThumbsH) ? $decodedThumbsH : [(string)$order['example_photo']];
+                    foreach ($thumbListH as $tu) {
+                        $tu = trim((string)$tu);
+                        if ($tu !== '') $thumbUrlsHist[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
+                    }
+                }
+                if (!empty($order['payment_receipt'])) {
+                    $thumbUrlsHist[] = ['url' => imgSrc((string)$order['payment_receipt'], 'uploads/orders/'), 'label' => 'Чек оплаты'];
+                }
+            ?>
+            <?php if (!empty($thumbUrlsHist)): ?>
+            <div class="order-thumbs-row">
+                <?php foreach ($thumbUrlsHist as $th): ?>
+                    <img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onclick="openOrderLightbox(this.src)" onerror="this.style.display='none'">
+                <?php endforeach; ?>
+            </div>
             <?php endif; ?>
 
             <div class="order-actions-row">
