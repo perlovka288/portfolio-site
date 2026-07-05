@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через прокси-маршрутизацию Google API для обхода ограничений Render.
+ * Железобетонный обход DNS через cURL RESOLVE напрямую на сервера Google.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -19,14 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
 
-// Сброс истории по требованию старого фронтенда
 if (!empty($input['reset'])) {
     $_SESSION['ai_chat_history'] = [];
     echo json_encode(['ok' => true, 'reset' => true]);
     exit;
 }
 
-// Старый фронтенд шлет ключ 'message'
 $userMessage = trim((string)($input['message'] ?? ''));
 if ($userMessage === '') {
     echo json_encode(['ok' => false, 'error' => 'empty_message', 'reply' => 'Введите сообщение...']);
@@ -58,7 +56,7 @@ $systemInstruction = <<<'PROMPT'
 1. Авторизация и привязка: Клиент должен привязать свой Telegram к сайту. В профиле нужно скопировать персональный код (/customer_XXXXXX) и отправить его в наш Telegram-бот @kostlimdznbot. Это нужно для получения уведомлений о заказе.
 2. Оформление ТЗ: В меню "Новый заказ" клиент заполняет форму и может прикрепить референсы.
 3. Одобрение и оплата: Когда дизайнер берет заказ, в личном кабинете появляются реквизиты. Клиент должен оплатить заказ и загрузить скриншот чека прямо в раскрытую карточку этого заказа в своем профиле (или прислать чек прямо в Telegram-бот). Срок выполнения и дедлайн начинаются ТОЛЬКО ПОСЛЕ загрузки чека.
-4. Получение работы: Как статус изменится на "Готов", в личном кабинете появится уведомление. Там же можно нажать кнопку "Заказать снова".
+4. Получение работы: Как только статус изменится на "Готов", в личном кабинете появится уведомление. Там же можно нажать кнопку "Заказать снова".
 
 КОНТАКТЫ ДЛЯ СВЯЗИ:
 - Если у клиента сложная проблема, баг на сайте, вопросы по возврату денег — отправляй к реальному создателю студии в Telegram: @Perlo_ovka.
@@ -94,19 +92,21 @@ $payload = [
     ]
 ];
 
-// Используем публичный CORS/HTTP прокси для гарантированного обхода DNS-проблем Render
-$proxyUrl = "https://corsproxy.io/?" . urlencode("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $apiKey);
+$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $apiKey;
 
 try {
-    $ch = curl_init($proxyUrl);
+    $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 25,
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json'
         ],
+        // Жестко принуждаем cURL использовать рабочий IP Google для этого домена в обход сломанного DNS Render!
+        CURLOPT_RESOLVE        => ["generativelanguage.googleapis.com:443:142.250.74.42"],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
     
@@ -117,23 +117,22 @@ try {
     $data = json_decode((string)$resp, true);
     
     if (isset($data['error'])) {
-        echo json_encode(['ok' => false, 'reply' => 'Ошибка ключа или лимитов Google API.']);
+        echo json_encode(['ok' => false, 'reply' => 'Ошибка API Google: ' . ($data['error']['message'] ?? 'unknown')]);
         exit;
     }
 
     $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
     if ($reply === '') {
-        echo json_encode(['ok' => false, 'reply' => 'Сервер временно перегружен, попробуй еще раз!']);
+        echo json_encode(['ok' => false, 'reply' => 'Не удалось получить ответ от ИИ. Попробуй еще раз!']);
         exit;
     }
 
     $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $userMessage];
     $_SESSION['ai_chat_history'][] = ['role' => 'assistant', 'text' => $reply];
 
-    // Формат ответа под твой старый JS-код
     echo json_encode(['ok' => true, 'reply' => $reply]);
 
 } catch (Throwable $e) {
-    echo json_encode(['ok' => false, 'reply' => 'Не удалось связаться с ИИ. Попробуй позже.']);
+    echo json_encode(['ok' => false, 'reply' => 'Ошибка: ' . $e->getMessage()]);
 }
