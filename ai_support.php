@@ -3,8 +3,8 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 /**
- * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает напрямую через Hugging Face API с жестким обходом сломанного DNS на Render.
+ * Бэкенд НАСТОЯЩЕГО ИИ-поддержки студии кастомного дизайна "Kostlim Design"
+ * Работает через Hugging Face API с умным обходом DNS-блокировок Render.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -35,7 +35,7 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
-// Твой токен Hugging Face из настроек Render (переменная GEMINI_API_KEY)
+// Твой токен Hugging Face (hf_...) из настроек Render
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
     echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
@@ -59,7 +59,7 @@ $systemInstruction = <<<'PROMPT'
 
 КАК РАБОТАЕТ САЙТ И ЛИЧНЫЙ КАБИНЕТ:
 1. Авторизация и привязка: Клиент должен привязать свой Telegram к сайту. В профиле нужно скопировать персональный код (/customer_XXXXXX) и отправить его в наш Telegram-бот @kostlimdznbot. Это нужно для получения уведомлений о заказе.
-2. Оформление ТЗ: В меню "Новый заказ" клиент заполняет форму и может прикреппить референсы.
+2. Оформление ТЗ: В меню "Новый заказ" клиент заполняет форму и может прикрепить референсы.
 3. Одобрение и оплата: Когда дизайнер берет заказ, в личном кабинете появляются реквизиты. Клиент должен оплатить заказ и загрузить скриншот чека прямо в раскрытую карточку этого заказа в своем профиле (или прислать чек прямо в Telegram-бот). Срок выполнения и дедлайн начинаются ТОЛЬКО ПОСЛЕ загрузки чека.
 4. Получение работы: Как только статус изменится на "Готов", в личном кабинете появится уведомление. Там же можно нажать кнопку "Заказать снова".
 
@@ -90,14 +90,13 @@ $payload = [
     'model' => 'Qwen/Qwen2.5-72B-Instruct',
     'messages' => $messages,
     'parameters' => [
-        'max_new_tokens' => 800,
+        'max_new_tokens' => 500,
         'temperature' => 0.7,
         'return_full_text' => false
     ]
 ];
 
-// Обходим DNS: шлем напрямую на любой рабочий IP-адрес Cloudflare Edge (Hugging Face сидит за ним)
-$url = "https://172.67.181.146/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions";
+$url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions";
 
 try {
     $ch = curl_init($url);
@@ -107,8 +106,9 @@ try {
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
+        // СЕКРЕТНЫЙ МУВ: жестко сопоставляем хост и IP на уровне cURL, минуя сломанный DNS хостинга Render
+        CURLOPT_RESOLVE        => ["api-inference.huggingface.co:443:172.67.181.146"],
         CURLOPT_HTTPHEADER     => [
-            'Host: api-inference.huggingface.co', // Идентифицируем целевой сайт для Cloudflare
             'Content-Type: application/json',
             'Authorization: Bearer ' . $apiKey
         ],
@@ -123,9 +123,9 @@ try {
     $reply = $data['choices'][0]['message']['content'] ?? '';
 
     if ($reply === '') {
-        error_log('HF IP error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
+        error_log('HF Live API error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
         $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг по IP: ' . substr((string)$debugInfo, 0, 300)]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг Живого ИИ: ' . substr((string)$debugInfo, 0, 300)]);
         exit;
     }
 
@@ -134,6 +134,6 @@ try {
 
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
-    error_log('HF IP exception: ' . $e->getMessage());
+    error_log('HF Live API exception: ' . $e->getMessage());
     echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
