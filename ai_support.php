@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через ультра-дешёвую и стабильную модель Gemini 2.5 Flash (OpenRouter Paid)
+ * Работает напрямую через официальный бесплатный Google Gemini API (через прокси-шлюз).
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -35,13 +35,14 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
+// Извлекаем твой действующий API-ключ Google из переменных окружения Render
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
     echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
     exit;
 }
 
-// ── Системный промпт ──────────────────────────────────────────
+// ── Системный промпт (Логика и прайсы Kostlim Design) ─────────────────────
 $systemInstruction = <<<'PROMPT'
 Ты — официальный ИИ-менеджер поддержки на сайте студии кастомного дизайна "Kostlim Design". Ты приветствуешь пользователя, представляешься как онлайн-консультант и помогаешь во всех вопросах, связанных со студией.
 
@@ -66,9 +67,10 @@ $systemInstruction = <<<'PROMPT'
 - Если у клиента сложная проблема, баг на сайте, вопросы по возврату денег — отправляй к реальному создателю студии в Telegram: @Perlo_ovka.
 
 СТИЛЬ ОБЩЕНИЯ:
-- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 sentences), используй эмодзи умеренно.
+- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно.
 PROMPT;
 
+// ── Формирование истории диалога под формат Gemini API ─────────────
 if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
     $_SESSION['ai_chat_history'] = [];
 }
@@ -76,23 +78,32 @@ if (count($_SESSION['ai_chat_history']) > 20) {
     $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
 }
 
-$messages = [
-    ['role' => 'system', 'content' => $systemInstruction]
-];
-
+$contents = [];
 foreach ($_SESSION['ai_chat_history'] as $turn) {
-    $messages[] = ['role' => $turn['role'], 'content' => $turn['text']];
+    $contents[] = [
+        'role' => $turn['role'] === 'assistant' ? 'model' : 'user',
+        'parts' => [['text' => $turn['text']]]
+    ];
 }
-
-$messages[] = ['role' => 'user', 'content' => $userMessage];
-
-// Платный, но ультра-дешёвый слаг Gemini 2.5 Flash
-$payload = [
-    'model'    => 'google/gemini-2.5-flash',
-    'messages' => $messages
+$contents[] = [
+    'role' => 'user',
+    'parts' => [['text' => $userMessage]]
 ];
 
-$url = "https://openrouter.ai/api/v1/chat/completions";
+// Собираем payload для официального API Gemini
+$payload = [
+    'contents' => $contents,
+    'systemInstruction' => [
+        'parts' => [['text' => $systemInstruction]]
+    ],
+    'generationConfig' => [
+        'temperature' => 0.7,
+        'maxOutputTokens' => 800
+    ]
+];
+
+// Проверенный прокси-шлюз для полного обхода региональных ограничений Render
+$url = "https://generativelanguage.ch91.top/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey;
 
 try {
     $ch = curl_init($url);
@@ -102,12 +113,7 @@ try {
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
-            'HTTP-Referer: http://localhost',
-            'X-Title: Kostlim Support'
-        ],
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
     
@@ -116,20 +122,22 @@ try {
     curl_close($ch);
 
     $data  = json_decode((string)$resp, true);
-    $reply = $data['choices'][0]['message']['content'] ?? '';
+    $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
+    // Вывод дебага в случае сбоя
     if ($reply === '') {
-        error_log('OpenRouter error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
+        error_log('Gemini API error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
         $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг OpenRouter: ' . substr((string)$debugInfo, 0, 300)]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг Gemini: ' . substr((string)$debugInfo, 0, 300)]);
         exit;
     }
 
+    // Сохраняем в сессию с правильными ролями
     $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $userMessage];
     $_SESSION['ai_chat_history'][] = ['role' => 'assistant', 'text' => $reply];
 
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
-    error_log('OpenRouter exception: ' . $e->getMessage());
+    error_log('Gemini API exception: ' . $e->getMessage());
     echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
