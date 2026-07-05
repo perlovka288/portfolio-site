@@ -391,7 +391,49 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
+// --- ВСТАВЬ КОД KOSTLIMAI СЮДА ---
+    if (strpos($text, 'KostlimAI') === 0) {
+        $userQuery = trim(str_replace('KostlimAI', '', $text));
+        
+        // Ограничение 5 запросов в минуту
+        $limitFile = sys_get_temp_dir() . "/ai_limit_{$chat_id}.txt";
+        $history = file_exists($limitFile) ? json_decode(file_get_contents($limitFile), true) : [];
+        $now = time();
+        $history = array_filter($history, function($ts) use ($now) { return ($now - $ts) < 60; });
 
+        if (count($history) >= 5) {
+            sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => "⏳ Погоди, дай передохнуть! Лимит 5 запросов в минуту исчерпан."]);
+            exit;
+        }
+        $history[] = $now;
+        file_put_contents($limitFile, json_encode($history));
+
+        $systemPrompt = ($chat_type === 'private') 
+            ? "Ты — менеджер студии Kostlim Design. Общайся по-дружески... (и т.д.)" 
+            : "Ты — свободный AI-собеседник... (и т.д.)";
+
+        $apiKey = getenv('GEMINI_API_KEY');
+        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey;
+        $payload = [
+            'contents' => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
+            'systemInstruction' => ['parts' => [['text' => $systemPrompt]]]
+        ];
+
+        $ch = curl_init($apiUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        $aiResponse = curl_exec($ch);
+        curl_close($ch);
+
+        $aiData = json_decode($aiResponse, true);
+        $reply = $aiData['candidates'][0]['content']['parts'][0]['text'] ?? 'Не смог придумать ответ :(';
+        
+        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $reply]);
+        exit;
+    }
+    // ---------------------------------
     botLog("message chat={$chat_id} type={$chat_type} text={$text}");
 
     // В группах/супергруппах — антиспам на все сообщения, команды пропускаем дальше
