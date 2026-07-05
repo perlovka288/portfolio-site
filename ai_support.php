@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд НАСТОЯЩЕГО ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через Hugging Face API напрямую по IP, игнорируя проблемы с DNS и SSL.
+ * Работает через сверхстабильный Google Gemini API напрямую по IP.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -35,7 +35,7 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
-// Твой токен Hugging Face (hf_...) из настроек Render (переменная GEMINI_API_KEY)
+// Твой API ключ Gemini из настроек Render (переменная GEMINI_API_KEY)
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
     echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
@@ -73,31 +73,33 @@ PROMPT;
 if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
     $_SESSION['ai_chat_history'] = [];
 }
-if (count($_SESSION['ai_chat_history']) > 20) {
-    $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
-}
 
-$messages = [
-    ['role' => 'system', 'content' => $systemInstruction]
+// Формируем структуру содержимого (contents) для Gemini API
+$contents = [];
+foreach ($_SESSION['ai_chat_history'] as $turn) {
+    $contents[] = [
+        'role' => $turn['role'] === 'user' ? 'user' : 'model',
+        'parts' => [['text' => $turn['text']]]
+    ];
+}
+$contents[] = [
+    'role' => 'user',
+    'parts' => [['text' => $userMessage]]
 ];
 
-foreach ($_SESSION['ai_chat_history'] as $turn) {
-    $messages[] = ['role' => $turn['role'], 'content' => $turn['text']];
-}
-$messages[] = ['role' => 'user', 'content' => $userMessage];
-
 $payload = [
-    'model' => 'Qwen/Qwen2.5-72B-Instruct',
-    'messages' => $messages,
-    'parameters' => [
-        'max_new_tokens' => 500,
+    'contents' => $contents,
+    'systemInstruction' => [
+        'parts' => [['text' => $systemInstruction]]
+    ],
+    'generationConfig' => [
         'temperature' => 0.7,
-        'return_full_text' => false
+        'maxOutputTokens' => 600
     ]
 ];
 
-// Используем один из стабильных IP-адресов инфраструктуры Hugging Face / Cloudflare Edge напрямую
-$url = "https://172.67.181.146/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions";
+// Прямой, железобетонный Anycast IP-адрес API Google (generativelanguage.googleapis.com)
+$url = "https://142.250.74.42/v1beta/models/gemini-1.5-flash:generateContent?key=" . $apiKey;
 
 try {
     $ch = curl_init($url);
@@ -105,13 +107,11 @@ try {
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 30,
-        // Полностью отключаем валидацию SSL, чтобы Cloudflare не сбрасывал соединение при обращении по IP
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => false, // Игнорируем проверку хоста в сертификате, так как бьем по IP
         CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_HTTPHEADER     => [
-            'Host: api-inference.huggingface.co', // Передаем оригинальный домен в заголовке, чтобы запрос дошел куда нужно
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey
+            'Host: generativelanguage.googleapis.com', // Говорим серверам Google, куда именно направлен запрос
+            'Content-Type: application/json'
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
@@ -121,12 +121,12 @@ try {
     curl_close($ch);
 
     $data  = json_decode((string)$resp, true);
-    $reply = $data['choices'][0]['message']['content'] ?? '';
+    $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 
     if ($reply === '') {
-        error_log('HF Backend error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
+        error_log('Gemini Direct API error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
         $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг бэкенда: ' . substr((string)$debugInfo, 0, 300)]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг Gemini IP: ' . substr((string)$debugInfo, 0, 300)]);
         exit;
     }
 
@@ -135,6 +135,6 @@ try {
 
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
-    error_log('HF Backend exception: ' . $e->getMessage());
+    error_log('Gemini Direct API exception: ' . $e->getMessage());
     echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
