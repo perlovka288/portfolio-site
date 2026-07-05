@@ -602,22 +602,9 @@ $editStatus      = $_GET['edit_status'] ?? '';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Профиль | Kostlim Design</title>
-<?php
-// Иконка сайта в браузерной вкладке (была только на index.php — теперь и тут).
-// Примечание: реальный favicon в вкладке браузера НЕ подчиняется CSS страницы,
-// поэтому "круглым" он станет только если сама картинка аватарки — круглая/с
-// прозрачным фоном. На самой странице (в шапке) иконка уже круглая — там это
-// обычный <img class="avatar-mini"> с border-radius:50%, а не системный favicon.
-$_favicon_url = $siteAvatar !== '' ? imgSrc($siteAvatar) : '';
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>" sizes="any">
-<link rel="apple-touch-icon" href="<?= htmlspecialchars($_favicon_url) ?>">
-<link rel="shortcut icon" href="<?= htmlspecialchars($_favicon_url) ?>">
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<link rel="apple-touch-icon" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
+<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/notify/fav.png">
+<link rel="shortcut icon" href="/assets/notify/fav.png">
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {
@@ -1379,5 +1366,6 @@ function toggleHistory() {
     } catch (e) {}
 })();
 </script>
+<?php include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>

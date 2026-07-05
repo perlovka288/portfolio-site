@@ -771,7 +771,7 @@ if (isset($update['message'])) {
             'chat_id'      => $admin_id,
             'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие из меню 👇",
             'parse_mode'   => 'Markdown',
-            'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
@@ -779,7 +779,10 @@ if (isset($update['message'])) {
     // ── Обработка кнопок AdminReplyKeyboard (только для админа в ЛС) ──
     if (isBotAdmin($update) && (string)$chat_id === $admin_id) {
 
-        if ($text === '🗂 Очередь заказов') {
+        // Кнопка "📦 Заказы и Очередь" теперь показывает живой счётчик прямо
+        // в подписи ("📦 Заказы и Очередь (4, 🔥1)") — поэтому точное
+        // сравнение больше не сработает, сверяем по началу текста.
+        if (str_starts_with($text, '📦 Заказы и Очередь')) {
             showAdminQueue($pdo, $token, $admin_id, $site_url);
             exit;
         }
@@ -791,6 +794,26 @@ if (isset($update['message'])) {
             $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
             $tg_links = 0;
             try { $tg_links = (int)$pdo->query("SELECT COUNT(*) FROM tg_links WHERE linked=TRUE")->fetchColumn(); } catch(Throwable $e){}
+            // 💰 Финансы — сколько заработано сегодня / за месяц / всего
+            $earnToday = $earnMonth = $earnTotal = ['rub' => 0, 'uan' => 0];
+            try {
+                $q = $pdo->query("
+                    SELECT
+                        COALESCE(SUM(p.price_rub) FILTER (WHERE o.created_at::date = CURRENT_DATE), 0) AS today_rub,
+                        COALESCE(SUM(p.price_uan) FILTER (WHERE o.created_at::date = CURRENT_DATE), 0) AS today_uan,
+                        COALESCE(SUM(p.price_rub) FILTER (WHERE date_trunc('month', o.created_at) = date_trunc('month', CURRENT_DATE)), 0) AS month_rub,
+                        COALESCE(SUM(p.price_uan) FILTER (WHERE date_trunc('month', o.created_at) = date_trunc('month', CURRENT_DATE)), 0) AS month_uan,
+                        COALESCE(SUM(p.price_rub), 0) AS total_rub,
+                        COALESCE(SUM(p.price_uan), 0) AS total_uan
+                    FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key
+                    WHERE o.status = 'ready' AND COALESCE(o.cooperation, FALSE) = FALSE
+                ")->fetch(PDO::FETCH_ASSOC);
+                if ($q) {
+                    $earnToday = ['rub' => (int)$q['today_rub'], 'uan' => (int)$q['today_uan']];
+                    $earnMonth = ['rub' => (int)$q['month_rub'], 'uan' => (int)$q['month_uan']];
+                    $earnTotal = ['rub' => (int)$q['total_rub'], 'uan' => (int)$q['total_uan']];
+                }
+            } catch (Throwable $e) {}
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $admin_id,
                 'text'       => "📊 *Статистика*\n\n"
@@ -798,9 +821,69 @@ if (isset($update['message'])) {
                     . "🚀 Активных: *{$active}*\n"
                     . "✅ Выполнено: *{$ready}*\n"
                     . "❌ Отклонено: *{$declined}*\n"
-                    . "🔗 TG привязок: *{$tg_links}*",
+                    . "🔗 TG привязок: *{$tg_links}*\n\n"
+                    . "💰 *Финансы (по выполненным заказам)*\n"
+                    . "Сегодня: *{$earnToday['rub']} ₽ / {$earnToday['uan']} ₴*\n"
+                    . "За месяц: *{$earnMonth['rub']} ₽ / {$earnMonth['uan']} ₴*\n"
+                    . "Всего: *{$earnTotal['rub']} ₽ / {$earnTotal['uan']} ₴*",
                 'parse_mode' => 'Markdown',
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // "🌴 Режим приёма: —" / "🟢 Приём заказов: ВКЛ" / "🔴 Приём заказов: ВЫКЛ"
+        if (str_starts_with($text, '🌴 Режим приёма') || str_starts_with($text, '🟢 Приём заказов') || str_starts_with($text, '🔴 Приём заказов')) {
+            $newState = !isOrdersAvailable($pdo);
+            setOrdersAvailable($pdo, $newState);
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => $newState
+                    ? "🟢 *Приём заказов включён.* Форма заказа на сайте снова работает."
+                    : "🔴 *Приём заказов выключен.* На сайте вместо формы заказа клиенты увидят вежливое сообщение, что приём временно приостановлен.",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // ── ⚙️ Управление БД — подменю (раньше 4 кнопки торчали в главном меню) ──
+        if ($text === '⚙️ Управление БД') {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => "⚙️ *Управление БД*\n\nТехнические функции — трогать только если реально нужно.",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        if ($text === '◀️ Назад в меню') {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => "⚙️ *Админ-панель Kostlim Design*\n\nВыбери действие из меню 👇",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
+        // 📝 Логи ошибок — те же логи, что видны в веб-панели, но прямо в чате
+        if ($text === '📝 Логи ошибок') {
+            $logPath = __DIR__ . '/bot_debug.log';
+            if (!is_file($logPath)) {
+                $msg = "📝 Логов пока нет.";
+            } else {
+                $lines = @file($logPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+                $lastLines = array_slice($lines, -10);
+                $msg = "📝 *Последние ошибки (10 шт):*\n\n```\n" . implode("\n", $lastLines) . "\n```";
+                if (mb_strlen($msg) > 4000) $msg = mb_substr($msg, 0, 3950) . "\n…```";
+            }
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $admin_id,
+                'text'         => $msg,
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
@@ -809,13 +892,13 @@ if (isset($update['message'])) {
             sendTelegram($token, 'sendMessage', [
                 'chat_id'      => $admin_id,
                 'text'         => '⏳ Генерирую SQL-дамп…',
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             adminSendDbBackup($pdo, $token, $admin_id);
             exit;
         }
 
-        if ($text === '🔗 Привязки TG') {
+        if ($text === '🔗 Привязки / Настройки') {
             try {
                 $rows = $pdo->query("SELECT tg_username, tg_first_name, tg_id, created_at FROM tg_links WHERE linked=TRUE ORDER BY created_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
                 if (empty($rows)) {
@@ -834,7 +917,7 @@ if (isset($update['message'])) {
                 'chat_id'    => $admin_id,
                 'text'       => $msg,
                 'parse_mode' => 'Markdown',
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
@@ -858,7 +941,7 @@ if (isset($update['message'])) {
                 'chat_id'    => $admin_id,
                 'text'       => $msg,
                 'parse_mode' => 'Markdown',
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
@@ -886,7 +969,7 @@ if (isset($update['message'])) {
                 'chat_id'    => $admin_id,
                 'text'       => $msg,
                 'parse_mode' => 'Markdown', // Исправлено: Markdown вместо HTML
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
@@ -916,7 +999,7 @@ if (isset($update['message'])) {
                 'chat_id'      => $admin_id,
                 'text'         => "❌ Рассылка отменена.",
                 'parse_mode'   => 'Markdown',
-                'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
         }
@@ -944,10 +1027,10 @@ if (isset($update['message'])) {
                     'chat_id'      => $admin_id,
                     'text'         => "✅ *Рассылка завершена!*\n\n📤 Отправлено: *{$sent}*\n❌ Не доставлено: *{$failed}*",
                     'parse_mode'   => 'Markdown',
-                    'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                    'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
                 ]);
             } catch (Throwable $e) {
-                sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "❌ Ошибка рассылки: " . $e->getMessage(), 'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE)]);
+                sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "❌ Ошибка рассылки: " . $e->getMessage(), 'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE)]);
             }
             exit;
         }
@@ -991,14 +1074,14 @@ if (isset($update['message'])) {
                         'chat_id'      => $admin_id,
                         'text'         => "✅ *База данных очищена!*\n\nВсе заказы, обращения и история удалены.\nСтатистика обнулена.",
                         'parse_mode'   => 'Markdown',
-                        'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                        'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
                     ]);
                 } catch (Throwable $e) {
                     sendTelegram($token, 'sendMessage', [
                         'chat_id'      => $admin_id,
                         'text'         => "❌ Ошибка очистки: " . $e->getMessage(),
                         'parse_mode'   => 'Markdown',
-                        'reply_markup' => json_encode(adminReplyKeyboard(), JSON_UNESCAPED_UNICODE),
+                        'reply_markup' => json_encode(adminReplyKeyboard($pdo), JSON_UNESCAPED_UNICODE),
                     ]);
                 }
                 exit;

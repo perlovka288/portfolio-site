@@ -256,44 +256,9 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kostlim Design | Портфолио</title>
-<?php
-// Dynamic favicon from site avatar
-$_favicon_url = '';
-try {
-    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-    if (!empty($_fav_row['avatar'])) {
-        $v = $_fav_row['avatar'];
-        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
-            $_favicon_url = $v;
-        } else {
-            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
-        }
-    }
-} catch (Throwable $e) {}
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>" sizes="any">
-<link rel="apple-touch-icon" href="<?= htmlspecialchars($_favicon_url) ?>">
-<link rel="shortcut icon" href="<?= htmlspecialchars($_favicon_url) ?>">
-<style>
-  /* ✅ Скругляем favicon для всех браузеров */
-  link[rel~="icon"], 
-  link[rel~="apple-touch-icon"],
-  link[rel~="shortcut"] {
-    border-radius: 50% !important;
-  }
-  /* Если favicon квадратный - скругляем его через маску */
-  @supports (mask-image: url()) {
-    link[rel~="icon"] {
-      -webkit-mask-image: radial-gradient(circle, black 50%, transparent 100%);
-      mask-image: radial-gradient(circle, black 50%, transparent 100%);
-    }
-  }
-</style>
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<link rel="apple-touch-icon" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
+<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/notify/fav.png">
+<link rel="shortcut icon" href="/assets/notify/fav.png">
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {
@@ -1387,5 +1352,6 @@ function toggleLike(workId, btn) {
     } catch (e) {}
 })();
 </script>
+<?php include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>

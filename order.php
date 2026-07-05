@@ -7,6 +7,29 @@ require_once 'includes/order_flow.php';
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
+// 🌴 Режим "приём заказов выключен" (админ поставил на паузу через бота)
+if (!isOrdersAvailable($pdo)) {
+    $returnDate = getOrdersReturnDate($pdo);
+    ?><!DOCTYPE html>
+    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Приём заказов приостановлен | Kostlim Design</title>
+    <style>
+        body{background:#0a0a0f;color:#fff;font-family:Montserrat,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center;}
+        .box{max-width:440px;background:#111116;border:1px solid #1f1f2a;border-radius:20px;padding:40px 32px;}
+        .box h1{font-size:20px;margin:0 0 12px;}
+        .box p{color:#9a9aa6;line-height:1.6;font-size:14px;}
+        .box a{display:inline-block;margin-top:20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:800;font-size:13px;}
+    </style></head><body>
+    <div class="box">
+        <div style="font-size:44px;margin-bottom:12px;">🌴</div>
+        <h1>Приём заказов временно приостановлен</h1>
+        <p>Дизайнер сейчас не принимает новые заказы<?= $returnDate !== '' ? ", вернусь: <b>{$returnDate}</b>" : '' ?>. Загляни чуть позже — форма снова откроется.</p>
+        <a href="index.php">← На главную к портфолио</a>
+    </div>
+    </body></html><?php
+    exit;
+}
+
 // ── Гарантируем существование таблицы правил ────────────────────────────
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (
@@ -201,6 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     $service_key = $_POST['service']  ?? '';
     $details     = $_POST['details']  ?? '';
     $cooperation = !empty($_POST['cooperation']) ? 1 : 0;
+    $requestedUrgency = ($_POST['requested_urgency'] ?? 'normal') === 'urgent' ? 'urgent' : 'normal';
 
     $example_imgs   = [];
 
@@ -226,10 +250,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     $example_img_json = json_encode($example_imgs);
 
     try {
+    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS requested_urgency VARCHAR(10) NOT NULL DEFAULT 'normal'");
     $stmt = $pdo->prepare("INSERT INTO orders
-     (username, telegram, service_key, details, screenshot, example_photo, status, payment_status, cooperation, client_ip, session_id, created_at)
-     VALUES (?, ?, ?, ?, '', ?, 'pending', 'not_requested', ?, ?, ?, NOW()) RETURNING id");
-     $stmt->execute([$username, $telegram_raw, $service_key, $details, $example_img_json, $cooperation, $user_ip, session_id()]);
+     (username, telegram, service_key, details, screenshot, example_photo, status, payment_status, cooperation, requested_urgency, client_ip, session_id, created_at)
+     VALUES (?, ?, ?, ?, '', ?, 'pending', 'not_requested', ?, ?, ?, ?, NOW()) RETURNING id");
+     $stmt->execute([$username, $telegram_raw, $service_key, $details, $example_img_json, $cooperation, $requestedUrgency, $user_ip, session_id()]);
         $order_id = (int)$stmt->fetchColumn();
         if ($order_id <= 0) {
             $order_id = (int)$pdo->lastInsertId();
@@ -345,6 +370,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $full_msg_text .= "👤 <b>Клиент:</b> " . htmlspecialchars($username) . "\n";
             $full_msg_text .= "📞 <b>Контакт:</b> " . htmlspecialchars($telegram_raw) . "\n";
             $full_msg_text .= "🎨 <b>Услуга:</b> " . htmlspecialchars($service_title) . "\n";
+            // Пожелание клиента по срочности — просто информация для решения,
+            // финально ставит срочно/обычно всё равно админ через кнопки ниже.
+            $full_msg_text .= "⏱ <b>Клиент просит:</b> " . ($requestedUrgency === 'urgent' ? "⚡ СРОЧНЫЙ (24Ч, +50%)" : "ОБЫЧНЫЙ (5 ДНЕЙ)") . "\n";
             if ($cooperation) {
                 $full_msg_text .= "💼 <b>Сотрудничество:</b> Да\n";
                 $full_msg_text .= "💰 <b>Стоимость:</b> 0₽ / 0₴\n";
@@ -515,11 +543,34 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             </select>
         </div>
         <div class="mb16">
-            <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
-                <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
+            <label class="coop-toggle-row">
                 <span>Сотрудничество — цена 0 ₽ / 0 ₴</span>
+                <span class="coop-toggle">
+                    <input type="checkbox" name="cooperation" value="1">
+                    <span class="coop-toggle-track"><span class="coop-toggle-thumb"></span></span>
+                </span>
             </label>
         </div>
+        <div class="mb16">
+            <label class="order-label">Срок выполнения (пожелание — финальное решение за дизайнером)</label>
+            <div class="urgency-select-row">
+                <label class="urgency-option">
+                    <input type="radio" name="requested_urgency" value="normal" checked>
+                    <span class="urgency-option-card">
+                        <div class="u-title">Обычный</div>
+                        <div class="u-sub">5 дней</div>
+                    </span>
+                </label>
+                <label class="urgency-option urgent">
+                    <input type="radio" name="requested_urgency" value="urgent">
+                    <span class="urgency-option-card">
+                        <div class="u-title">Срочный</div>
+                        <div class="u-sub">24ч, +50%</div>
+                    </span>
+                </label>
+            </div>
+        </div>
+
         <div class="mb16">
             <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
             <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
@@ -555,26 +606,8 @@ render_page:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
-<?php
-// Dynamic favicon from site avatar
-$_favicon_url = '';
-try {
-    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-    if (!empty($_fav_row['avatar'])) {
-        $v = $_fav_row['avatar'];
-        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
-            $_favicon_url = $v;
-        } else {
-            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
-        }
-    }
-} catch (Throwable $e) {}
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
+<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/notify/fav.png">
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script>
@@ -742,6 +775,43 @@ body::before {
 .agree-check-row input[type="checkbox"]:checked ~ .agree-check-box svg { stroke-dashoffset: 0; }
 .agree-check-row input[type="checkbox"]:focus-visible ~ .agree-check-box { outline: 2px solid var(--or); outline-offset: 2px; }
 .agree-check-label { color: #c8c8d4; font-size: 13px; font-weight: 700; }
+
+/* ── Тумблер "Сотрудничество" (вместо белого нативного чекбокса) ── */
+.coop-toggle-row { display:flex; align-items:center; justify-content:space-between; gap:14px; cursor:pointer; width:100%; }
+.coop-toggle-row span:first-child { color:#c8c8d4; font-size:13px; font-weight:700; line-height:1.4; }
+.coop-toggle { position:relative; flex-shrink:0; width:46px; height:26px; }
+.coop-toggle input { position:absolute; opacity:0; width:0; height:0; }
+.coop-toggle-track {
+    position:absolute; inset:0; background:#1c1c26; border:2px solid #2a2a3a;
+    border-radius:999px; transition:background .2s, border-color .2s;
+}
+.coop-toggle-thumb {
+    position:absolute; top:2px; left:2px; width:18px; height:18px;
+    background:#5a5a68; border-radius:50%; transition:transform .2s ease, background .2s;
+}
+.coop-toggle input:checked ~ .coop-toggle-track { background:linear-gradient(135deg, var(--or2), var(--or)); border-color:var(--or); box-shadow:var(--or-glow-sm); }
+.coop-toggle input:checked ~ .coop-toggle-track .coop-toggle-thumb { transform:translateX(20px); background:#fff; }
+.coop-toggle input:focus-visible ~ .coop-toggle-track { outline:2px solid var(--or); outline-offset:2px; }
+
+/* ── Выбор срочности прямо в форме (запрос клиента, финальное решение — за админом) ── */
+.urgency-select-row { display:flex; gap:10px; margin-bottom:16px; }
+.urgency-option { flex:1; display:block; position:relative; }
+.urgency-option input { position:absolute; opacity:0; width:0; height:0; }
+.urgency-option-card {
+    display:block; text-align:center; padding:14px 10px; border-radius:12px;
+    border:2px solid #2a2a3a; background:#171720; cursor:pointer;
+    transition:border-color .18s, background .18s, transform .15s;
+}
+.urgency-option-card .u-title { font-weight:900; font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:#c8c8d4; }
+.urgency-option-card .u-sub { font-size:11px; color:#6a6a76; margin-top:4px; }
+.urgency-option input:checked ~ .urgency-option-card {
+    border-color: var(--or); background: linear-gradient(135deg, rgba(251,146,60,.12), rgba(249,115,22,.08));
+    transform: translateY(-1px);
+}
+.urgency-option input:checked ~ .urgency-option-card .u-title { color: var(--or); }
+.urgency-option.urgent input:checked ~ .urgency-option-card { border-color:#ef4444; background:linear-gradient(135deg, rgba(239,68,68,.14), rgba(239,68,68,.06)); }
+.urgency-option.urgent input:checked ~ .urgency-option-card .u-title { color:#ef4444; }
+.urgency-option input:focus-visible ~ .urgency-option-card { outline:2px solid var(--or); outline-offset:2px; }
 .msg-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35); color: #86efac; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: 700; font-size: 13px; }
 .msg-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; padding: 14px 16px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-size: 13px; }
 .mb16 { margin-bottom: 16px; }
@@ -862,7 +932,24 @@ body::before {
 <div class="order-wrap">
 
 <?php if (!empty($success_msg)): ?>
-<!-- Модальное окно подписки на уведомления -->
+<?php
+    // Определяем, не сам ли админ сейчас тестирует форму — ему одному даём
+    // крестик-пропуск оценки, чтобы не мог накрутить себе рейтинг сайта.
+    $isAdminTesting = false;
+    try {
+        $adminTgEnv = getenv('ADMIN_TELEGRAM_ID') ?: getenv('ADMIN_ID') ?: '';
+        if ($adminTgEnv !== '') {
+            $sidCheck = session_id();
+            $linkCheck = $pdo->prepare("SELECT tg_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $linkCheck->execute([$sidCheck]);
+            $tgIdCheck = (string)$linkCheck->fetchColumn();
+            if ($tgIdCheck !== '' && $tgIdCheck === (string)$adminTgEnv) {
+                $isAdminTesting = true;
+            }
+        }
+    } catch (Throwable $e) {}
+?>
+<!-- Модальное окно: заказ отправлен + обязательная оценка удобства сайта -->
 <div id="notify-modal" style="
     position:fixed;inset:0;z-index:9999;
     display:flex;align-items:center;justify-content:center;
@@ -879,13 +966,13 @@ body::before {
         animation:slideUp .35s cubic-bezier(.34,1.56,.64,1);
         position:relative;
     ">
-        <!-- Закрыть -->
-        <button onclick="closeNotifyModal()" style="
+        <!-- Закрыть (доступно сразу только админу — обычным клиентам нужно сначала оценить) -->
+        <button id="notify-modal-x" onclick="<?= $isAdminTesting ? 'closeNotifyModal()' : 'return false;' ?>" style="
             position:absolute;top:14px;right:14px;
             background:rgba(255,255,255,.07);border:none;border-radius:50%;
-            width:30px;height:30px;cursor:pointer;color:#8a8a96;font-size:16px;
+            width:30px;height:30px;cursor:<?= $isAdminTesting ? 'pointer' : 'not-allowed' ?>;color:<?= $isAdminTesting ? '#8a8a96' : '#3a3a44' ?>;font-size:16px;
             display:flex;align-items:center;justify-content:center;
-        ">✕</button>
+        " <?= $isAdminTesting ? '' : 'title="Сначала оцени сайт ниже 🙂"' ?>>✕</button>
 
         <!-- Конфетти эмодзи -->
         <div style="font-size:48px;margin-bottom:12px;line-height:1;">🎉</div>
@@ -897,65 +984,83 @@ body::before {
             Дизайнер уже получил уведомление и скоро приступит к работе.
         </div>
 
-        <!-- Блок подписки -->
+        <!-- Оценка удобства сайта (обязательная — заменяет старый блок подписки) -->
         <div style="
-            background:rgba(34,158,217,.08);
-            border:1px solid rgba(34,158,217,.25);
-            border-radius:14px;padding:18px;margin-bottom:20px;
+            background:rgba(249,115,22,.06);
+            border:1px solid rgba(249,115,22,.2);
+            border-radius:14px;padding:20px 18px;margin-bottom:16px;
         ">
-            <div style="font-size:13px;font-weight:800;color:#60a5fa;margin-bottom:8px;">
-                🔔 Подпишись на уведомления
+            <div style="font-size:13px;font-weight:800;color:#fff;margin-bottom:4px;">
+                Насколько удобно пользоваться сайтом?
             </div>
-            <div style="font-size:12px;color:#a0a0b8;margin-bottom:16px;line-height:1.6;">
-                Нажми кнопку — бот сразу сообщит когда дизайнер возьмёт заказ в работу и когда он будет готов.
+            <div style="font-size:11px;color:#8a8a96;margin-bottom:14px;">
+                Пара секунд — и мы станем удобнее 🙂
             </div>
-            <a href="https://t.me/kostlimdznbot?start=order_<?= (int)$order_id ?>" target="_blank"
-               onclick="closeNotifyModal()"
-               style="
-                display:flex;align-items:center;justify-content:center;gap:10px;
-                background:linear-gradient(135deg,#229ED9,#1a7fc1);
-                color:#fff;padding:14px 20px;border-radius:10px;
-                text-decoration:none;font-weight:900;font-size:14px;
-                box-shadow:0 8px 24px rgba(34,158,217,.4);
-                transition:transform .15s,box-shadow .15s;
-               "
-               onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 30px rgba(34,158,217,.5)'"
-               onmouseout="this.style.transform='';this.style.boxShadow='0 8px 24px rgba(34,158,217,.4)'"
-            >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.04 9.61c-.152.678-.554.843-1.122.524l-3.1-2.284-1.496 1.44c-.165.165-.304.304-.624.304l.223-3.164 5.754-5.196c.25-.222-.054-.345-.387-.123L7.06 14.4l-3.056-.955c-.664-.207-.677-.664.138-.983l11.927-4.598c.553-.2 1.037.135.493 2.384z"/></svg>
-                Получать уведомления в Telegram
-            </a>
+            <div id="rating-stars" style="display:flex;justify-content:center;gap:8px;margin-bottom:16px;">
+                <?php for ($i = 1; $i <= 5; $i++): ?>
+                <button type="button" class="rating-star" data-star="<?= $i ?>" onclick="setRating(<?= $i ?>)" style="
+                    background:none;border:none;cursor:pointer;font-size:32px;line-height:1;
+                    color:#2a2a3a;transition:color .15s, transform .15s;padding:2px;
+                ">★</button>
+                <?php endfor; ?>
+            </div>
+            <button type="button" id="rating-ok-btn" onclick="submitRating(<?= (int)$order_id ?>)" disabled style="
+                width:100%;border:none;border-radius:10px;padding:12px;cursor:not-allowed;
+                background:#23232f;color:#5a5a68;font-weight:900;font-size:13px;
+                text-transform:uppercase;letter-spacing:.5px;transition:.2s;
+            ">Оцените, чтобы продолжить</button>
         </div>
 
         <div style="font-size:11px;color:#555568;line-height:1.5;">
-            💰 Для оплаты укажи <strong style="color:#8a8a96;">#<?= (int)$order_id ?></strong> в сообщении на DonationAlerts
+            💬 Статус заказа и реквизиты придут в Telegram, как только дизайнер примет заказ.
         </div>
-
-        <button onclick="closeNotifyModal()" style="
-            margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,.1);
-            border-radius:8px;padding:8px 20px;color:#555568;font-size:12px;
-            cursor:pointer;font-family:inherit;transition:.2s;
-        "
-        onmouseover="this.style.borderColor='rgba(255,255,255,.25)';this.style.color='#8a8a96'"
-        onmouseout="this.style.borderColor='rgba(255,255,255,.1)';this.style.color='#555568'"
-        >Закрыть</button>
     </div>
 </div>
 
 <style>
 @keyframes fadeInBg  { from{opacity:0} to{opacity:1} }
 @keyframes slideUp   { from{opacity:0;transform:translateY(30px) scale(.95)} to{opacity:1;transform:translateY(0) scale(1)} }
+.rating-star.active { color: #f97316 !important; transform: scale(1.12); }
 </style>
 
 <script>
+var __currentRating = 0;
+function setRating(n) {
+    __currentRating = n;
+    document.querySelectorAll('.rating-star').forEach(function(btn) {
+        btn.classList.toggle('active', parseInt(btn.dataset.star, 10) <= n);
+    });
+    var okBtn = document.getElementById('rating-ok-btn');
+    okBtn.disabled = false;
+    okBtn.style.cursor = 'pointer';
+    okBtn.style.background = 'linear-gradient(135deg,#fb923c,#f97316)';
+    okBtn.style.color = '#fff';
+    okBtn.textContent = 'ОК';
+}
+function submitRating(orderId) {
+    if (__currentRating < 1) return;
+    var okBtn = document.getElementById('rating-ok-btn');
+    okBtn.disabled = true;
+    okBtn.textContent = 'Спасибо!';
+    fetch('/rate_site.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ rating: __currentRating, order_id: orderId }),
+    }).catch(function(){}).finally(function() {
+        setTimeout(closeNotifyModal, 400);
+    });
+}
 function closeNotifyModal() {
     var m = document.getElementById('notify-modal');
     if (m) { m.style.opacity='0'; m.style.transition='opacity .2s'; setTimeout(function(){ m.remove(); }, 200); }
 }
-// Закрытие по клику на фон
+<?php if ($isAdminTesting): ?>
+// Админу разрешаем закрыть кликом по фону — это его собственный тест, не реальный клиент
 document.getElementById('notify-modal').addEventListener('click', function(e) {
     if (e.target === this) closeNotifyModal();
 });
+<?php endif; ?>
 </script>
 <?php endif; ?>
 <?php if (!empty($error_msg)): ?>
@@ -992,9 +1097,12 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         </label>
     </div>
     <div style="margin-bottom: 20px;">
-        <label style="display:flex; align-items:center; gap:10px; color:#8a8a96; font-size:13px; cursor:pointer; user-select:none;">
-            <input type="checkbox" name="dont_ask" value="1" style="width:auto; margin:0; accent-color:var(--or);">
-            Больше не спрашивать
+        <label class="agree-check-row">
+            <input type="checkbox" name="dont_ask" value="1">
+            <span class="agree-check-box">
+                <svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"/></svg>
+            </span>
+            <span class="agree-check-label" style="color:#8a8a96;">Больше не спрашивать</span>
         </label>
     </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
@@ -1118,11 +1226,34 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             </select>
         </div>
         <div class="mb16">
-            <label class="order-label" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
-                <input type="checkbox" name="cooperation" value="1" style="width:auto;margin:0;">
+            <label class="coop-toggle-row">
                 <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
+                <span class="coop-toggle">
+                    <input type="checkbox" name="cooperation" value="1">
+                    <span class="coop-toggle-track"><span class="coop-toggle-thumb"></span></span>
+                </span>
             </label>
         </div>
+        <div class="mb16">
+            <label class="order-label">Срок выполнения (пожелание — финальное решение за дизайнером)</label>
+            <div class="urgency-select-row">
+                <label class="urgency-option">
+                    <input type="radio" name="requested_urgency" value="normal" checked>
+                    <span class="urgency-option-card">
+                        <div class="u-title">Обычный</div>
+                        <div class="u-sub">5 дней</div>
+                    </span>
+                </label>
+                <label class="urgency-option urgent">
+                    <input type="radio" name="requested_urgency" value="urgent">
+                    <span class="urgency-option-card">
+                        <div class="u-title">Срочный</div>
+                        <div class="u-sub">24ч, +50%</div>
+                    </span>
+                </label>
+            </div>
+        </div>
+
         <div class="mb16">
             <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
             <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
@@ -1589,5 +1720,6 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
     } catch (e) {}
 })();
 </script>
+<?php include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>

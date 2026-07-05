@@ -112,26 +112,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Оставить отзыв — Kostlim Design</title>
-<?php
-// Dynamic favicon from site avatar
-$_favicon_url = '';
-try {
-    $_fav_row = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-    if (!empty($_fav_row['avatar'])) {
-        $v = $_fav_row['avatar'];
-        if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
-            $_favicon_url = $v;
-        } else {
-            $_favicon_url = '/' . ltrim('uploads/' . $v, '/');
-        }
-    }
-} catch (Throwable $e) {}
-?>
-<?php if ($_favicon_url): ?>
-<link rel="icon" type="image/png" href="<?= htmlspecialchars($_favicon_url) ?>">
-<?php else: ?>
-<link rel="icon" type="image/png" href="https://i.imgur.com/w9NThbA.png">
-<?php endif; ?>
+<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/notify/fav.png">
     <link rel="stylesheet" href="style.css">
     <style>
         body { background:#08080b; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }

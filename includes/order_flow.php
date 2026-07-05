@@ -137,7 +137,7 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     $uan = $isUrgent ? (int)round($baseUan * 1.5) : $baseUan;
 
     $rubDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn')), ENT_QUOTES);
-    $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: 'реквизиты карты уточните у дизайнера')), ENT_QUOTES);
+    $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: '4874070010369708 (Monobank)')), ENT_QUOTES);
     $cryptoDetails = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2')), ENT_QUOTES);
     $monoDetails   = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708')), ENT_QUOTES);
 
@@ -165,7 +165,6 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
         . "🔗 Реквизиты:\n"
         . "-Рубли: {$rubDetails}\n"
         . "-Гривны: {$uanDetails}\n"
-        . "-Монобанк: {$monoDetails}\n"
         . "-Крипта: {$cryptoDetails}\n\n"
         . "❓ " . paymentSupportLine();
 }

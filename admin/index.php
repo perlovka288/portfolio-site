@@ -1391,6 +1391,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kostlim Admin</title>
+    <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
     <link rel="stylesheet" href="../style.css">
     <style>
         * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
