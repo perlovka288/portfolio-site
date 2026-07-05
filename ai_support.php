@@ -90,7 +90,7 @@ $messages[] = ['role' => 'user', 'content' => $userMessage];
 
 // Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
-    'model'    => 'meta-llama/llama-3-8b-instruct:free',
+    'model'    => 'mistralai/mistral-7b-instruct:free',
     'messages' => $messages
 ];
 
