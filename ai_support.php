@@ -90,10 +90,9 @@ $messages[] = ['role' => 'user', 'content' => $userMessage];
 
 // Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
-    'model'    => 'deepseek/deepseek-chat:free',
+    'model'    => 'nousresearch/hermes-3-llama-3-8b:free',
     'messages' => $messages
 ];
-
 $url = "https://openrouter.ai/api/v1/chat/completions";
 
 try {
