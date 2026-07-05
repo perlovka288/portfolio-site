@@ -90,7 +90,7 @@ $messages[] = ['role' => 'user', 'content' => $userMessage];
 
 // Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
-    'model'    => 'mistralai/mistral-7b-instruct:free',
+    'model'    => 'deepseek/deepseek-chat:free',
     'messages' => $messages
 ];
 
