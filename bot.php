@@ -391,40 +391,44 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
-// --- НАЧАЛО БЛОКА KOSTLIMAI ---
+// --- KostlimAI через OpenRouter (Стабильный метод) ---
     if (strpos($text, 'KostlimAI') === 0) {
         $userQuery = trim(str_replace('KostlimAI', '', $text));
         $thread_id = $update['message']['message_thread_id'] ?? null;
         
-        // Вставь сюда свой AIza... ключ, если getenv не срабатывает
-        $apiKey = getenv('GEMINI_API_KEY'); 
-        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $apiKey;
+        // Вставьте ключ, сгенерированный на OpenRouter
+       $apiKey = getenv('OPENROUTER_API_KEY'); 
+        
+        $apiUrl = "https://openrouter.ai/api/v1/chat/completions";
         
         $payload = [
-            'contents' => [['role' => 'user', 'parts' => [['text' => $userQuery]]]]
+            'model' => 'google/gemini-flash-1.5',
+            'messages' => [['role' => 'user', 'content' => $userQuery]]
         ];
 
         $ch = curl_init($apiUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+            'HTTP-Referer: https://kostlim-design.com', // Укажите ваш сайт
+            'X-Title: Kostlim Design Bot'
+        ]);
         
         $response = curl_exec($ch);
         curl_close($ch);
         
         $data = json_decode($response, true);
-        $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? "Ошибка: ИИ не ответил. Проверьте API ключ в Railway.";
+        $reply = $data['choices'][0]['message']['content'] ?? "Ошибка: Сервис-посредник не ответил.";
 
-        // Отправка ответа (с учетом тем в группе)
         $params = ['chat_id' => $chat_id, 'text' => $reply];
         if ($thread_id) $params['message_thread_id'] = $thread_id;
         
         sendTelegram($token, 'sendMessage', $params);
         exit;
     }
-    // --- КОНЕЦ БЛОКА KOSTLIMAI ---
-    botLog("message chat={$chat_id} type={$chat_type} text={$text}");
 
     // В группах/супергруппах — антиспам на все сообщения, команды пропускаем дальше
     if (in_array($chat_type, ['group', 'supergroup', 'channel'], true)) {
