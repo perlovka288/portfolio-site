@@ -1,12 +1,10 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+ini_set('display_errors', 0); // Отключаем стандартный вывод ошибок, так как дебаг встроен в JSON
 error_reporting(E_ALL);
-while (ob_get_level()) ob_end_clean();
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Переписан под официальное API DeepSeek.
+ * Работает через стабильный бесплатный шлюз OpenRouter API.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -37,10 +35,10 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
-// Берем ключ из переменной (куда ты вставишь ключ DeepSeek)
+// Извлекаем ключ OpenRouter из старого контейнера
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Ошибка: API ключ не найден в переменных окружения хостинга.']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Ошибка: API-ключ не найден в настройках хостинга.']);
     exit;
 }
 
@@ -61,7 +59,7 @@ $systemInstruction = <<<'PROMPT'
 
 КАК РАБОТАЕТ САЙТ И ЛИЧНЫЙ КАБИНЕТ:
 1. Авторизация и привязка: Клиент должен привязать свой Telegram к сайту. В профиле нужно скопировать персональный код (/customer_XXXXXX) и отправить его в наш Telegram-бот @kostlimdznbot. Это нужно для получения уведомлений о заказе.
-2. Оформление ТЗ: В меню "Новый заказ" клиент заполняет форму и может прикреппить референсы.
+2. Оформление ТЗ: В меню "Новый заказ" клиент заполняет форму и может прикрепить референсы.
 3. Одобрение и оплата: Когда дизайнер берет заказ, в личном кабинете появляются реквизиты. Клиент должен оплатить заказ и загрузить скриншот чека прямо в раскрытую карточку этого заказа в своем профиле (или прислать чек прямо в Telegram-бот). Срок выполнения и дедлайн начинаются ТОЛЬКО ПОСЛЕ загрузки чека.
 4. Получение работы: Как только статус изменится на "Готов", в личном кабинете появится уведомление. Там же можно нажать кнопку "Заказать снова".
 
@@ -72,7 +70,7 @@ $systemInstruction = <<<'PROMPT'
 - Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно.
 PROMPT;
 
-// ── Формирование истории диалога в формате OpenAI/DeepSeek ──────
+// ── Формирование истории диалога ─────────────────────────────────
 if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
     $_SESSION['ai_chat_history'] = [];
 }
@@ -80,27 +78,23 @@ if (count($_SESSION['ai_chat_history']) > 20) {
     $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
 }
 
-// Массив сообщений начинается с системных инструкций
 $messages = [
     ['role' => 'system', 'content' => $systemInstruction]
 ];
 
-// Добавляем историю из сессии
 foreach ($_SESSION['ai_chat_history'] as $turn) {
     $messages[] = ['role' => $turn['role'], 'content' => $turn['text']];
 }
 
-// Добавляем новое сообщение пользователя
 $messages[] = ['role' => 'user', 'content' => $userMessage];
 
+// Используем полностью бесплатную и мощную модель Llama 3.1 на OpenRouter
 $payload = [
-    'model'       => 'deepseek-chat', // Быстрая и дешевая модель DeepSeek-V3
-    'messages'    => $messages,
-    'temperature' => 0.7,
-    'max_tokens'  => 500
+    'model'    => 'meta-llama/llama-3.1-8b-instruct:free',
+    'messages' => $messages
 ];
 
-$url = "https://api.deepseek.com/chat/completions";
+$url = "https://openrouter.ai/api/v1/chat/completions";
 
 try {
     $ch = curl_init($url);
@@ -112,7 +106,9 @@ try {
         CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey
+            'Authorization: Bearer ' . $apiKey,
+            'HTTP-Referer: http://localhost', // Требуется спецификацией OpenRouter
+            'X-Title: Kostlim Support'
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
@@ -122,22 +118,20 @@ try {
     curl_close($ch);
 
     $data  = json_decode((string)$resp, true);
-    // Извлекаем ответ по стандарту OpenAI/DeepSeek
     $reply = $data['choices'][0]['message']['content'] ?? '';
 
     if ($reply === '') {
-        error_log('DeepSeek error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
+        error_log('OpenRouter error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
         $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Ошибка DeepSeek: ' . substr((string)$debugInfo, 0, 400)]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг OpenRouter: ' . substr((string)$debugInfo, 0, 400)]);
         exit;
     }
 
-    // Сохраняем в историю сессии (приводим к ролям user / assistant)
     $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $userMessage];
     $_SESSION['ai_chat_history'][] = ['role' => 'assistant', 'text' => $reply];
 
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
-    error_log('DeepSeek exception: ' . $e->getMessage());
+    error_log('OpenRouter exception: ' . $e->getMessage());
     echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Исключение PHP: ' . $e->getMessage()]);
 }
