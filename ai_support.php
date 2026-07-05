@@ -2,17 +2,23 @@
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
-/**
- * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Система ротации ключей + Очищенный текстовый формат без сырых тегов и Markdown
- */
-
 require_once __DIR__ . '/includes/session.php';
 
-// Получаем строку с ключами из Render ("ключ1,ключ2,ключ3")
 $apiKeysRaw = getenv('GEMINI_API_KEY') ?: '';
 
-// Жесткий системный промпт с правилами чистого текста
+// Функция уведомления в Telegram (мониторинг лимитов)
+function notifyAdmin($message) {
+    $token = getenv('BOT_TOKEN');
+    $adminId = getenv('ADMIN_ID');
+    if ($token && $adminId) {
+        $flagFile = sys_get_temp_dir() . '/ai_limit_notify.log';
+        if (file_exists($flagFile) && (time() - filemtime($flagFile) < 600)) return;
+        touch($flagFile);
+        $url = "https://api.telegram.org/bot$token/sendMessage?chat_id=$adminId&text=" . urlencode("🤖 [Kostlim AI Alert]: " . $message);
+        @file_get_contents($url);
+    }
+}
+
 $systemInstruction = "Ты — крутой, живой и отзывчивый ИИ-консультант студии дизайна \"Kostlim Design\". Твоя цель — помогать клиентам и принимать заказы. Общайся как реальный человек, твой друг-дизайнер: легко, уверенно, без занудства и канцелярита.
 
 ГЛАВНОЕ ПРАВИЛО:
@@ -50,24 +56,20 @@ $systemInstruction = "Ты — крутой, живой и отзывчивый 
 - Списки делай через дефисы (-) или цифры.
 - Ответы короткие, живые, с эмодзи.";
 
-// 1. Отдаем конфигурацию со списком ключей в JS
+// Обработка конфигурации
 if (isset($_GET['get_internal_config_raw'])) {
     header('Content-Type: application/json; charset=utf-8');
     $keysArray = array_filter(array_map('trim', explode(',', $apiKeysRaw)));
-    echo json_encode([
-        'ok' => true,
-        'keys' => array_values($keysArray),
-        'system' => $systemInstruction
-    ]);
+    echo json_encode(['ok' => true, 'keys' => array_values($keysArray), 'system' => $systemInstruction]);
     exit;
 }
 
-// 2. Заглушка под POST
+// Обработка POST-запросов (мониторинг лимитов)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
-    if (!empty($input['reset'])) {
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['ok' => true, 'reset' => true]);
+    if (!empty($input['action']) && $input['action'] === 'log_limit_warning') {
+        notifyAdmin("Заканчиваются лимиты! Осталось запросов: " . ($input['remaining'] ?? 'мало'));
+        echo json_encode(['ok' => true]);
         exit;
     }
 }
@@ -77,84 +79,48 @@ header('Content-Type: application/javascript; charset=utf-8');
 (function() {
     if (window.fetchPatched) return;
     window.fetchPatched = true;
-    
     const originalFetch = window.fetch;
     let geminiConfig = null;
-    window.aiChatHistory = window.aiChatHistory || [];
+    window.aiChatHistory = [];
 
     originalFetch('/ai_support.php?get_internal_config_raw=1')
         .then(res => res.json())
-        .then(data => { if (data.ok) geminiConfig = data; })
-        .catch(err => console.error('Ошибка пула ИИ:', err));
+        .then(data => { if (data.ok) geminiConfig = data; });
 
     window.fetch = async function(...args) {
-        const url = args[0];
-        const options = args[1];
-
+        const url = args[0], options = args[1];
         if (typeof url === 'string' && url.includes('ai_support.php') && options && options.method === 'POST') {
-            try {
-                const bodyData = JSON.parse(options.body || '{}');
-                
-                if (bodyData.reset) {
-                    window.aiChatHistory = [];
-                    return new Response(JSON.stringify({ ok: true, reset: true }), { status: 200 });
-                }
+            const bodyData = JSON.parse(options.body || '{}');
+            if (bodyData.action === 'log_limit_warning') return originalFetch.apply(this, args);
+            
+            const userMessage = bodyData.message || '', userImage = bodyData.image || null;
+            if (!geminiConfig) return new Response(JSON.stringify({ ok: false, reply: 'Загрузка...' }), { status: 200 });
 
-                const userMessage = bodyData.message || '';
-                if (!userMessage.trim()) {
-                    return new Response(JSON.stringify({ ok: false, reply: 'Введите сообщение...' }), { status: 200 });
-                }
-
-                if (!geminiConfig || !geminiConfig.keys || geminiConfig.keys.length === 0) {
-                    return new Response(JSON.stringify({ ok: false, reply: 'ИИ настраивает пул ключей, повторите отправку.' }), { status: 200 });
-                }
-
-                const randomIndex = Math.floor(Math.random() * geminiConfig.keys.length);
-                const activeKey = geminiConfig.keys[randomIndex];
-
-                let contents = [];
-                window.aiChatHistory.forEach(turn => {
-                    contents.push({ role: turn.role === 'user' ? 'user' : 'model', parts: [{ text: turn.text }] });
-                });
-                contents.push({ role: 'user', parts: [{ text: userMessage }] });
-
-                const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: contents,
-                        systemInstruction: { 
-                            parts: [{ text: geminiConfig.system }] 
-                        },
-                        generationConfig: { 
-                            temperature: 0.4, 
-                            maxOutputTokens: 450 
-                        }
-                    })
-                });
-
-                const geminiData = await geminiResponse.json();
-                
-                if (geminiData.error) {
-                    return new Response(JSON.stringify({ 
-                        ok: false, 
-                        reply: `Ошибка пула [${geminiData.error.code}]: ${geminiData.error.message}. Попробуйте еще раз.` 
-                    }), { status: 200 });
-                }
-
-                const rawAiReply = geminiData.candidates[0].content.parts[0].text || 'Не удалось получить ответ.';
-                
-                window.aiChatHistory.push({ role: 'user', text: userMessage });
-                window.aiChatHistory.push({ role: 'model', text: rawAiReply });
-
-                return new Response(JSON.stringify({ ok: true, reply: rawAiReply }), {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-            } catch (e) {
-                return new Response(JSON.stringify({ ok: false, reply: 'Ошибка сети. Напишите создателю: https://t.me/Perlo_ovka' }), { status: 200 });
+            const activeKey = geminiConfig.keys[Math.floor(Math.random() * geminiConfig.keys.length)];
+            let contents = window.aiChatHistory.map(h => ({ role: h.role, parts: [{ text: h.text }] }));
+            
+            let parts = userMessage ? [{ text: userMessage }] : [];
+            if (userImage && userImage.includes(';base64,')) {
+                parts.push({ inline_data: { mime_type: userImage.split(';base64,')[0].replace('data:', ''), data: userImage.split(';base64,')[1] } });
             }
+            contents.push({ role: 'user', parts: parts });
+
+            const res = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: contents, systemInstruction: { parts: [{ text: geminiConfig.system }] } })
+            });
+
+            // Мониторинг лимитов
+            const remaining = res.headers.get('x-ratelimit-remaining-minute');
+            if (remaining && parseInt(remaining) < 2) {
+                originalFetch('/ai_support.php', { method: 'POST', body: JSON.stringify({ action: 'log_limit_warning', remaining: remaining }) });
+            }
+
+            const data = await res.json();
+            const reply = data.candidates[0].content.parts[0].text;
+            window.aiChatHistory.push({ role: 'user', text: userMessage || '[Картинка]' }, { role: 'model', text: reply });
+            return new Response(JSON.stringify({ ok: true, reply: reply }), { status: 200, headers: {'Content-Type': 'application/json'} });
         }
         return originalFetch.apply(this, args);
     };
