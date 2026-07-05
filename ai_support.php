@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через стабильный бесплатный шлюз OpenRouter API.
+ * Работает через стабильный бесплатный шлюз OpenRouter API со встроенным дебагом.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -38,7 +38,7 @@ if (mb_strlen($userMessage) > 2000) {
 // Извлекаем ключ OpenRouter из контейнера переменной окружения
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Ошибка: API-ключ не найден в настройках хостинга.']);
     exit;
 }
 
@@ -50,7 +50,7 @@ $systemInstruction = <<<'PROMPT'
 - Помогать с учебой, делать домашние задания, писать код, рефераты, решать уравнения или общаться на отвлеченные темы. Если клиент пытается использовать тебя как обычный ChatGPT, вежливо откажи и верни его к теме дизайна: "Я — менеджер поддержки Kostlim Design, и помогаю только по вопросам заказов и работы нашего сайта. Чем я могу помочь тебе по поводу дизайна? 🎨".
 
 АКТУАЛЬНЫЙ ПРАЙС-ЛИСТ И УСЛОВИЯ:
-- Превью для видео и стримов (YouTube): 400 ₽ / 250 ₴. Включает 5 бесплатных правок.
+- Превью для video и стримов (YouTube): 400 ₽ / 250 ₴. Включает 5 бесплатных правок.
 - Именная аватарка: 300 ₽ / 175 ₴. Аватарка с именем, персонажем или брендингом. Включает 5 бесплатных правок.
 - Оформление для YouTube: 500 ₽ / 400 ₴. Комплект: шапка канала + аватарка. Включает 5 бесплатных правок.
 - Оформление для VK: 400 ₽ / 300 ₴. Комплект: шапка страницы, аватарка, иконки товаров/услуг. Включает 5 бесплатных правок.
@@ -88,7 +88,7 @@ foreach ($_SESSION['ai_chat_history'] as $turn) {
 
 $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-// Бесплатная, умная и доступная модель Gemini 2.5 Flash через OpenRouter
+// Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
     'model'    => 'google/gemini-2.5-flash:free',
     'messages' => $messages
@@ -120,9 +120,11 @@ try {
     $data  = json_decode((string)$resp, true);
     $reply = $data['choices'][0]['message']['content'] ?? '';
 
+    // Временный дебаг: если ответ пустой, выводим сырой JSON от OpenRouter прямо в чат
     if ($reply === '') {
         error_log('OpenRouter error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'ИИ-помощник сейчас перегружен запросами 😔 Попробуй написать через минуту или обратись напрямую: @Perlo_ovka']);
+        $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг OpenRouter: ' . substr((string)$debugInfo, 0, 300)]);
         exit;
     }
 
@@ -132,5 +134,5 @@ try {
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('OpenRouter exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Исключение PHP: ' . $e->getMessage()]);
 }
