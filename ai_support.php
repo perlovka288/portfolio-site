@@ -2,6 +2,8 @@
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
+while (ob_get_level()) ob_end_clean();
+
 /**
  * Бэкенд ИИ-поддержки (виджет "KOSTLIM AI SUPPORT").
  *
@@ -44,7 +46,7 @@ if (mb_strlen($userMessage) > 2000) {
 
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Дебаг ошибка: Переменная окружения GEMINI_API_KEY пустая или не задана на хостинге!']);
     exit;
 }
 
@@ -106,6 +108,8 @@ try {
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 25,
+        CURLOPT_SSL_VERIFYPEER => false, // Отключаем проверку SSL
+        CURLOPT_SSL_VERIFYHOST => false, // Отключаем проверку хоста SSL
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
@@ -118,7 +122,9 @@ try {
 
     if ($reply === '') {
         error_log('AI support error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз или напиши напрямую: @Perlo_ovka']);
+        // Выводим технические данные ошибки для диагностики
+        $debugInfo = "cURL Error: " . ($err ?: 'None') . " | Raw Response: " . substr((string)$resp, 0, 250);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг: ' . $debugInfo]);
         exit;
     }
 
@@ -129,5 +135,5 @@ try {
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('AI support exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Что-то пошло не так 😔 Напиши напрямую: @Perlo_ovka']);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Ошибка исключения: ' . $e->getMessage()]);
 }
