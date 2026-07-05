@@ -391,11 +391,15 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
-// --- ВСТАВЬ КОД KOSTLIMAI СЮДА ---
+// =============================================================
+    // [НАЧАЛО] KOSTLIMAI INTEGRATION
+    // =============================================================
     if (strpos($text, 'KostlimAI') === 0) {
+        botLog("AI: Получен запрос от {$chat_id}: " . $text);
+        
         $userQuery = trim(str_replace('KostlimAI', '', $text));
         
-        // Ограничение 5 запросов в минуту
+        // Лимиты
         $limitFile = sys_get_temp_dir() . "/ai_limit_{$chat_id}.txt";
         $history = file_exists($limitFile) ? json_decode(file_get_contents($limitFile), true) : [];
         $now = time();
@@ -408,12 +412,14 @@ if (isset($update['message'])) {
         $history[] = $now;
         file_put_contents($limitFile, json_encode($history));
 
+        // Выбор промпта
         $systemPrompt = ($chat_type === 'private') 
-            ? "Ты — менеджер студии Kostlim Design. Общайся по-дружески... (и т.д.)" 
-            : "Ты — свободный AI-собеседник... (и т.д.)";
+            ? "Ты — менеджер студии Kostlim Design. Общайся по-дружески, помогай с заказами, прайсом и правилами. Отвечай просто, ясно, без лишнего официоза." 
+            : "Ты — свободный AI-собеседник. Общайся легко, весело, поддерживай любые темы. Твоя задача — помогать людям ясно и просто.";
 
         $apiKey = getenv('GEMINI_API_KEY');
-        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey;
+        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $apiKey;
+        
         $payload = [
             'contents' => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
             'systemInstruction' => ['parts' => [['text' => $systemPrompt]]]
@@ -424,16 +430,26 @@ if (isset($update['message'])) {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        
         $aiResponse = curl_exec($ch);
+        $curlError = curl_error($ch);
         curl_close($ch);
 
-        $aiData = json_decode($aiResponse, true);
-        $reply = $aiData['candidates'][0]['content']['parts'][0]['text'] ?? 'Не смог придумать ответ :(';
-        
-        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $reply]);
-        exit;
+        if ($curlError) {
+            botLog("AI CURL ERROR: " . $curlError);
+            sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => "Ошибка соединения с ИИ."]);
+        } else {
+            botLog("AI RESPONSE: " . $aiResponse);
+            $aiData = json_decode($aiResponse, true);
+            $reply = $aiData['candidates'][0]['content']['parts'][0]['text'] ?? 'Не смог придумать ответ :(';
+            sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $reply]);
+        }
+        exit; // Важно: бот не идет дальше по коду, если это запрос к ИИ
     }
-    // ---------------------------------
+    // =============================================================
+    // [КОНЕЦ] KOSTLIMAI INTEGRATION
+    // =============================================================
+    
     botLog("message chat={$chat_id} type={$chat_type} text={$text}");
 
     // В группах/супергруппах — антиспам на все сообщения, команды пропускаем дальше
