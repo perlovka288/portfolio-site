@@ -1,9 +1,16 @@
 <?php
-ini_set('display_errors', 0); // Выключаем вывод ошибок на экран для пользователей
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
+while (ob_get_level()) ob_end_clean();
 
 /**
  * Бэкенд ИИ-поддержки (виджет "KOSTLIM AI SUPPORT").
+ *
+ * Работает через AJAX, без перезагрузки страницы. Память диалога хранится
+ * в $_SESSION — поэтому ИИ помнит контекст текущей беседы. Системный промпт
+ * зашит здесь ЖЁСТКО (см. $systemInstruction ниже) и НЕ пересоздаётся и не
+ * "сканирует" сайт заново при каждом сообщении.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -36,11 +43,11 @@ if (mb_strlen($userMessage) > 2000) {
 
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Дебаг: Переменная окружения GEMINI_API_KEY пустая на сервере!']);
     exit;
 }
 
-// ── Системный промпт ──────────────────────────────────────────
+// ── Системный промпт (см. ТЗ) ──────────────────────────────────────────
 $systemInstruction = <<<'PROMPT'
 Ты — официальный ИИ-менеджер поддержки на сайте студии кастомного дизайна "Kostlim Design". Ты приветствуешь пользователя, представляешься как онлайн-консультант и помогаешь во всех вопросах, связанных со студией.
 
@@ -68,10 +75,11 @@ $systemInstruction = <<<'PROMPT'
 - Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно.
 PROMPT;
 
-// ── История диалога из сессии ────────────────────
+// ── История диалога из сессии (для памяти контекста) ────────────────────
 if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
     $_SESSION['ai_chat_history'] = [];
 }
+// Не даём истории расти бесконечно — храним последние 20 сообщений
 if (count($_SESSION['ai_chat_history']) > 20) {
     $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
 }
@@ -89,7 +97,7 @@ $payload = [
 ];
 
 $model = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
-// Используем Cloudflare AI Gateway для обхода региональной ошибки 429
+// Стабильный прокси-URL для обхода региональной ошибки 429
 $url   = "https://api.gemini-proxy.com/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
 
 try {
@@ -98,7 +106,7 @@ try {
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 25,
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => false, // Отключение строгой проверки SSL
         CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
@@ -112,15 +120,18 @@ try {
 
     if ($reply === '') {
         error_log('AI support error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз или напиши напрямую: @Perlo_ovka']);
+        // Выводим полный текст ответа прокси, чтобы увидеть причину сбоя
+        $debugInfo = "cURL Error: " . ($err ?: 'None') . " | Raw Response: " . substr((string)$resp, 0, 300);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг: ' . $debugInfo]);
         exit;
     }
 
+    // Сохраняем оба сообщения в историю сессии
     $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $userMessage];
     $_SESSION['ai_chat_history'][] = ['role' => 'model', 'text' => $reply];
 
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('AI support exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Ошибка исключения PHP: ' . $e->getMessage()]);
 }
