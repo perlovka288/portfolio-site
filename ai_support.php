@@ -3,46 +3,16 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 /**
- * Бэкенд НАСТОЯЩЕГО ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через Hugging Face API с умным обходом DNS-блокировок Render.
+ * Бэкенд + Фронтенд ИИ-поддержки студии "Kostlim Design"
+ * Запросы идут напрямую из браузера клиента в Hugging Face (В обход DNS Render)
  */
 
 require_once __DIR__ . '/includes/session.php';
 
-header('Content-Type: application/json; charset=utf-8');
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['ok' => false, 'error' => 'method_not_allowed']);
-    exit;
-}
-
-$input = json_decode(file_get_contents('php://input'), true) ?: [];
-
-// 🗑️ Сброс истории диалога
-if (!empty($input['reset'])) {
-    $_SESSION['ai_chat_history'] = [];
-    echo json_encode(['ok' => true, 'reset' => true]);
-    exit;
-}
-
-$userMessage = trim((string)($input['message'] ?? ''));
-if ($userMessage === '') {
-    echo json_encode(['ok' => false, 'error' => 'empty_message']);
-    exit;
-}
-if (mb_strlen($userMessage) > 2000) {
-    $userMessage = mb_substr($userMessage, 0, 2000);
-}
-
-// Твой токен Hugging Face (hf_...) из настроек Render
+// Переменная токена Hugging Face из настроек Render (используем имя GEMINI_API_KEY)
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
-if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
-    exit;
-}
 
-// ── Системный промпт ──────────────────────────────────────────
+// Системный промпт студии
 $systemInstruction = <<<'PROMPT'
 Ты — официальный ИИ-менеджер поддержки на сайте студии кастомного дизайна "Kostlim Design". Ты приветствуешь пользователя, представляешься как онлайн-консультант и помогаешь во всех вопросах, связанных со студией.
 
@@ -70,70 +40,193 @@ $systemInstruction = <<<'PROMPT'
 - Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно.
 PROMPT;
 
-if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
-    $_SESSION['ai_chat_history'] = [];
-}
-if (count($_SESSION['ai_chat_history']) > 20) {
-    $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
-}
-
-$messages = [
-    ['role' => 'system', 'content' => $systemInstruction]
-];
-
-foreach ($_SESSION['ai_chat_history'] as $turn) {
-    $messages[] = ['role' => $turn['role'], 'content' => $turn['text']];
-}
-$messages[] = ['role' => 'user', 'content' => $userMessage];
-
-$payload = [
-    'model' => 'Qwen/Qwen2.5-72B-Instruct',
-    'messages' => $messages,
-    'parameters' => [
-        'max_new_tokens' => 500,
-        'temperature' => 0.7,
-        'return_full_text' => false
-    ]
-];
-
-$url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions";
-
-try {
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 30,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-        // СЕКРЕТНЫЙ МУВ: жестко сопоставляем хост и IP на уровне cURL, минуя сломанный DNS хостинга Render
-        CURLOPT_RESOLVE        => ["api-inference.huggingface.co:443:172.67.181.146"],
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
-    ]);
-    
-    $resp = curl_exec($ch);
-    $err  = curl_error($ch);
-    curl_close($ch);
-
-    $data  = json_decode((string)$resp, true);
-    $reply = $data['choices'][0]['message']['content'] ?? '';
-
-    if ($reply === '') {
-        error_log('HF Live API error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг Живого ИИ: ' . substr((string)$debugInfo, 0, 300)]);
+// Проверяем тип запроса. Если AJAX (fetch) — отдаем конфиг токена
+if (isset($_GET['get_config'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    if ($apiKey === '') {
+        echo json_encode(['ok' => false, 'error' => 'no_api_key']);
         exit;
     }
-
-    $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $userMessage];
-    $_SESSION['ai_chat_history'][] = ['role' => 'assistant', 'text' => $reply];
-
-    echo json_encode(['ok' => true, 'reply' => $reply]);
-} catch (Throwable $e) {
-    error_log('HF Live API exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
+    
+    if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
+        $_SESSION['ai_chat_history'] = [];
+    }
+    
+    echo json_encode([
+        'ok' => true,
+        'key' => $apiKey,
+        'prompt' => $systemInstruction,
+        'history' => $_SESSION['ai_chat_history']
+    ]);
+    exit;
 }
+
+// Если прилетел фоновый запрос на сохранение новой истории ответов
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    
+    if (!empty($input['reset'])) {
+        $_SESSION['ai_chat_history'] = [];
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    
+    if (isset($input['user_msg']) && isset($input['ai_reply'])) {
+        if (!isset($_SESSION['ai_chat_history'])) $_SESSION['ai_chat_history'] = [];
+        $_SESSION['ai_chat_history'][] = ['role' => 'user', 'text' => $input['user_msg']];
+        $_SESSION['ai_chat_history'][] = ['role' => 'assistant', 'text' => $input['ai_reply']];
+        if (count($_SESSION['ai_chat_history']) > 20) {
+            $_SESSION['ai_chat_history'] = array_slice($_SESSION['ai_chat_history'], -20);
+        }
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+}
+?>
+
+<!-- HTML И JS ИНТЕРФЕЙС ЧАТА ПОДДЕРЖКИ -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Онлайн ИИ-консультант Kostlim Design</title>
+    <style>
+        body { background: #0e0e10; color: #efeff1; font-family: sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .chat-container { width: 100%; max-width: 500px; background: #18181b; border-radius: 12px; border: 1px solid #2f2f35; display: flex; flex-direction: column; height: 500px; overflow: hidden; }
+        .chat-header { background: #1f1f23; padding: 15px; border-bottom: 1px solid #2f2f35; display: flex; justify-content: space-between; align-items: center; }
+        .status-dot { width: 8px; height: 8px; background: #00f2fe; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .chat-messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { max-width: 80%; padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.4; white-space: pre-line; }
+        .msg.bot { background: #2f2f35; align-self: flex-start; }
+        .msg.user { background: #c87a19; color: #fff; align-self: flex-end; }
+        .chat-input-area { display: flex; border-top: 1px solid #2f2f35; background: #1f1f23; }
+        .chat-input { flex: 1; background: transparent; border: none; padding: 15px; color: #fff; outline: none; font-size: 14px; }
+        .chat-btn { background: #c87a19; border: none; color: white; padding: 0 20px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .chat-btn:hover { background: #a66312; }
+        .chat-btn:disabled { background: #444; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <div><span class="status-dot"></span>Онлайн-консультант</div>
+        <button onclick="resetChat()" style="background:transparent; border:none; color:#aaa; cursor:pointer; font-size:12px;">🔄 Очистить</button>
+    </div>
+    <div class="chat-messages" id="chatWindow">
+        <div class="msg bot">Привет! Я ИИ-помощник Kostlim Design ⚡ Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div>
+    </div>
+    <div class="chat-input-area">
+        <input type="text" id="userInput" class="chat-input" placeholder="Введите сообщение..." onkeydown="if(event.key==='Enter') sendMsg()">
+        <button id="sendBtn" class="chat-btn" onclick="sendMsg()">Отправить</button>
+    </div>
+</div>
+
+<script>
+const chatWindow = document.getElementById('chatWindow');
+const userInput = document.getElementById('userInput');
+const sendBtn = document.getElementById('sendBtn');
+
+function appendMessage(role, text) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `msg ${role}`;
+    msgDiv.innerText = text;
+    chatWindow.appendChild(msgDiv);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+async function sendMsg() {
+    const text = userInput.value.trim();
+    if (!text) return;
+
+    appendMessage('user', text);
+    userInput.value = '';
+    userInput.disabled = true;
+    sendBtn.disabled = true;
+
+    // Временное сообщение о загрузке
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'msg bot';
+    loadingDiv.innerText = 'Печатает...';
+    chatWindow.appendChild(loadingDiv);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+    try {
+        // 1. Получаем промпт и токен Hugging Face с бэкенда Render
+        const configResp = await fetch('?get_config=1');
+        const config = await configResp.json();
+        
+        if (!config.ok) {
+            loadingDiv.innerText = "ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka";
+            return;
+        }
+
+        // 2. Строим историю диалога
+        let messages = [{ role: "system", content: config.prompt }];
+        if (config.history && config.history.length > 0) {
+            config.history.forEach(turn => {
+                messages.push({ role: turn.role, content: turn.text });
+            });
+        }
+        messages.push({ role: "user", content: text });
+
+        // 3. Прямой запрос из браузера клиента на сервера Hugging Face (Обходим лежащий DNS на Render!)
+        const hfResp = await fetch("https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${config.key}`
+            },
+            body: JSON.stringify({
+                model: "Qwen/Qwen2.5-72B-Instruct",
+                messages: messages,
+                parameters: {
+                    max_new_tokens: 400,
+                    temperature: 0.7,
+                    return_full_text: false
+                }
+            })
+        });
+
+        const hfData = await hfResp.json();
+        
+        if (hfData.choices && hfData.choices[0]) {
+            const reply = hfData.choices[0].message.content;
+            loadingDiv.innerText = reply;
+
+            // 4. Фоново сохраняем реплику в сессию PHP для поддержки контекста
+            await fetch('', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_msg: text, ai_reply: reply })
+            });
+        } else {
+            console.error("HF Error Data:", hfData);
+            loadingDiv.innerText = "Ошибка генерации. Пожалуйста, попробуй еще раз.";
+        }
+
+    } catch (err) {
+        console.error("Сетевая ошибка фронтенда:", err);
+        loadingDiv.innerText = "Не удалось связаться с сервером ИИ. Попробуй позже.";
+    } finally {
+        userInput.disabled = false;
+        sendBtn.disabled = false;
+        userInput.focus();
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+}
+
+async function resetChat() {
+    await fetch('', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true })
+    });
+    chatWindow.innerHTML = '<div class="msg bot">Привет! Я ИИ-помощник Kostlim Design ⚡ История сброшена. Чем могу помочь?</div>';
+}
+</script>
+
+</body>
+</html>
