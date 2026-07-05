@@ -90,7 +90,7 @@ $messages[] = ['role' => 'user', 'content' => $userMessage];
 
 // Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
-    'model'    => 'google/gemini-2.5-flash:free',
+    'model'    => 'google/gemma-4-31b-it:free',
     'messages' => $messages
 ];
 
