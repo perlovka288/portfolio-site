@@ -1,8 +1,6 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+ini_set('display_errors', 0); // Выключаем вывод ошибок на экран для пользователей
 error_reporting(E_ALL);
-while (ob_get_level()) ob_end_clean();
 
 /**
  * Бэкенд ИИ-поддержки (виджет "KOSTLIM AI SUPPORT").
@@ -38,7 +36,7 @@ if (mb_strlen($userMessage) > 2000) {
 
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Дебаг: Переменная окружения GEMINI_API_KEY пустая на сервере!']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
     exit;
 }
 
@@ -91,13 +89,12 @@ $payload = [
 ];
 
 $model = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
-// Возвращаем официальный URL Google
 $url   = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
 
 try {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
-        CURLOpt_POST           => true,
+        CURLOPT_POST           => true, // Исправлено на правильный верхний регистр константы
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 25,
         CURLOPT_SSL_VERIFYPEER => false,
@@ -117,8 +114,7 @@ try {
 
     if ($reply === '') {
         error_log('AI support error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        $debugInfo = "cURL Error: " . ($err ?: 'None') . " | Raw Response: " . substr((string)$resp, 0, 300);
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг: ' . $debugInfo]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'ИИ-помощник сейчас перегружен запросами 😔 Попробуй написать через минуту или обратись напрямую: @Perlo_ovka']);
         exit;
     }
 
@@ -128,5 +124,5 @@ try {
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('AI support exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Ошибка исключения PHP: ' . $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
