@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Стабильная система пула ключей на базе актуальной модели Gemini 2.5 Flash
+ * Система ротации ключей + Markdown HTML-парсер (активные ссылки и жирный текст)
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -44,10 +44,14 @@ $systemInstruction = "ИНСТРУКЦИЯ ДЛЯ МЕНЕДЖЕРА: Ты — �
 4. Получение работы: Как только статус изменится на \"Готов\", в личном кабинете и в Telegram-боте появится уведомление. В самой карточке заказа станет доступна ссылка на скачивание финального файла в высоком качестве.
 
 КОНТАКТЫ ДЛЯ СВЯЗИ:
-- Сложными техническими проблемами, багами, возвратами занимается создатель студии и разработчик бэкенда в Telegram: @Perlo_ovka. Писать по всем сбоям тестового режима сюда.
+- По всем техническим сбоям тестового режима писать в Telegram создателю студии: https://t.me/Perlo_ovka
+
+ПРАВИЛА ОФОРМЛЕНИЯ ССЫЛОК И ТЕКСТА:
+- Никогда не дублируй ссылки вида [url](url). Пиши ссылки аккуратно: либо словом-текстом [Наш Telegram](https://t.me/designkostlim), либо просто чистым URL-адресом https://t.me/designkostlim без скобок вокруг него.
+- Для списков используй обычные дефисы или цифры.
 
 СТИЛЬ ОБЩЕНИЯ:
-- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно. Начни общение прямо сейчас.";
+- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, современным неформальным тоном. Ответы короткие (2-5 предложений), используй эмодзи умеренно.";
 
 // 1. Отдаем конфигурацию со списком ключей в JS
 if (isset($_GET['get_internal_config_raw'])) {
@@ -81,6 +85,26 @@ header('Content-Type: application/javascript; charset=utf-8');
     let geminiConfig = null;
     window.aiChatHistory = window.aiChatHistory || [];
 
+    // Функция-парсер Markdown в HTML
+    function parseMarkdown(text) {
+        if (!text) return '';
+        let html = text;
+        
+        // 1. Заменяем стандартные Markdown ссылки [Текст](Сайт) -> <a href="Сайт" target="_blank">Текст</a>
+        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" style="color: #ff9900; text-decoration: underline;">$1</a>');
+        
+        // 2. Заменяем одинокие текстовые ссылки в кликабельные, если они еще не внутри тега <a>
+        html = html.replace(/(?<!href=")(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color: #ff9900; text-decoration: underline;">$1</a>');
+        
+        // 3. Заменяем жирный текст **текст** -> <strong>текст</strong>
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        
+        // 4. Красиво переносим строки
+        html = html.replace(/\n/g, '<br>');
+        
+        return html;
+    }
+
     originalFetch('/ai_support.php?get_internal_config_raw=1')
         .then(res => res.json())
         .then(data => { if (data.ok) geminiConfig = data; })
@@ -108,18 +132,15 @@ header('Content-Type: application/javascript; charset=utf-8');
                     return new Response(JSON.stringify({ ok: false, reply: 'ИИ настраивает пул ключей, повторите отправку.' }), { status: 200 });
                 }
 
-                // Ротация ключей
                 const randomIndex = Math.floor(Math.random() * geminiConfig.keys.length);
                 const activeKey = geminiConfig.keys[randomIndex];
 
-                // Формируем историю
                 let contents = [];
                 window.aiChatHistory.forEach(turn => {
                     contents.push({ role: turn.role === 'user' ? 'user' : 'model', parts: [{ text: turn.text }] });
                 });
                 contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
-                // Самый стабильный эндпоинт v1beta + новая официальная модель gemini-2.5-flash
                 const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -129,7 +150,7 @@ header('Content-Type: application/javascript; charset=utf-8');
                             parts: [{ text: geminiConfig.system }] 
                         },
                         generationConfig: { 
-                            temperature: 0.7, 
+                            temperature: 0.5, 
                             maxOutputTokens: 450 
                         }
                     })
@@ -140,21 +161,26 @@ header('Content-Type: application/javascript; charset=utf-8');
                 if (geminiData.error) {
                     return new Response(JSON.stringify({ 
                         ok: false, 
-                        reply: `Ошибка пула [${geminiData.error.code}]: ${geminiData.error.message}. Попробуйте отправить еще раз.` 
+                        reply: `Ошибка пула [${geminiData.error.code}]: ${geminiData.error.message}. Попробуйте еще раз.` 
                     }), { status: 200 });
                 }
 
-                const aiReply = geminiData.candidates[0].content.parts[0].text || 'Не удалось получить ответ.';
+                const rawAiReply = geminiData.candidates[0].content.parts[0].text || 'Не удалось получить ответ.';
+                
+                // Сохраняем чистый текст в историю ИИ
                 window.aiChatHistory.push({ role: 'user', text: userMessage });
-                window.aiChatHistory.push({ role: 'model', text: aiReply });
+                window.aiChatHistory.push({ role: 'model', text: rawAiReply });
 
-                return new Response(JSON.stringify({ ok: true, reply: aiReply }), {
+                // Преобразуем текст в HTML перед отдачей на фронтенд
+                const formattedReply = parseMarkdown(rawAiReply);
+
+                return new Response(JSON.stringify({ ok: true, reply: formattedReply }), {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
                 });
 
             } catch (e) {
-                return new Response(JSON.stringify({ ok: false, reply: 'Ошибка сети. Напишите нам напрямую: @Perlo_ovka' }), { status: 200 });
+                return new Response(JSON.stringify({ ok: false, reply: 'Ошибка сети. Напишите создателю: https://t.me/Perlo_ovka' }), { status: 200 });
             }
         }
         return originalFetch.apply(this, args);
