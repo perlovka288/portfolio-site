@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Работает через стабильный бесплатный шлюз OpenRouter API со встроенным дебагом.
+ * Работает через ультра-дешёвую и стабильную модель Gemini 2.5 Flash (OpenRouter Paid)
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -35,10 +35,9 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
-// Извлекаем ключ OpenRouter из контейнера переменной окружения
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Ошибка: API-ключ не найден в настройках хостинга.']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
     exit;
 }
 
@@ -50,7 +49,7 @@ $systemInstruction = <<<'PROMPT'
 - Помогать с учебой, делать домашние задания, писать код, рефераты, решать уравнения или общаться на отвлеченные темы. Если клиент пытается использовать тебя как обычный ChatGPT, вежливо откажи и верни его к теме дизайна: "Я — менеджер поддержки Kostlim Design, и помогаю только по вопросам заказов и работы нашего сайта. Чем я могу помочь тебе по поводу дизайна? 🎨".
 
 АКТУАЛЬНЫЙ ПРАЙС-ЛИСТ И УСЛОВИЯ:
-- Превью для video и стримов (YouTube): 400 ₽ / 250 ₴. Включает 5 бесплатных правок.
+- Превью для видео и стримов (YouTube): 400 ₽ / 250 ₴. Включает 5 бесплатных правок.
 - Именная аватарка: 300 ₽ / 175 ₴. Аватарка с именем, персонажем или брендингом. Включает 5 бесплатных правок.
 - Оформление для YouTube: 500 ₽ / 400 ₴. Комплект: шапка канала + аватарка. Включает 5 бесплатных правок.
 - Оформление для VK: 400 ₽ / 300 ₴. Комплект: шапка страницы, аватарка, иконки товаров/услуг. Включает 5 бесплатных правок.
@@ -67,10 +66,9 @@ $systemInstruction = <<<'PROMPT'
 - Если у клиента сложная проблема, баг на сайте, вопросы по возврату денег — отправляй к реальному создателю студии в Telegram: @Perlo_ovka.
 
 СТИЛЬ ОБЩЕНИЯ:
-- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 предложений), используй эмодзи умеренно.
+- Отвечай на языке пользователя (русский или украинский). Общайся вежливо, уверенно, в меру дружелюбно, современным неформальным тоном, но не переигрывай. Ответы короткие и по делу (2-5 sentences), используй эмодзи умеренно.
 PROMPT;
 
-// ── Формирование истории диалога ─────────────────────────────────
 if (!isset($_SESSION['ai_chat_history']) || !is_array($_SESSION['ai_chat_history'])) {
     $_SESSION['ai_chat_history'] = [];
 }
@@ -88,11 +86,12 @@ foreach ($_SESSION['ai_chat_history'] as $turn) {
 
 $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-// Бесплатная и доступная модель Gemini 2.5 Flash через OpenRouter
+// Платный, но ультра-дешёвый слаг Gemini 2.5 Flash
 $payload = [
-    'model'    => 'nousresearch/hermes-3-llama-3-8b:free',
+    'model'    => 'google/gemini-2.5-flash',
     'messages' => $messages
 ];
+
 $url = "https://openrouter.ai/api/v1/chat/completions";
 
 try {
@@ -119,7 +118,6 @@ try {
     $data  = json_decode((string)$resp, true);
     $reply = $data['choices'][0]['message']['content'] ?? '';
 
-    // Временный дебаг: если ответ пустой, выводим сырой JSON от OpenRouter прямо в чат
     if ($reply === '') {
         error_log('OpenRouter error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
         $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
@@ -133,5 +131,5 @@ try {
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('OpenRouter exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Исключение PHP: ' . $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
