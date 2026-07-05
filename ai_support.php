@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Мульти-ключ система (Ротация API) + Железный эндпоинт v1beta
+ * Стабильная система пула ключей на базе актуальной модели Gemini 2.5 Flash
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -74,19 +74,19 @@ header('Content-Type: application/javascript; charset=utf-8');
                     return new Response(JSON.stringify({ ok: false, reply: 'ИИ настраивает пул ключей, повторите отправку.' }), { status: 200 });
                 }
 
-                // Ротация ключей (выбираем рандомный из введенных в Render)
+                // Ротация ключей
                 const randomIndex = Math.floor(Math.random() * geminiConfig.keys.length);
                 const activeKey = geminiConfig.keys[randomIndex];
 
-                // Формируем чистую историю сообщений
+                // Формируем историю
                 let contents = [];
                 window.aiChatHistory.forEach(turn => {
                     contents.push({ role: turn.role === 'user' ? 'user' : 'model', parts: [{ text: turn.text }] });
                 });
                 contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
-                // Стучимся на v1beta — он идеально знает имя модели gemini-1.5-flash
-                const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`, {
+                // Самый стабильный эндпоинт v1beta + новая официальная модель gemini-2.5-flash
+                const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
