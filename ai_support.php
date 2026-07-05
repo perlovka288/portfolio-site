@@ -1,5 +1,5 @@
 <?php
-ini_set('display_errors', 0); // Отключаем стандартный вывод ошибок, так как дебаг встроен в JSON
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 /**
@@ -35,10 +35,10 @@ if (mb_strlen($userMessage) > 2000) {
     $userMessage = mb_substr($userMessage, 0, 2000);
 }
 
-// Извлекаем ключ OpenRouter из старого контейнера
+// Извлекаем ключ OpenRouter из контейнера переменной окружения
 $apiKey = getenv('GEMINI_API_KEY') ?: '';
 if ($apiKey === '') {
-    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'Ошибка: API-ключ не найден в настройках хостинга.']);
+    echo json_encode(['ok' => false, 'error' => 'no_api_key', 'reply' => 'ИИ-помощник временно недоступен. Напиши нам напрямую: @Perlo_ovka']);
     exit;
 }
 
@@ -88,9 +88,9 @@ foreach ($_SESSION['ai_chat_history'] as $turn) {
 
 $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-// Используем полностью бесплатную и мощную модель Llama 3.1 на OpenRouter
+// Бесплатная, умная и доступная модель Gemini 2.5 Flash через OpenRouter
 $payload = [
-    'model'    => 'meta-llama/llama-3.1-8b-instruct:free',
+    'model'    => 'google/gemini-2.5-flash:free',
     'messages' => $messages
 ];
 
@@ -107,7 +107,7 @@ try {
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
             'Authorization: Bearer ' . $apiKey,
-            'HTTP-Referer: http://localhost', // Требуется спецификацией OpenRouter
+            'HTTP-Referer: http://localhost',
             'X-Title: Kostlim Support'
         ],
         CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
@@ -122,8 +122,7 @@ try {
 
     if ($reply === '') {
         error_log('OpenRouter error: ' . $err . ' | resp: ' . substr((string)$resp, 0, 500));
-        $debugInfo = !empty($resp) ? $resp : 'cURL Error: ' . ($err ?: 'unknown');
-        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'Дебаг OpenRouter: ' . substr((string)$debugInfo, 0, 400)]);
+        echo json_encode(['ok' => false, 'error' => 'ai_error', 'reply' => 'ИИ-помощник сейчас перегружен запросами 😔 Попробуй написать через минуту или обратись напрямую: @Perlo_ovka']);
         exit;
     }
 
@@ -133,5 +132,5 @@ try {
     echo json_encode(['ok' => true, 'reply' => $reply]);
 } catch (Throwable $e) {
     error_log('OpenRouter exception: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Исключение PHP: ' . $e->getMessage()]);
+    echo json_encode(['ok' => false, 'error' => 'exception', 'reply' => 'Не удалось получить ответ 😔 Попробуй ещё раз.']);
 }
