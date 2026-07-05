@@ -4,7 +4,7 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Полностью автономная стабильная сборка API v1 с гарантированной структурой JSON.
+ * Полный отладочный код для выявления точной причины ошибки API.
  */
 
 require_once __DIR__ . '/includes/session.php';
@@ -88,7 +88,7 @@ header('Content-Type: application/javascript; charset=utf-8');
                 // Добавляем текущее сообщение пользователя
                 contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
-                // Максимально упрощенный и 100% валидный запрос для API v1
+                // Прямой запрос к Google API
                 const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiConfig.key}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -103,8 +103,12 @@ header('Content-Type: application/javascript; charset=utf-8');
 
                 const geminiData = await geminiResponse.json();
                 
+                // ВЫВОДИМ РЕАЛЬНЫЙ ТЕКСТ ОШИБКИ ИЗ GOOGLE AI STUDIO В ЧАТ
                 if (geminiData.error) {
-                    return new Response(JSON.stringify({ ok: false, reply: 'Ошибка авторизации или лимитов API. Обновите страницу.' }), { status: 200 });
+                    return new Response(JSON.stringify({ 
+                        ok: false, 
+                        reply: `Google Error [${geminiData.error.code || '???'}]: ${geminiData.error.message}` 
+                    }), { status: 200 });
                 }
 
                 const aiReply = geminiData.candidates[0].content.parts[0].text || 'Не удалось получить ответ.';
