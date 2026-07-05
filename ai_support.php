@@ -4,12 +4,12 @@ error_reporting(E_ALL);
 
 /**
  * Бэкенд ИИ-поддержки студии кастомного дизайна "Kostlim Design"
- * Мульти-ключ система (Ротация API ключей как в ImgBB)
+ * Мульти-ключ система (Ротация API) + Железный эндпоинт v1beta
  */
 
 require_once __DIR__ . '/includes/session.php';
 
-// Получаем строку с ключами из Render (например: "ключ1,ключ2,ключ3")
+// Получаем строку с ключами из Render ("ключ1,ключ2,ключ3")
 $apiKeysRaw = getenv('GEMINI_API_KEY') ?: '';
 
 // Жесткий системный промпт
@@ -18,13 +18,10 @@ $systemInstruction = "ИНСТРУКЦИЯ ДЛЯ МЕНЕДЖЕРА: Ты — �
 // 1. Отдаем конфигурацию со списком ключей в JS
 if (isset($_GET['get_internal_config_raw'])) {
     header('Content-Type: application/json; charset=utf-8');
-    
-    // Разбиваем строку ключей по запятой в массив
     $keysArray = array_filter(array_map('trim', explode(',', $apiKeysRaw)));
-    
     echo json_encode([
         'ok' => true,
-        'keys' => array_values($keysArray), // Передаем весь пул ключей
+        'keys' => array_values($keysArray),
         'system' => $systemInstruction
     ]);
     exit;
@@ -50,7 +47,6 @@ header('Content-Type: application/javascript; charset=utf-8');
     let geminiConfig = null;
     window.aiChatHistory = window.aiChatHistory || [];
 
-    // Подгружаем пул ключей при старте страницы
     originalFetch('/ai_support.php?get_internal_config_raw=1')
         .then(res => res.json())
         .then(data => { if (data.ok) geminiConfig = data; })
@@ -78,28 +74,26 @@ header('Content-Type: application/javascript; charset=utf-8');
                     return new Response(JSON.stringify({ ok: false, reply: 'ИИ настраивает пул ключей, повторите отправку.' }), { status: 200 });
                 }
 
-                // ВЫБИРАЕМ СЛУЧАЙНЫЙ КЛЮЧ ИЗ ПУЛА (Система ImgBB)
+                // Ротация ключей (выбираем рандомный из введенных в Render)
                 const randomIndex = Math.floor(Math.random() * geminiConfig.keys.length);
                 const activeKey = geminiConfig.keys[randomIndex];
 
-                // Структура контекста
-                let contents = [
-                    { role: 'user', parts: [{ text: geminiConfig.system }] },
-                    { role: 'model', parts: [{ text: 'Принято. Я готов работать в качестве ИИ-менеджера поддержки Kostlim Design согласно инструкциям.' }] }
-                ];
-
+                // Формируем чистую историю сообщений
+                let contents = [];
                 window.aiChatHistory.forEach(turn => {
                     contents.push({ role: turn.role === 'user' ? 'user' : 'model', parts: [{ text: turn.text }] });
                 });
-                
                 contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
-                // Запрос на стабильный v1 с исправленным системным именем модели
-                const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${activeKey}`, {
+                // Стучимся на v1beta — он идеально знает имя модели gemini-1.5-flash
+                const geminiResponse = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: contents,
+                        systemInstruction: { 
+                            parts: [{ text: geminiConfig.system }] 
+                        },
                         generationConfig: { 
                             temperature: 0.7, 
                             maxOutputTokens: 450 
