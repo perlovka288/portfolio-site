@@ -90,7 +90,7 @@ $payload = [
 
 $model = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
 // Используем Cloudflare AI Gateway для обхода региональной ошибки 429
-$url   = "https://gateway.ai.cloudflare.com/v1/public/gemini/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
+$url   = "https://api.gemini-proxy.com/v1beta/models/{$model}:generateContent?key=" . urlencode($apiKey);
 
 try {
     $ch = curl_init($url);
