@@ -986,6 +986,20 @@ if (isset($_POST['clear_bot_log'])) {
     $message = '✅ Лог очищен.';
 }
 
+// ===================== ПРОМПТ ИИ-ПОМОЩНИКА =====================
+if (isset($_POST['save_ai_prompt']) || isset($_POST['reset_ai_prompt'])) {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+        $newPromptValue = isset($_POST['reset_ai_prompt']) ? '' : trim((string)($_POST['ai_system_prompt'] ?? ''));
+        $pdo->prepare("INSERT INTO site_settings (setting_key, value) VALUES ('ai_system_prompt', ?)
+                        ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value")
+            ->execute([$newPromptValue]);
+        $message = isset($_POST['reset_ai_prompt']) ? '✅ Промпт сброшен к встроенному по умолчанию.' : '✅ Промпт ИИ сохранён.';
+    } catch (Throwable $e) {
+        $message = '❌ Не удалось сохранить: ' . $e->getMessage();
+    }
+}
+
 // ===================== PORTFOLIO =====================
 if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     $title        = trim($_POST['title'] ?? '');
@@ -1593,6 +1607,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
             <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
+            <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
         </nav>
 
         <div class="admin-content">
@@ -1934,6 +1949,30 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
+                    </section>
+
+                    <!-- ════ ПРОМПТ ИИ-ПОМОЩНИКА ════ -->
+                    <section class="panel" data-panel="ai-prompt">
+                        <h2>🤖 Промпт ИИ-помощника</h2>
+                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
+                            Инструкция, с которой ИИ-виджет на сайте общается с клиентами. Меняй цены,
+                            акции, ссылки и правила здесь — без изменения кода. Если поле пустое,
+                            используется встроенный текст по умолчанию.
+                        </p>
+                        <?php
+                            $currentAiPrompt = '';
+                            try {
+                                $aiPromptStmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'ai_system_prompt' LIMIT 1");
+                                $currentAiPrompt = $aiPromptStmt ? (string)$aiPromptStmt->fetchColumn() : '';
+                            } catch (Throwable $e) {}
+                        ?>
+                        <form method="POST" action="">
+                            <textarea name="ai_system_prompt" rows="20" style="width:100%;box-sizing:border-box;background:#0c0c12;border:1px solid #23232f;border-radius:12px;padding:14px;color:#e0e0ec;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;margin-bottom:14px;" placeholder="Оставь пустым, чтобы использовать текст по умолчанию из кода…"><?= htmlspecialchars($currentAiPrompt) ?></textarea>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                                <button type="submit" name="save_ai_prompt" class="btn-panel" style="width:auto;padding:12px 22px;margin-top:0;">💾 Сохранить промпт</button>
+                                <button type="submit" name="reset_ai_prompt" class="btn-panel" style="width:auto;padding:12px 22px;margin-top:0;background:#3a1a1a;" onclick="return confirm('Сбросить промпт к встроенному тексту по умолчанию?');">↺ Сбросить к дефолту</button>
+                            </div>
+                        </form>
                     </section>
 
                     <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->

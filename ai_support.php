@@ -3,6 +3,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/config/db.php';
 
 $apiKeysRaw = getenv('GEMINI_API_KEY') ?: '';
 
@@ -19,6 +20,8 @@ function notifyAdmin($message) {
     }
 }
 
+// Текст по умолчанию (используется, если в БД ещё ничего не сохранено —
+// то есть админ ни разу не сохранял промпт через админ-панель).
 $systemInstruction = "Ты — крутой, живой и отзывчивый ИИ-консультант студии дизайна \"Kostlim Design\". Твоя цель — помогать клиентам и принимать заказы. Общайся как реальный человек, твой друг-дизайнер: легко, уверенно, без занудства и канцелярита.
 
 ГЛАВНОЕ ПРАВИЛО:
@@ -55,6 +58,20 @@ $systemInstruction = "Ты — крутой, живой и отзывчивый 
 - Ссылки пиши просто текстом (https://t.me/designkostlim).
 - Списки делай через дефисы (-) или цифры.
 - Ответы короткие, живые, с эмодзи.";
+
+// Если админ сохранил свой текст через админ-панель (раздел "Промпт ИИ") —
+// используем его вместо текста выше. Это ЕДИНСТВЕННОЕ дополнение к файлу —
+// вся остальная структура, эндпоинты и JS-перехватчик ниже не изменены.
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+    $stmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'ai_system_prompt' LIMIT 1");
+    $savedPrompt = $stmt ? (string)$stmt->fetchColumn() : '';
+    if (trim($savedPrompt) !== '') {
+        $systemInstruction = $savedPrompt;
+    }
+} catch (Throwable $e) {
+    // Тихо игнорируем — при любой проблеме остаётся текст по умолчанию выше
+}
 
 // Обработка конфигурации
 if (isset($_GET['get_internal_config_raw'])) {

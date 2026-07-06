@@ -391,41 +391,91 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
-// --- KostlimAI через OpenRouter (Стабильный метод) ---
+    // --- KostlimAI (Gemini) — реагирует на сообщения, начинающиеся с "KostlimAI" ---
     if (strpos($text, 'KostlimAI') === 0) {
         $userQuery = trim(str_replace('KostlimAI', '', $text));
         $thread_id = $update['message']['message_thread_id'] ?? null;
-        
-        // Вставьте ключ, сгенерированный на OpenRouter
-       $apiKey = getenv('OPENROUTER_API_KEY'); 
-        
-        $apiUrl = "https://openrouter.ai/api/v1/chat/completions";
-        
+        $ai_user_id = (string)($update['message']['from']['id'] ?? $chat_id);
+        $is_private_chat = ($chat_type === 'private');
+
+        // Лимит: 5 запросов в минуту на пользователя — без этого можно легко
+        // сжечь дневную квоту Gemini спамом одного человека.
+        $limitFile = sys_get_temp_dir() . "/ai_limit_{$ai_user_id}.txt";
+        $ai_history = file_exists($limitFile) ? (json_decode(file_get_contents($limitFile), true) ?: []) : [];
+        $ai_now = time();
+        $ai_history = array_values(array_filter($ai_history, function($ts) use ($ai_now) { return ($ai_now - $ts) < 60; }));
+
+        if (count($ai_history) >= 5) {
+            $params = ['chat_id' => $chat_id, 'text' => 'Погоди, дай передохнуть! Лимит 5 запросов в минуту исчерпан ⏳'];
+            if ($thread_id) $params['message_thread_id'] = $thread_id;
+            sendTelegram($token, 'sendMessage', $params);
+            exit;
+        }
+        $ai_history[] = $ai_now;
+        @file_put_contents($limitFile, json_encode($ai_history));
+
+        if ($userQuery === '') {
+            $params = ['chat_id' => $chat_id, 'text' => 'Спрашивай — я на связи 🤖 Например: "KostlimAI сколько стоит превью?"'];
+            if ($thread_id) $params['message_thread_id'] = $thread_id;
+            sendTelegram($token, 'sendMessage', $params);
+            exit;
+        }
+
+        $geminiKey = getenv('GEMINI_API_KEY') ?: '';
+        if ($geminiKey === '') {
+            botLog('KostlimAI: GEMINI_API_KEY не задан в переменных окружения');
+            $params = ['chat_id' => $chat_id, 'text' => 'ИИ временно недоступен (не настроен ключ). Напиши: @Perlo_ovka'];
+            if ($thread_id) $params['message_thread_id'] = $thread_id;
+            sendTelegram($token, 'sendMessage', $params);
+            exit;
+        }
+
+        // Тот же промпт, что редактируется в админке для виджета на сайте
+        // (раздел "ИИ-промпт") — единый источник правды для сайта и бота.
+        $aiSystemPrompt = '';
+        try {
+            $promptStmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'ai_system_prompt' LIMIT 1");
+            $aiSystemPrompt = $promptStmt ? (string)$promptStmt->fetchColumn() : '';
+        } catch (Throwable $e) {}
+        if (trim($aiSystemPrompt) === '') {
+            $aiSystemPrompt = $is_private_chat
+                ? "Ты — менеджер студии Kostlim Design. Общайся по-дружески, но помогай с заказами, прайсом и правилами. Отвечай просто, ясно, без лишнего официоза и пафоса."
+                : "Ты — свободный AI-собеседник для чатов. Общайся легко, весело, поддерживай любые темы. Твоя задача — помогать людям ясно и просто, без всякого занудства.";
+        }
+
+        $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
+        $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key=" . urlencode($geminiKey);
         $payload = [
-            'model' => 'google/gemini-flash-1.5',
-            'messages' => [['role' => 'user', 'content' => $userQuery]]
+            'contents'           => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
+            'system_instruction' => ['parts' => [['text' => $aiSystemPrompt]]],
+            'generationConfig'   => ['temperature' => 0.7, 'maxOutputTokens' => 500],
         ];
 
         $ch = curl_init($apiUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
-            'HTTP-Referer: https://kostlim-design.com', // Укажите ваш сайт
-            'X-Title: Kostlim Design Bot'
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_TIMEOUT        => 25,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
         ]);
-        
         $response = curl_exec($ch);
+        $curlErr  = curl_error($ch);
         curl_close($ch);
-        
-        $data = json_decode($response, true);
-        $reply = $data['choices'][0]['message']['content'] ?? "Ошибка: Сервис-посредник не ответил.";
+
+        $data  = json_decode((string)$response, true);
+        $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+        if ($reply === '') {
+            // Логируем реальную причину (истёкшая квота, неверный ключ, и т.п.)
+            // вместо того чтобы просто молча показывать общую ошибку —
+            // теперь причину видно во вкладке "Логи" в админке.
+            botLog('KostlimAI Gemini error: curl=' . $curlErr . ' | resp=' . substr((string)$response, 0, 500));
+            $reply = 'Не смог ответить 😔 Попробуй ещё раз через минуту или напиши: @Perlo_ovka';
+        }
 
         $params = ['chat_id' => $chat_id, 'text' => $reply];
         if ($thread_id) $params['message_thread_id'] = $thread_id;
-        
         sendTelegram($token, 'sendMessage', $params);
         exit;
     }
