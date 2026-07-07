@@ -121,8 +121,7 @@ header('Content-Type: application/javascript; charset=utf-8');
                 parts.push({ inline_data: { mime_type: userImage.split(';base64,')[0].replace('data:', ''), data: userImage.split(';base64,')[1] } });
             }
             contents.push({ role: 'user', parts: parts });
-
-            const res = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`, {
+            const res = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ contents: contents, systemInstruction: { parts: [{ text: geminiConfig.system }] } })
