@@ -123,6 +123,15 @@ if (isset($_GET['check_linked'])) {
 
 $success_msg = '';
 $error_msg   = '';
+$order_id    = 0;
+
+// После Post-Redirect-Get успешная отправка заказа приходит сюда уже как
+// обычный GET (?sent=ID) — так повторное обновление страницы никогда не
+// создаёт заказ повторно и не наталкивается на антиспам-задержку.
+if (!empty($_GET['sent']) && ctype_digit((string)$_GET['sent'])) {
+    $order_id = (int)$_GET['sent'];
+    $success_msg = "🚀 Заказ #{$order_id} отправлен! Дизайнер посмотрит ТЗ и примет или отклонит заказ. Оплачивать сейчас не нужно: реквизиты придут после принятия заказа.";
+}
 
 $skip_rules = isset($_COOKIE['rules_skip']) && $_COOKIE['rules_skip'] === '1';
 $rules_accepted = $skip_rules || (($_POST['rules_accepted'] ?? '') === '1');
@@ -480,6 +489,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                 curl_exec($ch); curl_close($ch);
             }
         }
+
+        // ── Post-Redirect-Get ──────────────────────────────────────────
+        // Раньше успешная отправка рендерилась ПРЯМО в ответе на этот же
+        // POST-запрос. Из-за этого если человек случайно обновлял страницу
+        // браузер повторно слал ТОТ ЖЕ POST, что создавало вторую попытку
+        // заказа и упиралось в антиспам-задержку — вместо экрана "Заказ
+        // отправлен" человек внезапно видел "слишком много заявок, подождите
+        // 5 минут", хотя первый заказ уже прекрасно создался. Редирект на
+        // GET решает это полностью: повторное обновление просто повторяет
+        // GET, ничего заново не создавая.
+        $redirectUrl = $_SERVER['PHP_SELF'] . '?service=' . urlencode($service_key) . '&sent=' . $order_id;
+        header('Location: ' . $redirectUrl);
+        exit;
 
     } catch (PDOException $e) {
         $error_msg = "❌ Ошибка БД: " . $e->getMessage();
@@ -1333,6 +1355,22 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 <script>
 // ─── File input labels ───
 document.addEventListener('DOMContentLoaded', function() {
+    // Защита от повторной отправки формы двойным кликом/медленной сетью —
+    // раньше это иногда приводило к тому, что второй запрос попадал под
+    // антиспам-задержку сразу после того как первый уже успешно создал заказ.
+    document.querySelectorAll('form').forEach(function(form) {
+        form.addEventListener('submit', function() {
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn && !btn.disabled) {
+                btn.disabled = true;
+                btn.dataset.origText = btn.textContent;
+                btn.textContent = '⏳ Отправляю...';
+                btn.style.opacity = '.7';
+                btn.style.cursor = 'not-allowed';
+            }
+        });
+    });
+
     // Слот 1
     var s1Screenshot = document.getElementById('s1_screenshot'); if (s1Screenshot) s1Screenshot.addEventListener('change', function() {
         var el = document.getElementById('s1_screenshot_name');

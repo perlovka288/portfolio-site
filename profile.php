@@ -1051,11 +1051,11 @@ body::before {
                             <label class="file-picker-label" for="receipt-file-<?= $oid ?>">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                                 Выбрать файл
-                                <input type="file" id="receipt-file-<?= $oid ?>" name="payment_receipt" accept="image/*,.pdf" required onchange="document.getElementById('receipt-name-<?= $oid ?>').textContent = this.files[0] ? this.files[0].name : 'Файл не выбран';">
+                                <input type="file" id="receipt-file-<?= $oid ?>" name="payment_receipt" accept="image/*,.pdf" required onchange="document.getElementById('receipt-name-<?= $oid ?>').textContent = this.files[0] ? this.files[0].name : 'Файл не выбран'; var rb=document.getElementById('receipt-submit-<?= $oid ?>'); rb.disabled = !this.files[0]; rb.style.opacity = this.files[0] ? '1' : '.5'; rb.style.cursor = this.files[0] ? 'pointer' : 'not-allowed';">
                             </label>
                             <span class="file-picker-name" id="receipt-name-<?= $oid ?>">Файл не выбран</span>
                         </div>
-                        <button type="submit" name="upload_payment_receipt" class="btn-appeal-submit">💳 Отправить чек</button>
+                        <button type="submit" name="upload_payment_receipt" id="receipt-submit-<?= $oid ?>" class="btn-appeal-submit" disabled style="opacity:.5;cursor:not-allowed;">💳 Отправить чек</button>
                     </form>
                     <div class="pay-card-support">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank">@Perlo_ovka</a></div>
                 </div>

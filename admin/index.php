@@ -189,17 +189,29 @@ function calcDeadline(string $created_at, bool $isUrgent = false): ?\DateTime
 {
     try {
         $dt = new \DateTime($created_at);
-        $dt->modify($isUrgent ? '+1 day' : '+5 days');
+        $dt->modify($isUrgent ? '+24 hours' : '+5 days');
         return $dt;
     } catch (\Throwable $e) {
         return null;
     }
 }
 
-function deadlineBadge(string $created_at, bool $isUrgent = false): string
+/**
+ * ВАЖНО: эта функция ТОЛЬКО отображает переданную дату — она больше НЕ
+ * прибавляет к ней дни сама. Раньше, когда сюда передавали уже готовый,
+ * реально сохранённый дедлайн (order['deadline'], который уже был равен
+ * "создан + 5 дней"), функция прибавляла к нему ЕЩЁ 5 дней сверху — отсюда
+ * баг "заказ создан 5-го, а сдать почему-то 15-го" (5+5+5 вместо 5).
+ * Если дедлайна в базе ещё нет (заказ ещё не оплачен) — считать его
+ * явно через calcDeadline() ДО вызова этой функции.
+ */
+function deadlineBadge(string $deadlineDatetime, bool $isUrgent = false): string
 {
-    $dl = calcDeadline($created_at, $isUrgent);
-    if (!$dl) return '';
+    try {
+        $dl = new \DateTime($deadlineDatetime);
+    } catch (\Throwable $e) {
+        return '';
+    }
     $now = new \DateTime();
     $diff = $now->diff($dl);
     $overdue = $dl < $now;
@@ -1875,7 +1887,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     if (!empty($order['deadline'])) {
                                         $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
                                     } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
-                                        $deadlineHtml = deadlineBadge($order['created_at'], $isUrgent);
+                                        $fallbackDl = calcDeadline($order['created_at'], $isUrgent);
+                                        if ($fallbackDl) $deadlineHtml = deadlineBadge($fallbackDl->format('Y-m-d H:i:s'), $isUrgent);
                                     }
                                     $viewUrl = $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'];
                                 ?>
@@ -2157,7 +2170,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     if (!empty($viewOrder['deadline'])) {
                                         $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
                                     } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
-                                        $dlBadge = deadlineBadge($viewOrder['created_at'], $isUrgentView);
+                                        $fallbackDlView = calcDeadline($viewOrder['created_at'], $isUrgentView);
+                                        if ($fallbackDlView) $dlBadge = deadlineBadge($fallbackDlView->format('Y-m-d H:i:s'), $isUrgentView);
                                     }
                                     $cleanTg = trim($viewOrder['telegram'] ?? '');
                                     $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
@@ -2432,6 +2446,8 @@ function activateAdminTab(tab) {
     else if (tab === 'rules')     { show('rules'); }
     else if (tab === 'appeals')   { show('appeals'); }
     else if (tab === 'avatar')    { show('avatar'); }
+    else if (tab === 'logs')      { show('logs'); }
+    else if (tab === 'ai-prompt') { show('ai-prompt'); }
 }
 
 function initFileInputs() {

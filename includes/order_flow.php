@@ -28,6 +28,11 @@ function ensureOrderFlowSchema(PDO $pdo): void
             setting_key VARCHAR(64) PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
         )");
+        // ВАЖНО: "CREATE TABLE IF NOT EXISTS" ничего не делает, если таблица
+        // уже существовала без колонки value — именно это вызывало ошибку
+        // "column value does not exist" в логах. Явно догоняем колонку.
+        try { $pdo->exec("ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS value TEXT DEFAULT ''"); } catch (Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS setting_key VARCHAR(64)"); } catch (Throwable $e) {}
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
     }

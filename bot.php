@@ -421,14 +421,18 @@ if (isset($update['message'])) {
             exit;
         }
 
-        $geminiKey = getenv('GEMINI_API_KEY') ?: '';
-        if ($geminiKey === '') {
+        $geminiKeyRaw = getenv('GEMINI_API_KEY') ?: '';
+        if ($geminiKeyRaw === '') {
             botLog('KostlimAI: GEMINI_API_KEY не задан в переменных окружения');
             $params = ['chat_id' => $chat_id, 'text' => 'ИИ временно недоступен (не настроен ключ). Напиши: @Perlo_ovka'];
             if ($thread_id) $params['message_thread_id'] = $thread_id;
             sendTelegram($token, 'sendMessage', $params);
             exit;
         }
+        // GEMINI_API_KEY может содержать несколько ключей через запятую (как
+        // в виджете на сайте) — берём случайный, чтобы распределять квоту.
+        $geminiKeysArr = array_values(array_filter(array_map('trim', explode(',', $geminiKeyRaw))));
+        $geminiKey = $geminiKeysArr[array_rand($geminiKeysArr)];
 
         // Тот же промпт, что редактируется в админке для виджета на сайте
         // (раздел "ИИ-промпт") — единый источник правды для сайта и бота.
@@ -443,12 +447,12 @@ if (isset($update['message'])) {
                 : "Ты — свободный AI-собеседник для чатов. Общайся легко, весело, поддерживай любые темы. Твоя задача — помогать людям ясно и просто, без всякого занудства.";
         }
 
-        $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
+        $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash';
         $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key=" . urlencode($geminiKey);
         $payload = [
-            'contents'           => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
-            'system_instruction' => ['parts' => [['text' => $aiSystemPrompt]]],
-            'generationConfig'   => ['temperature' => 0.7, 'maxOutputTokens' => 500],
+            'contents'          => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
+            'systemInstruction' => ['parts' => [['text' => $aiSystemPrompt]]],
+            'generationConfig'  => ['temperature' => 0.7, 'maxOutputTokens' => 500],
         ];
 
         $ch = curl_init($apiUrl);

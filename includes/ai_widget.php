@@ -6,6 +6,8 @@
  */
 ?>
 <div id="ai-widget-root">
+    <div id="ai-widget-overlay"></div>
+
     <div id="ai-widget-bubble" class="ai-widget-bubble">
         <button type="button" id="ai-widget-bubble-close" aria-label="Скрыть подсказку">&times;</button>
         <div class="ai-widget-bubble-text">Привет! Нужна помощь с заказом?</div>
@@ -16,6 +18,7 @@
     </button>
 
     <div id="ai-widget-panel" class="ai-widget-panel">
+        <div class="ai-widget-swipe-hint"></div>
         <div class="ai-widget-header">
             <div class="ai-widget-avatar">🤖</div>
             <div class="ai-widget-header-text">
@@ -81,45 +84,53 @@
 
 .ai-widget-panel {
     position: fixed; top: 0; right: -420px; height: 100vh; width: 380px; max-width: 92vw;
-    background: #0d0d12; border-left: 1px solid #202028;
+    background: #1a1a22; border-left: 2px solid #33333f;
     display: flex; flex-direction: column; z-index: 9600;
-    box-shadow: -12px 0 50px rgba(0,0,0,.5);
+    box-shadow: -16px 0 60px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
     transition: right .32s cubic-bezier(.2,.8,.3,1);
 }
 .ai-widget-panel.open { right: 0; }
+.ai-widget-swipe-hint {
+    width: 40px; height: 4px; border-radius: 3px; background: #3a3a46;
+    margin: 10px auto 0; display: none; flex-shrink: 0;
+}
+@media (max-width: 480px) { .ai-widget-swipe-hint { display: block; } }
 
-.ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #1d1d25; flex-shrink: 0; }
+.ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
 .ai-widget-header-text { flex: 1; min-width: 0; }
 .ai-widget-name { color: #fff; font-weight: 800; font-size: 13px; }
 .ai-widget-status { color: #7ee787; font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
 .ai-widget-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; }
-#ai-widget-reset, #ai-widget-close { background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 15px; padding: 6px; border-radius: 8px; transition: color .15s, background .15s; }
+#ai-widget-reset, #ai-widget-close { background: none; border: none; color: #8a8a96; cursor: pointer; font-size: 15px; padding: 6px; border-radius: 8px; transition: color .15s, background .15s; }
 #ai-widget-close { font-size: 22px; line-height: 1; }
-#ai-widget-reset:hover, #ai-widget-close:hover { color: #fff; background: rgba(255,255,255,.06); }
+#ai-widget-reset:hover, #ai-widget-close:hover { color: #fff; background: rgba(255,255,255,.08); }
 
-.ai-widget-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.ai-widget-messages {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #17171f;
+}
 .ai-widget-msg { max-width: 86%; padding: 10px 13px; border-radius: 14px; font-size: 13px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
-.ai-widget-msg-bot { align-self: flex-start; background: #17171f; color: #dcdce4; border-bottom-left-radius: 4px; }
+.ai-widget-msg-bot { align-self: flex-start; background: #24242e; color: #e8e8ee; border-bottom-left-radius: 4px; border: 1px solid #2e2e3a; }
 .ai-widget-msg-user { align-self: flex-end; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-bottom-right-radius: 4px; }
 
-.ai-widget-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; flex-shrink: 0; }
+.ai-widget-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; flex-shrink: 0; background: #1a1a22; border-top: 1px solid #2a2a34; }
 .ai-widget-quick.hidden { display: none; }
 .ai-widget-quick-btn {
-    background: #17171f; border: 1px solid #26262f; color: #c8c8d4; font-size: 11.5px;
-    padding: 7px 11px; border-radius: 20px; cursor: pointer; transition: border-color .15s, color .15s;
+    background: #2a2a35; border: 1px solid rgba(249,115,22,.35); color: #f0d0b8; font-size: 11.5px;
+    font-weight: 600; padding: 8px 12px; border-radius: 20px; cursor: pointer; transition: border-color .15s, color .15s, background .15s;
 }
-.ai-widget-quick-btn:hover { border-color: rgba(249,115,22,.5); color: #fff; }
+.ai-widget-quick-btn:hover { border-color: rgba(249,115,22,.8); color: #fff; background: #33333f; }
 
-.ai-widget-footer { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid #1d1d25; flex-shrink: 0; }
+.ai-widget-footer { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid #2a2a34; flex-shrink: 0; background: #1a1a22; }
 .ai-widget-manager-btn {
-    width: 36px; height: 36px; border-radius: 50%; background: #17171f; border: 1px solid #26262f;
+    width: 36px; height: 36px; border-radius: 50%; background: #24242e; border: 1px solid #33333f;
     display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 16px;
     flex-shrink: 0; transition: border-color .15s;
 }
 .ai-widget-manager-btn:hover { border-color: rgba(249,115,22,.5); }
 #ai-widget-input {
-    flex: 1; background: #17171f; border: 1px solid #26262f; border-radius: 20px;
+    flex: 1; background: #24242e; border: 1px solid #33333f; border-radius: 20px;
     padding: 10px 16px; color: #fff; font-size: 13px; font-family: inherit; min-width: 0;
 }
 #ai-widget-input:focus { outline: none; border-color: rgba(249,115,22,.5); }
@@ -138,8 +149,6 @@
     #ai-widget-root { bottom: 16px; right: 16px; }
 }
 </style>
-
-<div id="ai-widget-overlay"></div>
 
 <script>
 (function() {
@@ -172,6 +181,27 @@
     bubbleClose.addEventListener('click', function(e) { e.stopPropagation(); bubble.classList.add('hidden'); });
     closeBtn.addEventListener('click', closePanel);
     overlay.addEventListener('click', closePanel);
+
+    // Клики внутри самой панели никогда не должны закрывать чат — раньше
+    // из-за бага со стэком z-index оверлей "перекрывал" панель, и любой
+    // клик (даже по полю ввода) считался кликом "мимо", закрывая чат.
+    panel.addEventListener('click', function(e) { e.stopPropagation(); });
+
+    // ── Свайп вправо для закрытия на телефоне ──
+    // На мобильном панель занимает весь экран, поэтому "кликнуть мимо"
+    // физически негде — вместо этого закрываем свайпом вправо по панели.
+    var touchStartX = null, touchStartY = null;
+    panel.addEventListener('touchstart', function(e) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    panel.addEventListener('touchend', function(e) {
+        if (touchStartX === null) return;
+        var dx = e.changedTouches[0].clientX - touchStartX;
+        var dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+        if (dx > 80 && dy < 60) closePanel();
+        touchStartX = null;
+    }, { passive: true });
 
     setTimeout(function() {
         if (!panel.classList.contains('open')) bubble.classList.remove('hidden');
