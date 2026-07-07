@@ -122,7 +122,7 @@ header('Content-Type: application/javascript; charset=utf-8');
             }
             contents.push({ role: 'user', parts: parts });
 
-            const res = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
+            const res = await originalFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ contents: contents, systemInstruction: { parts: [{ text: geminiConfig.system }] } })
