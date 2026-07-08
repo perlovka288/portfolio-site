@@ -40,6 +40,50 @@ function startSafeSession(): void {
     @ini_set('session.gc_maxlifetime', (string)$oneYear);
 }
 
+/**
+ * Гарантирует, что таблица tg_links (привязка Telegram к сессии/аккаунту)
+ * и связанные с ней колонки существуют — ДО того, как что-либо попробует
+ * их читать.
+ *
+ * ВАЖНО (реальный баг, который это чинит): tg_avatar_checked_at раньше
+ * создавалась лениво внутри ensureTgAvatarFresh() — то есть только ПОСЛЕ
+ * успешного SELECT из tg_links. Но сам SELECT на index.php/profile.php уже
+ * указывал tg_avatar_checked_at в списке колонок — и если её ещё не было
+ * в реальной БД (свежий деплой), этот SELECT падал с ошибкой "column does
+ * not exist", тихо гасился в try/catch, и человек на КАЖДОЙ загрузке
+ * страницы выглядел как непривязанный — даже сразу после того, как только
+ * что привязал Telegram. Отсюда "привязка слетает при обновлении страницы".
+ * Теперь колонка гарантированно создаётся ЗАРАНЕЕ, одним вызовом рядом с
+ * processTgAutoLink(), как и остальные миграции схемы в проекте.
+ */
+function ensureTgLinksSchema(PDO $pdo): void
+{
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS tg_links (
+            id SERIAL PRIMARY KEY,
+            site_code VARCHAR(20) NOT NULL,
+            session_id VARCHAR(128) NOT NULL DEFAULT '',
+            linked BOOLEAN NOT NULL DEFAULT FALSE,
+            tg_id VARCHAR(64) DEFAULT NULL,
+            tg_username VARCHAR(128) DEFAULT NULL,
+            tg_first_name VARCHAR(255) DEFAULT NULL,
+            tg_photo_url TEXT DEFAULT NULL,
+            tg_avatar_checked_at TIMESTAMP DEFAULT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uniq_tg_links_code UNIQUE (site_code)
+        )");
+        foreach ([
+            'tg_id VARCHAR(64)', 'tg_username VARCHAR(128)', 'tg_first_name VARCHAR(255)',
+            'tg_photo_url TEXT', 'tg_avatar_checked_at TIMESTAMP', 'tg_chat_id VARCHAR(64)',
+        ] as $col) {
+            try { $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS {$col} DEFAULT NULL"); } catch (Throwable $e) {}
+        }
+        try { $pdo->exec("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS tg_id VARCHAR(64) DEFAULT NULL"); } catch (Throwable $e) {}
+    } catch (Throwable $e) {
+        error_log('ensureTgLinksSchema error: ' . $e->getMessage());
+    }
+}
+
 startSafeSession();
 
 /**

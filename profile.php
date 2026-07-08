@@ -4,6 +4,7 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
+ensureTgLinksSchema($pdo);
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
