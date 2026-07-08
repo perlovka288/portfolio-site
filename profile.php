@@ -366,7 +366,7 @@ if (isset($_POST['send_appeal'])) {
 
 try {
     $stmt = $pdo->prepare("
-        SELECT tg_id, tg_username, tg_first_name, tg_photo_url, linked, created_at
+        SELECT tg_id, tg_username, tg_first_name, tg_photo_url, tg_avatar_checked_at, linked, created_at
         FROM tg_links
         WHERE session_id = ?
         ORDER BY id DESC LIMIT 1
@@ -383,14 +383,16 @@ try {
         $tg_id       = $row['tg_id'] ?? '';
         $tg_username = $row['tg_username'] ?? '';
 
-        // ── Lazy avatar refresh: re-fetch if empty or expired TG URL ──
+        // ── Lazy avatar refresh: re-fetch if empty, expired TG URL, or
+        // просто давно не перепроверялась (см. ensureTgAvatarFresh) ──
         // Вынесено в includes/session.php::ensureTgAvatarFresh(), чтобы
         // главная страница (index.php) умела то же самое, а не только профиль.
         $profile['tg_photo_url'] = ensureTgAvatarFresh(
             $pdo,
             $sid,
             (string)$tg_id,
-            (string)($row['tg_photo_url'] ?? '')
+            (string)($row['tg_photo_url'] ?? ''),
+            $row['tg_avatar_checked_at'] ?? null
         );
 
         $params  = [];

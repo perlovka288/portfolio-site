@@ -12,18 +12,20 @@ try {
         tg_username VARCHAR(128) NOT NULL DEFAULT '',
         tg_first_name VARCHAR(255) NOT NULL DEFAULT '',
         tg_photo_url TEXT DEFAULT NULL,
+        tg_id VARCHAR(64) DEFAULT NULL,
         rating SMALLINT NOT NULL DEFAULT 5,
         text TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         approved BOOLEAN NOT NULL DEFAULT TRUE
     )");
+    try { $pdo->exec("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS tg_id VARCHAR(64) DEFAULT NULL"); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
 // TG профиль из сессии
 $sid = session_id();
 $tgProfile = null;
 try {
-    $stmt = $pdo->prepare("SELECT tg_username, tg_first_name, tg_photo_url, tg_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT tg_username, tg_first_name, tg_photo_url, tg_id, tg_avatar_checked_at FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
     $stmt->execute([$sid]);
     $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 } catch (Throwable $e) {}
@@ -51,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // (никогда не была загружена), либо была "сырой" ссылкой Telegram,
         // которая протухает и в итоге вообще не отображается.
         if ($tg_id_val !== '') {
-            $tg_photo_url = ensureTgAvatarFresh($pdo, $sid, $tg_id_val, $tg_photo_url);
+            $tg_photo_url = ensureTgAvatarFresh($pdo, $sid, $tg_id_val, $tg_photo_url, $tgProfile['tg_avatar_checked_at'] ?? null);
             if ($tg_photo_url !== ($tgProfile['tg_photo_url'] ?? '')) {
                 try {
                     $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ? AND linked = TRUE")
@@ -78,8 +80,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$error) try {
-            $pdo->prepare("INSERT INTO reviews (order_id, tg_username, tg_first_name, tg_photo_url, rating, text) VALUES (?,?,?,?,?,?)")
-                ->execute([$order_id, $tg_username, $tg_first_name, $tg_photo_url, $rating, $text]);
+            $pdo->prepare("INSERT INTO reviews (order_id, tg_username, tg_first_name, tg_photo_url, tg_id, rating, text) VALUES (?,?,?,?,?,?,?)")
+                ->execute([$order_id, $tg_username, $tg_first_name, $tg_photo_url, $tg_id_val, $rating, $text]);
             
             $lastId = $pdo->lastInsertId();
             

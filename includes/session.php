@@ -212,12 +212,37 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
  * страницы (используется и в index.php, и в profile.php — раньше это
  * умел делать только profile.php, из-за чего на главной аватарка
  * не подгружалась, пока человек не заходил в профиль).
+ *
+ * ВАЖНО: раньше после первой успешной заливки в Cloudinary аватарка
+ * больше НИКОГДА не перепроверялась (URL уже не пустой и не "временный"),
+ * поэтому если человек менял фото в Telegram — на сайте всё равно
+ * висела старая картинка бесконечно. Теперь дополнительно перепроверяем
+ * раз в $refreshEveryHours часов по колонке tg_avatar_checked_at — то
+ * есть при каждом новом заходе (но не при каждом клике по сайту),
+ * подтягивая актуальное фото, если оно поменялось, само собой обновится.
  */
-function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $currentPhoto): string {
+function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $currentPhoto, ?string $lastCheckedAt = null): string {
     if ($tg_id === '') return $currentPhoto;
 
-    $needsRefresh = ($currentPhoto === '' || str_starts_with($currentPhoto, 'https://api.telegram.org'));
+    $refreshEveryHours = 6;
+    $isStale = true;
+    if ($lastCheckedAt) {
+        $isStale = (time() - strtotime($lastCheckedAt)) > ($refreshEveryHours * 3600);
+    }
+    $needsRefresh = ($currentPhoto === '' || str_starts_with($currentPhoto, 'https://api.telegram.org') || $isStale);
     if (!$needsRefresh) return $currentPhoto;
+
+    // Отмечаем момент проверки СРАЗУ (даже если ниже не получится ничего
+    // найти) — иначе при отсутствии фото/ошибке Telegram API мы бы
+    // долбили getUserProfilePhotos на КАЖДОМ запросе каждой страницы.
+    static $columnEnsured = false;
+    if (!$columnEnsured) {
+        try { $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS tg_avatar_checked_at TIMESTAMP DEFAULT NULL"); } catch (Throwable $e) {}
+        $columnEnsured = true;
+    }
+    try {
+        $pdo->prepare("UPDATE tg_links SET tg_avatar_checked_at = NOW() WHERE session_id = ?")->execute([$sid]);
+    } catch (Throwable $e) {}
 
     try {
         $botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';

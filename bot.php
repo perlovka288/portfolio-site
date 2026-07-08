@@ -1083,10 +1083,11 @@ if (isset($update['message'])) {
                     tg_username VARCHAR(128) DEFAULT NULL,
                     tg_first_name VARCHAR(255) DEFAULT NULL,
                     tg_photo_url TEXT DEFAULT NULL,
+                    tg_avatar_checked_at TIMESTAMP DEFAULT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT uniq_tg_links_code UNIQUE (site_code)
                 )");
-                foreach (['tg_id VARCHAR(64)', 'tg_username VARCHAR(128)', 'tg_first_name VARCHAR(255)', 'tg_photo_url TEXT'] as $col) {
+                foreach (['tg_id VARCHAR(64)', 'tg_username VARCHAR(128)', 'tg_first_name VARCHAR(255)', 'tg_photo_url TEXT', 'tg_avatar_checked_at TIMESTAMP'] as $col) {
                     try { $pdo->exec("ALTER TABLE tg_links ADD COLUMN IF NOT EXISTS {$col} DEFAULT NULL"); } catch(Throwable $e){}
                 }
                 $msg = "✅ *БД починена!*\n\nТаблица tg\\_links готова — привязка TG должна работать.";
