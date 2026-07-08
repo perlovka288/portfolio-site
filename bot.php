@@ -449,10 +449,22 @@ if (isset($update['message'])) {
 
         $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash';
         $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key=" . urlencode($geminiKey);
+        // Раньше maxOutputTokens стоял 500 и thinking-бюджет не отключался —
+        // у gemini-2.5-flash "рассуждения" (thinking) тратят токены ИЗ ТОГО
+        // ЖЕ лимита maxOutputTokens, поэтому модель часто исчерпывала лимит
+        // на размышления и возвращала пустой текст (finishReason=MAX_TOKENS),
+        // отсюда "тупые"/пустые ответы в Telegram. На сайте (ai_support.php)
+        // лимита не было вообще — поэтому там всё работало нормально.
+        // Отключаем thinking (не нужен для короткого чат-ответа) и поднимаем
+        // потолок токенов на сам текст ответа.
         $payload = [
             'contents'          => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
             'systemInstruction' => ['parts' => [['text' => $aiSystemPrompt]]],
-            'generationConfig'  => ['temperature' => 0.7, 'maxOutputTokens' => 500],
+            'generationConfig'  => [
+                'temperature'      => 0.7,
+                'maxOutputTokens'  => 2048,
+                'thinkingConfig'   => ['thinkingBudget' => 0],
+            ],
         ];
 
         $ch = curl_init($apiUrl);
@@ -531,16 +543,18 @@ if (isset($update['message'])) {
 
     $receiptFileId = '';
     $receiptIsDocument = false;
+    $receiptDocFileName = '';
     if (!empty($update['message']['photo'])) {
         $photos = $update['message']['photo'];
         $last = end($photos);
         $receiptFileId = (string)($last['file_id'] ?? '');
     } elseif (!empty($update['message']['document']['file_id'])) {
-        // Поддержка изображений, отправленных как документ — сохраняет
-        // оригинальный формат (webp, gif, bmp, tiff и т.д.), в отличие
-        // от 'photo', где Telegram всегда пересжимает в jpeg.
+        // Поддержка изображений и файлов (в т.ч. PDF-чеков из банка),
+        // отправленных как документ — сохраняет оригинальный формат, в
+        // отличие от 'photo', где Telegram всегда пересжимает в jpeg.
         $receiptFileId = (string)$update['message']['document']['file_id'];
         $receiptIsDocument = true;
+        $receiptDocFileName = (string)($update['message']['document']['file_name'] ?? '');
     }
 
     // Примечание: раньше здесь стояло условие "$chat_id !== $admin_id", которое
@@ -569,14 +583,24 @@ if (isset($update['message'])) {
                 // Каждый чек сохраняется под своим уникальным именем — fast.jpg
                 // это отдельная статичная декоративная картинка для уведомления
                 // "заказ срочный" (см. п.2.4 ТЗ) и чеками НЕ перезаписывается.
-                $receiptFileName = 'receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.jpg';
+                // Расширение берём из реального файла документа (например .pdf),
+                // а не жёстко .jpg — раньше PDF-чек сохранялся под именем .jpg
+                // и превращался в битый файл.
+                $receiptExt = 'jpg';
+                if ($receiptIsDocument) {
+                    $docExt = strtolower(pathinfo($receiptDocFileName, PATHINFO_EXTENSION));
+                    if ($docExt !== '') $receiptExt = preg_replace('/[^a-z0-9]/', '', $docExt) ?: 'jpg';
+                }
+                $receiptFileName = 'receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.' . $receiptExt;
                 $receiptAbsPath  = __DIR__ . '/uploads/orders/' . $receiptFileName;
                 $savedLocally    = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
 
                 // Заливаем на ImgBB — постоянная ссылка, которая гарантированно
                 // откроется и в админке на сайте, и в Telegram sendPhoto (локальный
                 // диск на Render эфемерный и может обнулиться после рестарта).
-                $receiptStoreValue = $savedLocally ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id) : '';
+                // ImgBB принимает только изображения — для PDF заливка не пройдёт,
+                // и код ниже сам откатится на локальное имя файла (с .pdf).
+                $receiptStoreValue = ($receiptExt !== 'pdf' && $savedLocally) ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id) : '';
                 if ($receiptStoreValue === '') {
                     // Фолбэк: просто имя файла (БЕЗ префикса 'uploads/orders/' —
                     // так его ожидает imgSrc() в админке, которая сама этот
@@ -610,12 +634,24 @@ if (isset($update['message'])) {
                         . "Заказ переведён в работу.\n"
                         . "📅 Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*";
                 }
-                sendTelegram($token, 'sendPhoto', [
-                    'chat_id'    => $admin_id,
-                    'photo'      => $receiptFileId,
-                    'caption'    => $adminCaption,
-                    'parse_mode' => 'Markdown',
-                ]);
+                // PDF (и другие непонятные Telegram'у как фото документы) нужно
+                // слать через sendDocument — sendPhoto с ними вернёт ошибку API
+                // и админ вообще не увидит чек.
+                if ($receiptIsDocument && $receiptExt === 'pdf') {
+                    sendTelegram($token, 'sendDocument', [
+                        'chat_id'    => $admin_id,
+                        'document'   => $receiptFileId,
+                        'caption'    => $adminCaption,
+                        'parse_mode' => 'Markdown',
+                    ]);
+                } else {
+                    sendTelegram($token, 'sendPhoto', [
+                        'chat_id'    => $admin_id,
+                        'photo'      => $receiptFileId,
+                        'caption'    => $adminCaption,
+                        'parse_mode' => 'Markdown',
+                    ]);
+                }
 
                 // Ссылка в кабинет клиента на страницу заказа
                 $profileUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;

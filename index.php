@@ -236,6 +236,18 @@ $categoryMap  = [];
 foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
 $works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
 
+// Цены на карточках портфолио теперь берутся из общего прайс-листа (таблица
+// prices — та же, что на странице price.php и в выпадающем списке услуг на
+// order.php), а не из price_rub/price_uan самой работы: раньше при заказе
+// "Превью" на главной могла показываться другая цифра, чем в реальном
+// прайсе, потому что поле у конкретной работы в портфолио не обновлялось
+// вместе с прайс-листом.
+$priceListMap = [];
+try {
+    $priceListRows = $pdo->query("SELECT category_key, price_rub, price_uan FROM prices")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($priceListRows as $pl) { $priceListMap[$pl['category_key']] = $pl; }
+} catch (Throwable $e) {}
+
 // Загружаем отзывы
 $reviews = [];
 try {
@@ -868,7 +880,15 @@ body::after {
                         <span style="display:block;color:var(--text2);font-size:11px;margin-top:3px;"><?= htmlspecialchars($sizeText) ?> px</span>
                     <?php endif; ?>
                 </div>
-                <div class="portfolio-price"><?= (int)($work['price_rub'] ?? 0) ?>₽/<?= (int)($work['price_uan'] ?? 0) ?>грн</div>
+                <?php
+                    // Берём цену из прайс-листа по категории работы (например
+                    // "Превью"), а не из price_rub/price_uan самой записи —
+                    // так цена на главной всегда совпадает с ценой в /price.php.
+                    $plPrice  = $priceListMap[$key] ?? null;
+                    $showRub  = (int)($plPrice['price_rub'] ?? $work['price_rub'] ?? 0);
+                    $showUan  = (int)($plPrice['price_uan'] ?? $work['price_uan'] ?? 0);
+                ?>
+                <div class="portfolio-price"><?= $showRub ?>₽/<?= $showUan ?>грн</div>
                 <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
                 <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                 <button class="order-pill"

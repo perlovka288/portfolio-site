@@ -499,6 +499,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 } else {
                     $msgAdmin = "⚠️ Невозможно отправить: клиент не привязал Telegram к боту.";
                 }
+            } elseif ($action === 'delete_order') {
+                // Удаление заказа целиком из БД — безвозвратно, поэтому кнопка
+                // на фронте всегда спрашивает подтверждение перед отправкой
+                // (см. confirm() на кнопке "Удалить заказ" в карточке заказа).
+                try { $pdo->prepare("DELETE FROM order_messages WHERE order_id = ?")->execute([$orderId]); } catch (Throwable $e) {}
+                try { $pdo->prepare("DELETE FROM appeals_messages WHERE appeal_id IN (SELECT id FROM appeals WHERE order_id = ?)")->execute([$orderId]); } catch (Throwable $e) {}
+                try { $pdo->prepare("DELETE FROM appeals WHERE order_id = ?")->execute([$orderId]); } catch (Throwable $e) {}
+                $pdo->prepare("DELETE FROM orders WHERE id = ?")->execute([$orderId]);
+                $msgAdmin = "🗑 Заказ #{$orderId} удалён из базы.";
             }
 
             if (!empty($msgAdmin)) {
@@ -509,6 +518,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
         } catch (\Throwable $e) {
             $message = 'Ошибка выполнения действия: ' . $e->getMessage();
         }
+    }
+
+    if ($action === 'delete_order') {
+        // После удаления не пытаемся заново открыть уже несуществующий
+        // заказ по view_order= — уводим на список заказов.
+        $redirectBase = strtok($_SERVER['REQUEST_URI'], '?');
+        header('Location: ' . $redirectBase . '?deleted=1'); exit;
     }
 
     header('Location: ' . $_SERVER['REQUEST_URI']); exit;
@@ -1121,7 +1137,23 @@ if (isset($_POST['update_portfolio_media'])) {
         $newAvatar = uploadImage('portfolio_avatar', 'ava', $uploadDir);
         if ($newMain   !== '') $pdo->prepare("UPDATE portfolio SET image = ? WHERE id = ?")->execute([$newMain, $caseId]);
         if ($newAvatar !== '') $pdo->prepare("UPDATE portfolio SET avatar_image = ? WHERE id = ?")->execute([$newAvatar, $caseId]);
-        $message = '✅ Медиа кейса обновлены.';
+
+        // Название, цена и категория кейса — раньше их вообще нельзя было
+        // поменять после публикации, только удалить и залить заново.
+        $newTitle    = trim($_POST['portfolio_title'] ?? '');
+        $newCategory = trim($_POST['portfolio_category'] ?? '');
+        $newPriceRub = isset($_POST['portfolio_price_rub']) ? (int)$_POST['portfolio_price_rub'] : null;
+        $newPriceUan = isset($_POST['portfolio_price_uan']) ? (int)$_POST['portfolio_price_uan'] : null;
+        if ($newTitle !== '') {
+            $pdo->prepare("UPDATE portfolio SET title = ? WHERE id = ?")->execute([$newTitle, $caseId]);
+        }
+        if ($newCategory !== '') {
+            $pdo->prepare("UPDATE portfolio SET category_key = ? WHERE id = ?")->execute([$newCategory, $caseId]);
+        }
+        if ($newPriceRub !== null && $newPriceUan !== null) {
+            $pdo->prepare("UPDATE portfolio SET price_rub = ?, price_uan = ? WHERE id = ?")->execute([$newPriceRub, $newPriceUan, $caseId]);
+        }
+        $message = '✅ Кейс обновлён.';
     }
 }
 
@@ -1533,6 +1565,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         }
         .admin-order-card.status-urgent { border-color: rgba(239,68,68,.35); }
         .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.3), 0 8px 24px rgba(239,68,68,.12); }
+        .admin-order-card.status-ready { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.06); }
+        .admin-order-card.status-ready:hover { border-color: rgba(34,197,94,.65); box-shadow: 0 0 0 1px rgba(34,197,94,.3), 0 8px 24px rgba(34,197,94,.12); background: rgba(34,197,94,.09); }
         .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
         .admin-order-card-main { flex: 1; min-width: 0; }
         .admin-order-card-client { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
@@ -2076,25 +2110,41 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <thead><tr><th>Превью</th><th>Название</th><th>Категория</th><th>Цена</th><th>Действие</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($works as $work): ?>
-                                        <?php $img = $work['image']??''; $ava = $work['avatar_image']??''; $cat = $work['category_key']??'preview'; ?>
+                                        <?php $img = $work['image']??''; $ava = $work['avatar_image']??''; $cat = $work['category_key']??'preview'; $fid = 'case-edit-' . (int)$work['id']; ?>
                                         <tr>
                                             <td>
+                                                <!-- Форма объявлена пустой здесь и связана с полями в других ячейках
+                                                     через атрибут form="<?= $fid ?>" — <form> нельзя честно "растянуть"
+                                                     через несколько <td> одного <tr>, браузер обрубит её раньше времени
+                                                     и часть полей (цена/категория/файлы) не попадёт в POST. -->
+                                                <form id="<?= $fid ?>" action="" method="POST" enctype="multipart/form-data"></form>
+                                                <input type="hidden" form="<?= $fid ?>" name="portfolio_id" value="<?= (int)$work['id'] ?>">
                                                 <div class="thumb-pair">
                                                     <?php if ($img !== ''): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="case-thumb" alt="" draggable="false"></div><?php endif; ?>
                                                     <?php if ($ava !== ''): ?><img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-ava" alt="" draggable="false"><?php endif; ?>
                                                 </div>
                                             </td>
-                                            <td><strong><?= htmlspecialchars($work['title']??'Без названия') ?></strong></td>
-                                            <td><?= htmlspecialchars($categoryLabels[$cat]??$cat) ?></td>
-                                            <td><?= (int)($work['price_rub']??0) ?> ₽ / <?= (int)($work['price_uan']??0) ?> ₴</td>
                                             <td>
-                                                <form action="" method="POST" enctype="multipart/form-data" class="mini-media-form">
-                                                    <input type="hidden" name="portfolio_id" value="<?= (int)$work['id'] ?>">
-                                                    <input type="file" name="portfolio_image" accept="image/*" title="Заменить главное изображение">
-                                                    <input type="file" name="portfolio_avatar" accept="image/*" title="Заменить аватарку">
-                                                    <button type="submit" name="update_portfolio_media">Обновить медиа</button>
-                                                    <a class="delete-link" href="?delete_portfolio_id=<?= (int)$work['id'] ?>" onclick="return confirm('Удалить кейс?')">Удалить</a>
-                                                </form>
+                                                <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>" style="width:100%;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:13px;">
+                                            </td>
+                                            <td>
+                                                <select form="<?= $fid ?>" name="portfolio_category" style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;">
+                                                    <?php foreach ($categories as $catOpt): ?>
+                                                        <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>" style="width:90px;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₽<br>
+                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>" style="width:90px;margin-top:6px;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₴
+                                            </td>
+                                            <td>
+                                                <div class="mini-media-form">
+                                                    <input type="file" form="<?= $fid ?>" name="portfolio_image" accept="image/*" title="Заменить главное изображение">
+                                                    <input type="file" form="<?= $fid ?>" name="portfolio_avatar" accept="image/*" title="Заменить аватарку">
+                                                    <button type="submit" form="<?= $fid ?>" name="update_portfolio_media">💾 Сохранить</button>
+                                                </div>
+                                                <a class="delete-link" href="?delete_portfolio_id=<?= (int)$work['id'] ?>" onclick="return confirm('Удалить кейс?')">Удалить</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -2336,6 +2386,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
                                                     <button type="submit" name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚫 Бан</button>
                                                 </div>
+                                                <button type="submit" name="order_action" value="delete_order" onclick="return confirm('Удалить заказ #<?= (int)$viewOrder['id'] ?> НАВСЕГДА? Это действие нельзя отменить — заказ и все его сообщения будут стёрты из базы.')" style="margin-top:4px;border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(239,68,68,.1);color:#f87171;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;-webkit-appearance:none;appearance:none;">🗑 Удалить заказ</button>
                                             </form>
                                         </div>
 

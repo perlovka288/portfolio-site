@@ -1026,8 +1026,16 @@ body::before {
                             if ($tu !== '') $thumbUrls[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
                         }
                     }
+                    $receiptIsPdf = false;
                     if (!empty($order['payment_receipt'])) {
-                        $thumbUrls[] = ['url' => imgSrc((string)$order['payment_receipt'], 'uploads/orders/'), 'label' => 'Чек оплаты'];
+                        $receiptUrlTmp = imgSrc((string)$order['payment_receipt'], 'uploads/orders/');
+                        $receiptIsPdf  = str_ends_with(strtolower($receiptUrlTmp), '.pdf');
+                        // PDF-чек нельзя показать через <img> — раньше он просто
+                        // пропадал из списка миниатюр (onerror прятал ссылку).
+                        // Показываем его отдельной ссылкой-кнопкой, а не миниатюрой.
+                        if (!$receiptIsPdf) {
+                            $thumbUrls[] = ['url' => $receiptUrlTmp, 'label' => 'Чек оплаты'];
+                        }
                     }
                 ?>
                 <?php if (!empty($thumbUrls)): ?>
@@ -1035,6 +1043,11 @@ body::before {
                     <?php foreach ($thumbUrls as $th): ?>
                         <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                     <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($receiptIsPdf): ?>
+                <div class="order-thumbs-row">
+                    <a href="<?= htmlspecialchars($receiptUrlTmp) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
                 </div>
                 <?php endif; ?>
 
@@ -1172,8 +1185,13 @@ body::before {
                         if ($tu !== '') $thumbUrlsHist[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
                     }
                 }
+                $receiptIsPdfHist = false; $receiptUrlHist = '';
                 if (!empty($order['payment_receipt'])) {
-                    $thumbUrlsHist[] = ['url' => imgSrc((string)$order['payment_receipt'], 'uploads/orders/'), 'label' => 'Чек оплаты'];
+                    $receiptUrlHist   = imgSrc((string)$order['payment_receipt'], 'uploads/orders/');
+                    $receiptIsPdfHist = str_ends_with(strtolower($receiptUrlHist), '.pdf');
+                    if (!$receiptIsPdfHist) {
+                        $thumbUrlsHist[] = ['url' => $receiptUrlHist, 'label' => 'Чек оплаты'];
+                    }
                 }
             ?>
             <?php if (!empty($thumbUrlsHist)): ?>
@@ -1181,6 +1199,11 @@ body::before {
                 <?php foreach ($thumbUrlsHist as $th): ?>
                     <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                 <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+            <?php if ($receiptIsPdfHist): ?>
+            <div class="order-thumbs-row">
+                <a href="<?= htmlspecialchars($receiptUrlHist) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
             </div>
             <?php endif; ?>
 

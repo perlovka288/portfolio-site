@@ -1,13 +1,32 @@
 <?php
 /**
- * Виджет "KOSTLIM AI SUPPORT" — плавающая кнопка + выезжающий чат.
+ * Виджет "KOSTLIM AI SUPPORT" — выезжающий чат с ИИ.
  * Подключается через: <?php include __DIR__ . '/includes/ai_widget.php'; ?>
  * Всё общение через AJAX (ai_support.php), без перезагрузки страницы.
+ *
+ * Перед include можно задать переменные:
+ *   $aiWidgetHideFab = true;   // не показывать большую плавающую иконку/пузырь
+ *                              // (панель чата всё равно доступна — открывается
+ *                              // программно через window.openAiWidgetPanel())
+ *   $aiWidgetContext = 'tz';   // страница заказа: при первом открытии в этом
+ *                              // режиме ИИ сам поймёт, что он тут помогает
+ *                              // составить ТЗ, и начнёт разговор с вопросов.
  */
+$aiWidgetHideFab = $aiWidgetHideFab ?? false;
+$aiWidgetContext = $aiWidgetContext ?? '';
 ?>
-<div id="ai-widget-root">
+<!--
+    ВАЖНО: раньше этот тег стоял только на index.php, поэтому на order.php и
+    profile.php окно чата всегда падало в "Ошибка соединения" — window.fetch
+    никто не патчил, и запрос уходил напрямую в PHP-эндпоинт, который для
+    обычного сообщения ничего не возвращает. Теперь подключаем скрипт прямо
+    вместе с виджетом, чтобы он работал на любой странице, где есть include.
+-->
+<script src="/ai_support.php"></script>
+<div id="ai-widget-root" data-context="<?= htmlspecialchars($aiWidgetContext) ?>">
     <div id="ai-widget-overlay"></div>
 
+    <?php if (!$aiWidgetHideFab): ?>
     <div id="ai-widget-bubble" class="ai-widget-bubble">
         <button type="button" id="ai-widget-bubble-close" aria-label="Скрыть подсказку">&times;</button>
         <div class="ai-widget-bubble-text">Привет! Нужна помощь с заказом?</div>
@@ -16,6 +35,7 @@
     <button type="button" id="ai-widget-fab" aria-label="Открыть ИИ-поддержку">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
     </button>
+    <?php endif; ?>
 
     <div id="ai-widget-panel" class="ai-widget-panel">
         <div class="ai-widget-swipe-hint"></div>
@@ -30,7 +50,7 @@
         </div>
 
         <div id="ai-widget-messages" class="ai-widget-messages">
-            <div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div>
+            <div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div>
         </div>
 
         <div id="ai-widget-quick" class="ai-widget-quick">
@@ -110,9 +130,18 @@
     flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #17171f;
 }
-.ai-widget-msg { max-width: 86%; padding: 10px 13px; border-radius: 14px; font-size: 13px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
-.ai-widget-msg-bot { align-self: flex-start; background: #24242e; color: #e8e8ee; border-bottom-left-radius: 4px; border: 1px solid #2e2e3a; }
-.ai-widget-msg-user { align-self: flex-end; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-bottom-right-radius: 4px; }
+.ai-widget-msg-wrap { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
+.ai-widget-msg-wrap-bot { align-self: flex-start; }
+.ai-widget-msg-wrap-user { align-self: flex-end; }
+.ai-widget-msg { padding: 10px 13px; border-radius: 14px; font-size: 13px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
+.ai-widget-msg-bot { background: #24242e; color: #e8e8ee; border-bottom-left-radius: 4px; border: 1px solid #2e2e3a; }
+.ai-widget-msg-user { background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-bottom-right-radius: 4px; }
+.ai-widget-msg-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 2px; }
+.ai-widget-copy-btn {
+    background: #1e1e26; border: 1px solid #2e2e3a; color: #9a9aa8; font-size: 10.5px; font-weight: 700;
+    border-radius: 7px; padding: 4px 8px; cursor: pointer; transition: .15s;
+}
+.ai-widget-copy-btn:hover { color: #fdba74; border-color: rgba(249,115,22,.4); background: #24242e; }
 
 .ai-widget-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; flex-shrink: 0; background: #1a1a22; border-top: 1px solid #2a2a34; }
 .ai-widget-quick.hidden { display: none; }
@@ -164,6 +193,12 @@
     var quick     = document.getElementById('ai-widget-quick');
     var input     = document.getElementById('ai-widget-input');
     var sendBtn   = document.getElementById('ai-widget-send');
+    var root      = document.getElementById('ai-widget-root');
+
+    // Текущий textarea ТЗ, в который нужно вставлять готовый текст от ИИ
+    // (устанавливается кнопкой "Помочь составить ТЗ" на странице заказа).
+    window.__aiTzTarget = null;
+    window.__aiTzPrimed = false;
 
     function openPanel() {
         bubble.classList.add('hidden');
@@ -176,9 +211,33 @@
         overlay.classList.remove('open');
     }
 
-    fab.addEventListener('click', openPanel);
-    bubbleAsk.addEventListener('click', openPanel);
-    bubbleClose.addEventListener('click', function(e) { e.stopPropagation(); bubble.classList.add('hidden'); });
+    // Программное открытие панели снаружи (например, кнопкой в блоке ТЗ на
+    // странице заказа). context === 'tz' — ИИ сам начинает разговор и знает,
+    // что сейчас поможет составить техническое задание.
+    window.openAiWidgetPanel = function(context, targetTextareaId) {
+        if (targetTextareaId) {
+            window.__aiTzTarget = document.getElementById(targetTextareaId);
+        }
+        openPanel();
+        if (context === 'tz' && !window.__aiTzPrimed) {
+            window.__aiTzPrimed = true;
+            quick.classList.add('hidden');
+            messages.innerHTML = '';
+            showTyping();
+            sendMessage(
+                'Ты сейчас находишься прямо в блоке "Техническое задание" на странице оформления заказа. ' +
+                'Помоги клиенту составить чёткое ТЗ: сначала поприветствуй и спроси, что он хочет заказать ' +
+                '(превью, оформление канала, аватарка и т.д.) и какие у него пожелания по стилю, цветам, ' +
+                'референсам, тексту. Когда информации хватит, оформи готовый текст ТЗ отдельным абзацем ' +
+                'после фразы "Готовое ТЗ:", чтобы клиент мог его скопировать или вставить в форму одной кнопкой.',
+                { silent: true }
+            );
+        }
+    };
+
+    fab && fab.addEventListener('click', openPanel);
+    bubbleAsk && bubbleAsk.addEventListener('click', openPanel);
+    bubbleClose && bubbleClose.addEventListener('click', function(e) { e.stopPropagation(); bubble.classList.add('hidden'); });
     closeBtn.addEventListener('click', closePanel);
     overlay.addEventListener('click', closePanel);
 
@@ -203,24 +262,77 @@
         touchStartX = null;
     }, { passive: true });
 
-    setTimeout(function() {
-        if (!panel.classList.contains('open')) bubble.classList.remove('hidden');
-    }, 2000);
+    if (bubble) {
+        setTimeout(function() {
+            if (!panel.classList.contains('open')) bubble.classList.remove('hidden');
+        }, 2000);
+    }
 
     function addMessage(text, who) {
+        var wrap = document.createElement('div');
+        wrap.className = 'ai-widget-msg-wrap ai-widget-msg-wrap-' + who;
+
         var div = document.createElement('div');
         div.className = 'ai-widget-msg ai-widget-msg-' + who;
         div.textContent = text;
-        messages.appendChild(div);
+        wrap.appendChild(div);
+
+        // Под каждым сообщением ИИ — кнопка "Копировать", а в режиме
+        // подсказки ТЗ — ещё и "Вставить в ТЗ" (прямо в textarea заказа).
+        if (who === 'bot') {
+            var actions = document.createElement('div');
+            actions.className = 'ai-widget-msg-actions';
+
+            var copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'ai-widget-copy-btn';
+            copyBtn.textContent = '📋 Копировать';
+            copyBtn.addEventListener('click', function() {
+                var toCopy = text;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(toCopy);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = toCopy; document.body.appendChild(ta);
+                    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+                }
+                copyBtn.textContent = '✅ Скопировано';
+                setTimeout(function() { copyBtn.textContent = '📋 Копировать'; }, 1600);
+            });
+            actions.appendChild(copyBtn);
+
+            if (window.__aiTzTarget) {
+                var insertBtn = document.createElement('button');
+                insertBtn.type = 'button';
+                insertBtn.className = 'ai-widget-copy-btn';
+                insertBtn.textContent = '➕ Вставить в ТЗ';
+                insertBtn.addEventListener('click', function() {
+                    var ta = window.__aiTzTarget;
+                    if (!ta) return;
+                    var clean = text.replace(/^[\s\S]*?Готовое ТЗ:\s*/i, '');
+                    ta.value = (ta.value ? ta.value.trim() + '\n\n' : '') + clean.trim();
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    insertBtn.textContent = '✅ Вставлено';
+                    setTimeout(function() { insertBtn.textContent = '➕ Вставить в ТЗ'; }, 1600);
+                });
+                actions.appendChild(insertBtn);
+            }
+            wrap.appendChild(actions);
+        }
+
+        messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
     }
 
     function showTyping() {
+        var wrap = document.createElement('div');
+        wrap.className = 'ai-widget-msg-wrap ai-widget-msg-wrap-bot';
+        wrap.id = 'ai-widget-typing';
         var div = document.createElement('div');
         div.className = 'ai-widget-msg ai-widget-msg-bot';
-        div.id = 'ai-widget-typing';
         div.textContent = 'печатает…';
-        messages.appendChild(div);
+        wrap.appendChild(div);
+        messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
     }
     function hideTyping() {
@@ -229,14 +341,17 @@
     }
 
     var sending = false;
-    function sendMessage(text) {
+    function sendMessage(text, opts) {
+        opts = opts || {};
         text = (text || '').trim();
         if (text === '' || sending) return;
         sending = true;
         quick.classList.add('hidden');
-        addMessage(text, 'user');
-        input.value = '';
-        showTyping();
+        if (!opts.silent) {
+            addMessage(text, 'user');
+            input.value = '';
+            showTyping();
+        }
         fetch('/ai_support.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -268,8 +383,9 @@
             credentials: 'same-origin',
             body: JSON.stringify({ reset: true }),
         }).catch(function(){}).finally(function() {
-            messages.innerHTML = '<div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div>';
+            messages.innerHTML = '<div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div>';
             quick.classList.remove('hidden');
+            window.__aiTzPrimed = false;
         });
     });
 })();

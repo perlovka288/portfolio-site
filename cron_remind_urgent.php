@@ -8,7 +8,7 @@
  * КАК НАСТРОИТЬ:
  * ──────────────────────────────────────────────────────────────
  * Добавь в crontab (crontab -e):
- *   0 */4 * * * php /path/to/cron_remind_urgent.php >> /tmp/kostlim_cron.log 2>&1
+ *   0 (star)/4 * * * php /path/to/cron_remind_urgent.php >> /tmp/kostlim_cron.log 2>&1
  *
  * Или вызывай через веб-сервис каждые 4 часа:
  *   https://твой-сайт.onrender.com/cron_remind_urgent.php?secret=ТУТ_СЕКРЕТ
@@ -110,8 +110,9 @@ foreach ($sorted_orders as $item) {
     $message .= "   📞 {$o['telegram']}\n\n";
     
     // Добавляем кнопку к заказу
+    $hoursLabel = $item['hours_left'] ?? $item['hours_overdue'] ?? '?';
     $keyboard['inline_keyboard'][] = [[
-        'text' => "📦 Заказ #{$o['id']} ({$item['hours_left'] ?? $item['hours_overdue']} ч.)",
+        'text' => "📦 Заказ #{$o['id']} ({$hoursLabel} ч.)",
         'callback_data' => "adm_view_{$o['id']}",
     ]];
 }

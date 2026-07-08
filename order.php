@@ -594,8 +594,11 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
         </div>
 
         <div class="mb16">
-            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-            <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+            <div class="order-label-row">
+                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">🤖 Помочь составить ТЗ</button>
+            </div>
+            <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
         <div class="file-upload-block mb22">
             <input type="file" name="example_photos[]" accept="image/*" multiple id="s<?= $s ?>_refs">
@@ -1164,6 +1167,15 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
     cursor:pointer; font-family:inherit; text-transform:uppercase; letter-spacing:.5px; transition:.2s;
 }
 .btn-archive-small:hover { border-color:#f97316; color:#f97316; }
+
+.order-label-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.order-label-row .order-label { margin-bottom:0; }
+.ai-tz-help-btn {
+    background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.35); color: #fdba74;
+    font-size: 11px; font-weight: 800; border-radius: 8px; padding: 6px 10px; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: .15s;
+}
+.ai-tz-help-btn:hover { background: rgba(249,115,22,.22); border-color: #f97316; }
 .slot-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #1f1f2a; }
 .slot-header-title { font-size:14px; font-weight:900; color:#f97316; text-transform:uppercase; letter-spacing:1px; }
 .btn-remove-slot { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#fca5a5; border-radius:7px; padding:6px 12px; font-size:11px; font-weight:800; cursor:pointer; font-family:inherit; transition:.15s; }
@@ -1277,8 +1289,11 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         </div>
 
         <div class="mb16">
-            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-            <textarea name="details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+            <div class="order-label-row">
+                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s1_details')">🤖 Помочь составить ТЗ</button>
+            </div>
+            <textarea name="details" id="s1_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
         <div class="file-upload-block mb22">
             <input type="file" name="example_photos[]" accept="image/*" multiple id="s1_refs">
@@ -1758,6 +1773,11 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
     } catch (e) {}
 })();
 </script>
-<?php include __DIR__ . '/includes/ai_widget.php'; ?>
+<?php
+// На странице заказа большая плавающая иконка ИИ не нужна — помощник
+// вызывается точечно кнопкой "Помочь составить ТЗ" в блоке деталей заказа.
+$aiWidgetHideFab = true;
+include __DIR__ . '/includes/ai_widget.php';
+?>
 </body>
 </html>
