@@ -1,4 +1,12 @@
 <?php
+// --- БЛОК ДЕБАГА ДЛЯ БЕТЫ ---
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+error_reporting(E_ALL);
+
+$input = file_get_contents('php://input');
+file_put_contents('debug_bot.txt', date('Y-m-d H:i:s') . " - " . $input . "\n", FILE_APPEND);
+// ----------------------------
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
@@ -7,6 +15,7 @@ require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fa
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
+// ... дальше твой остальной код
 
 /**
  * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
