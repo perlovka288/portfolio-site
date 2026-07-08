@@ -1,12 +1,4 @@
 <?php
-// --- БЛОК ДЕБАГА ДЛЯ БЕТЫ ---
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
-error_reporting(E_ALL);
-
-$input = file_get_contents('php://input');
-file_put_contents('debug_bot.txt', date('Y-m-d H:i:s') . " - " . $input . "\n", FILE_APPEND);
-// ----------------------------
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
@@ -15,7 +7,6 @@ require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fa
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
-// ... дальше твой остальной код
 
 /**
  * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
@@ -400,6 +391,21 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
+
+    // Подсказка при нажатии кнопки "🤖 Спросить KostlimAI" в меню
+    if ($text_key === 'спросить kostlimai') {
+        $params = [
+            'chat_id' => $chat_id,
+            'text'    => "Привет! Я твой ИИ-помощник 🤖\n\nЧтобы спросить меня о чём угодно, просто начни своё сообщение со слова **KostlimAI**.\n\n*Например:* `KostlimAI сколько стоит превью?`",
+            'parse_mode' => 'Markdown'
+        ];
+        if (isset($update['message']['message_thread_id'])) {
+            $params['message_thread_id'] = $update['message']['message_thread_id'];
+        }
+        sendTelegram($token, 'sendMessage', $params);
+        exit;
+    }
+
     // --- KostlimAI (Gemini) — реагирует на сообщения, начинающиеся с "KostlimAI" ---
     if (strpos($text, 'KostlimAI') === 0) {
         $userQuery = trim(str_replace('KostlimAI', '', $text));
@@ -1874,8 +1880,13 @@ function mainKeyboard($isAdmin) {
     $buttons = [
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
         [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
+        [['text' => '🤖 Спросить KostlimAI']] // <-- Новая кнопка для вызова ИИ
     ];
-    if ($isAdmin) { $buttons[] = [['text' => '⚙️ Админ-панель']]; }
+    
+    if ($isAdmin) { 
+        $buttons[] = [['text' => '⚙️ Админ-панель']]; 
+    }
+    
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }
 
