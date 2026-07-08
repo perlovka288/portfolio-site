@@ -27,6 +27,24 @@ function notifyAdminNewReview($token, $admin_id, $order_id, $username, $rating, 
     sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => $msg, 'parse_mode' => 'Markdown']);
 }
 
+// ── ГЛОБАЛЬНЫЙ ПЕРЕХВАТ ФАТАЛЬНЫХ ОШИБОК ────────────────────────
+// Раньше необработанное исключение или PHP fatal error (например,
+// TypeError, деление на несуществующий метод и т.п.) просто убивали
+// скрипт на середине выполнения: Telegram получал пустой ответ / HTTP 500,
+// пользователь не получал ответа от бота — и НИЧЕГО не попадало в
+// bot_debug.log, потому что падение происходило вне какого-либо try/catch.
+// Теперь любая необработанная ошибка гарантированно логируется, и в
+// "📝 Логи ошибок" в админке будет видно, что именно и где сломалось.
+set_exception_handler(function ($e) {
+    botLog('UNCAUGHT EXCEPTION: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+});
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        botLog('FATAL ERROR: ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line']);
+    }
+});
+
 $input  = file_get_contents('php://input');
 $update = json_decode($input, true);
 
@@ -110,10 +128,6 @@ if (isset($update['callback_query'])) {
     }
 
     // ── Новая двухуровневая структура кнопок (см. ТЗ по упрощению меню) ──
-    // Раньше на карточке нового заказа сразу было 6-7 кнопок одним полотном.
-    // Теперь сначала только "Принять заказ" / "Отклонить" / "Написать
-    // клиенту", а конкретные варианты открываются подменю по клику —
-    // карточка выглядит чище, логика та же самая.
     if (strpos($callback_data, 'adm_menu_accept_') === 0) {
         $order_id = (int)str_replace('adm_menu_accept_', '', $callback_data);
         sendTelegram($token, 'editMessageReplyMarkup', [
@@ -196,9 +210,6 @@ if (isset($update['callback_query'])) {
             'parse_mode' => 'Markdown',
         ]);
 
-        // Ссылка "оплатить на сайте" — сразу в кабинет клиента на страницу
-        // этого заказа. Если TG уже привязан к чату — добавляем tg_token,
-        // чтобы сайт узнал клиента автоматически (без повторного логина).
         $payUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
         try {
             $ccidStmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
@@ -230,7 +241,6 @@ if (isset($update['callback_query'])) {
             'text'       => "🚀 *Заказ #{$order_id} взят в работу.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента — безопасно, без краша
         safeNotifyClient($pdo, $token, $order_id,
             "🎨 *Ваш заказ #{$order_id} принят в работу!*\n\nДизайнер уже начал выполнение. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*\n\nМы сообщим вам, когда заказ будет готов."
         );
@@ -254,7 +264,6 @@ if (isset($update['callback_query'])) {
             'text'       => "⚡️ *Заказ #{$order_id} переведён в СРОЧНЫЙ режим.*\n📅 Дедлайн: " . date('d.m.Y в H:i', strtotime($deadline)),
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента (с картинкой fast.jpg — согласно ТЗ п.2.4)
         safeNotifyClient($pdo, $token, $order_id,
             "⚡️ *Ваш заказ #{$order_id} переведён в СРОЧНЫЙ режим!*\n\nДизайнер выполнит его в приоритетном порядке. Дедлайн: *" . date('d.m.Y в H:i', strtotime($deadline)) . "*",
             'Markdown', null, __DIR__ . '/assets/notify/fast.jpg'
@@ -263,7 +272,7 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
-    
+
     // Выполнен
     if (strpos($callback_data, 'adm_ready_') === 0) {
         $order_id = (int)str_replace('adm_ready_', '', $callback_data);
@@ -278,7 +287,6 @@ if (isset($update['callback_query'])) {
             'text'       => "✅ *Заказ #{$order_id} выполнен.*",
             'parse_mode' => 'Markdown',
         ]);
-        // Уведомляем клиента (с картинкой "готово", если файл загружен в assets/notify/gotovo.jpg)
         safeNotifyClient($pdo, $token, $order_id,
             "🎉 *Ваш заказ #{$order_id} готов!*\n\nДизайнер свяжется с вами для передачи финальных файлов. Спасибо, что выбрали Kostlim Design!\n\n⭐ *Оставьте отзыв о работе:*\nhttps://portfolio-site-boo5.onrender.com/review.php?order={$order_id}",
             'Markdown', null, __DIR__ . '/assets/notify/gotovo.jpg'
@@ -413,8 +421,6 @@ if (isset($update['message'])) {
         $ai_user_id = (string)($update['message']['from']['id'] ?? $chat_id);
         $is_private_chat = ($chat_type === 'private');
 
-        // Лимит: 5 запросов в минуту на пользователя — без этого можно легко
-        // сжечь дневную квоту Gemini спамом одного человека.
         $limitFile = sys_get_temp_dir() . "/ai_limit_{$ai_user_id}.txt";
         $ai_history = file_exists($limitFile) ? (json_decode(file_get_contents($limitFile), true) ?: []) : [];
         $ai_now = time();
@@ -444,13 +450,9 @@ if (isset($update['message'])) {
             sendTelegram($token, 'sendMessage', $params);
             exit;
         }
-        // GEMINI_API_KEY может содержать несколько ключей через запятую (как
-        // в виджете на сайте) — берём случайный, чтобы распределять квоту.
         $geminiKeysArr = array_values(array_filter(array_map('trim', explode(',', $geminiKeyRaw))));
         $geminiKey = $geminiKeysArr[array_rand($geminiKeysArr)];
 
-        // Тот же промпт, что редактируется в админке для виджета на сайте
-        // (раздел "ИИ-промпт") — единый источник правды для сайта и бота.
         $aiSystemPrompt = '';
         try {
             $promptStmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'ai_system_prompt' LIMIT 1");
@@ -465,14 +467,6 @@ if (isset($update['message'])) {
         $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash';
         $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key=" . urlencode($geminiKey);
 
-        // ── Память диалога ──────────────────────────────────────────────
-        // Раньше каждый запрос уходил в Gemini СОВЕРШЕННО без истории —
-        // только текущая фраза, поэтому бот "забывал", о чём говорили абзацем
-        // выше, и на уточняющий вопрос ("а какие цвета им подходят?") отвечал
-        // заново с нуля, будто это первое сообщение в диалоге. Теперь
-        // подтягиваем последние сообщения этого чата (обнуляется само,
-        // если человек молчал дольше 30 минут — считаем это новой темой)
-        // и передаём их Gemini как предыдущие ходы диалога.
         $aiHistoryKey = $chat_id . ':' . ($thread_id ?: '0');
         $aiHistoryContents = [];
         try {
@@ -497,14 +491,6 @@ if (isset($update['message'])) {
             botLog('KostlimAI history read error: ' . $e->getMessage());
         }
 
-        // Раньше maxOutputTokens стоял 500 и thinking-бюджет не отключался —
-        // у gemini-2.5-flash "рассуждения" (thinking) тратят токены ИЗ ТОГО
-        // ЖЕ лимита maxOutputTokens, поэтому модель часто исчерпывала лимит
-        // на размышления и возвращала пустой текст (finishReason=MAX_TOKENS),
-        // отсюда "тупые"/пустые ответы в Telegram. На сайте (ai_support.php)
-        // лимита не было вообще — поэтому там всё работало нормально.
-        // Отключаем thinking (не нужен для короткого чат-ответа) и поднимаем
-        // потолок токенов на сам текст ответа.
         $payload = [
             'contents'          => array_merge($aiHistoryContents, [['role' => 'user', 'parts' => [['text' => $userQuery]]]]),
             'systemInstruction' => ['parts' => [['text' => $aiSystemPrompt]]],
@@ -532,23 +518,15 @@ if (isset($update['message'])) {
         $replyOk = ($reply !== '');
 
         if (!$replyOk) {
-            // Логируем реальную причину (истёкшая квота, неверный ключ, и т.п.)
-            // вместо того чтобы просто молча показывать общую ошибку —
-            // теперь причину видно во вкладке "Логи" в админке.
             botLog('KostlimAI Gemini error: curl=' . $curlErr . ' | resp=' . substr((string)$response, 0, 500));
             $reply = 'Не смог ответить 😔 Попробуй ещё раз через минуту или напиши: @Perlo_ovka';
         }
 
-        // Сохраняем оба хода в историю ТОЛЬКО если ответ настоящий — иначе
-        // фраза-заглушка про ошибку попадёт в контекст как "предыдущий ответ
-        // ИИ" и будет только сбивать модель на следующих сообщениях.
         if ($replyOk) {
             try {
                 $insHist = $pdo->prepare("INSERT INTO ai_chat_log (chat_key, role, message) VALUES (?, ?, ?)");
                 $insHist->execute([$aiHistoryKey, 'user', $userQuery]);
                 $insHist->execute([$aiHistoryKey, 'model', $reply]);
-                // Не даём таблице расти бесконечно — храним только последние ~40
-                // сообщений на чат, остального для контекста не нужно.
                 $pdo->prepare("
                     DELETE FROM ai_chat_log WHERE chat_key = ? AND id NOT IN (
                         SELECT id FROM ai_chat_log WHERE chat_key = ? ORDER BY id DESC LIMIT 40
@@ -618,24 +596,13 @@ if (isset($update['message'])) {
         $last = end($photos);
         $receiptFileId = (string)($last['file_id'] ?? '');
     } elseif (!empty($update['message']['document']['file_id'])) {
-        // Поддержка изображений и файлов (в т.ч. PDF-чеков из банка),
-        // отправленных как документ — сохраняет оригинальный формат, в
-        // отличие от 'photo', где Telegram всегда пересжимает в jpeg.
         $receiptFileId = (string)$update['message']['document']['file_id'];
         $receiptIsDocument = true;
         $receiptDocFileName = (string)($update['message']['document']['file_name'] ?? '');
     }
 
-    // Примечание: раньше здесь стояло условие "$chat_id !== $admin_id", которое
-    // полностью блокировало распознавание чека, если админ тестирует весь флоу
-    // под своим же Telegram-аккаунтом (в роли клиента). Настоящей защитой от
-    // ложных срабатываний служит сам SQL-запрос ниже — он находит чек только
-    // если у этого chat_id действительно есть заказ, ожидающий оплату.
     if ($receiptFileId !== '') {
         try {
-            // Ищем либо заказ, ожидающий оплату (первый чек), либо заказ,
-            // которому только что запустили работу и куда клиент долистывает
-            // ещё чеки (до 3 штук суммарно).
             $stmt = $pdo->prepare("
                 SELECT id, is_urgent, payment_receipt_count FROM orders
                 WHERE client_chat_id = ?
@@ -649,12 +616,6 @@ if (isset($update['message'])) {
                 $isFirstReceipt = ($payOrder['payment_receipt_count'] ?? 0) < 1;
                 $receiptCount  = min(3, (int)($payOrder['payment_receipt_count'] ?? 0) + 1);
 
-                // Каждый чек сохраняется под своим уникальным именем — fast.jpg
-                // это отдельная статичная декоративная картинка для уведомления
-                // "заказ срочный" (см. п.2.4 ТЗ) и чеками НЕ перезаписывается.
-                // Расширение берём из реального файла документа (например .pdf),
-                // а не жёстко .jpg — раньше PDF-чек сохранялся под именем .jpg
-                // и превращался в битый файл.
                 $receiptExt = 'jpg';
                 if ($receiptIsDocument) {
                     $docExt = strtolower(pathinfo($receiptDocFileName, PATHINFO_EXTENSION));
@@ -664,17 +625,8 @@ if (isset($update['message'])) {
                 $receiptAbsPath  = __DIR__ . '/uploads/orders/' . $receiptFileName;
                 $savedLocally    = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
 
-                // Заливаем на ImgBB — постоянная ссылка, которая гарантированно
-                // откроется и в админке на сайте, и в Telegram sendPhoto (локальный
-                // диск на Render эфемерный и может обнулиться после рестарта).
-                // ImgBB принимает только изображения — для PDF заливка не пройдёт,
-                // и код ниже сам откатится на локальное имя файла (с .pdf).
                 $receiptStoreValue = ($receiptExt !== 'pdf' && $savedLocally) ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id) : '';
                 if ($receiptStoreValue === '') {
-                    // Фолбэк: просто имя файла (БЕЗ префикса 'uploads/orders/' —
-                    // так его ожидает imgSrc() в админке, которая сама этот
-                    // префикс достраивает; путь с префиксом даёт битую двойную
-                    // ссылку и картинка не отображается на сайте).
                     $receiptStoreValue = $savedLocally ? $receiptFileName : $receiptFileId;
                 }
 
@@ -685,7 +637,6 @@ if (isset($update['message'])) {
                     $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_receipt_count = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
                         ->execute([$newStatus, $receiptStoreValue, $receiptCount, $deadline, $order_id]);
                 } else {
-                    // Доп. фото чека (2-е / 3-е) — прикрепляем, дедлайн не пересчитываем
                     $deadlineStmt = $pdo->prepare("SELECT deadline FROM orders WHERE id = ? LIMIT 1");
                     $deadlineStmt->execute([$order_id]);
                     $deadline = (string)$deadlineStmt->fetchColumn();
@@ -693,9 +644,6 @@ if (isset($update['message'])) {
                 }
                 addOrderMessage($pdo, $order_id, 'client', "Клиент отправил чек оплаты ({$receiptCount}/3).", $receiptStoreValue);
 
-                // Раньше это были 2 отдельных сообщения (фото с короткой
-                // подписью + следом текст "заказ переведён в работу") —
-                // теперь всё приходит одним сообщением: фото + вся инфа в подписи.
                 $adminCaption = "💳 Чек оплаты по заказу #{$order_id} ({$receiptCount}/3)\n"
                     . "📅 Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
                 if ($isFirstReceipt) {
@@ -703,9 +651,6 @@ if (isset($update['message'])) {
                         . "Заказ переведён в работу.\n"
                         . "📅 Дедлайн: *" . date('d.m.Y H:i', strtotime($deadline)) . "*";
                 }
-                // PDF (и другие непонятные Telegram'у как фото документы) нужно
-                // слать через sendDocument — sendPhoto с ними вернёт ошибку API
-                // и админ вообще не увидит чек.
                 if ($receiptIsDocument && $receiptExt === 'pdf') {
                     sendTelegram($token, 'sendDocument', [
                         'chat_id'    => $admin_id,
@@ -722,7 +667,6 @@ if (isset($update['message'])) {
                     ]);
                 }
 
-                // Ссылка в кабинет клиента на страницу заказа
                 $profileUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
                 try {
                     $profileUrl .= '&tg_token=' . autoLinkGenerateToken($pdo, (int)$chat_id, []);
@@ -742,8 +686,6 @@ if (isset($update['message'])) {
         }
     }
 
-    // Если первое сообщение от админа и клавиатура слетела — восстанавливаем нужную
-    // (определяется по /start — бот только запущен или переоткрыт)
     if ((string)$chat_id === $admin_id && $text === '/start') {
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $admin_id,
@@ -754,11 +696,9 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // /start — может быть с параметром order_id для привязки chat_id или link_КОД для привязки сайта
     if (strpos($text, '/start') === 0) {
         $param = trim(str_replace('/start', '', $text));
 
-        // /start link_АБCDEF — пользователь перешёл с сайта по кнопке «Открыть бот»
         if (preg_match('/^link_([A-Z0-9]{4,10})$/i', $param, $m)) {
             $site_code = strtoupper($m[1]);
             botLog("/start link_ handler: code={$site_code}");
@@ -766,10 +706,8 @@ if (isset($update['message'])) {
             exit;
         }
 
-        // /start order_22 — клиент пришёл по ссылке из уведомления о заказе
         if (preg_match('/^order_(\d+)$/', $param, $m)) {
             $order_id = (int)$m[1];
-            // Сохраняем chat_id клиента в заказе
             $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chat_id, $order_id]);
             botLog("Привязан chat_id={$chat_id} к заказу #{$order_id}");
 
@@ -787,7 +725,6 @@ if (isset($update['message'])) {
             exit;
         }
 
-        // Обычный /start — привязываем chat_id к заказам по username
         $user_from    = $update['message']['from'] ?? [];
         $start_uname  = $user_from['username'] ?? '';
         if ($start_uname !== '') {
@@ -807,7 +744,6 @@ if (isset($update['message'])) {
             } catch (Throwable $e) {}
         }
 
-        // AUTO-LINK: generate a signed site URL with tg_id so when client visits - TG is auto-linked
         $auto_tg_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
         $site_link = rtrim($site_url, '/') . '/?tg_token=' . $auto_tg_token;
 
@@ -817,7 +753,6 @@ if (isset($update['message'])) {
             'parse_mode'   => 'Markdown',
             'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
         ]);
-        // Send site button separately
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => "🌐 Перейди на сайт — твой Telegram привяжется *автоматически*:",
@@ -831,7 +766,6 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // /customer_КОД — ручная отправка кода привязки (альтернатива кнопке)
     if (strpos($text, '/customer_') === 0) {
         $site_code = strtoupper(trim(str_replace('/customer_', '', $text)));
         botLog("customer_ handler: code={$site_code} raw={$text}");
@@ -859,25 +793,33 @@ if (isset($update['message'])) {
 
     // Портфолио — отправляем ссылку с автопривязкой TG
     if ($text_key === 'смотреть portfolio' || $text_key === 'portfolio' || $text_key === 'портфолио') {
-       $auto_token = '';
-try { $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []); } catch (\Throwable $e) {}
-$auto_url   = rtrim($site_url, '/') . ($auto_token ? '/?tg_token=' . $auto_token : '/');
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $chat_id,
-            'text'       => "🎨 *Kostlim Design — портфолио и заказы*\n\nНажми кнопку — твой Telegram привяжется автоматически:",
-            'parse_mode' => 'Markdown',
-            'reply_markup' => json_encode([
-                'inline_keyboard' => [[
-                    ['text' => '🌐 Открыть сайт', 'url' => $auto_url],
-                ]],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
+        $auto_token = '';
+        try {
+            $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        } catch (\Throwable $e) {
+            botLog('portfolio button: autoLinkGenerateToken failed: ' . $e->getMessage());
+        }
+        $auto_url = rtrim($site_url, '/') . ($auto_token ? '/?tg_token=' . $auto_token : '/');
+        try {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => "🎨 *Kostlim Design — портфолио и заказы*\n\nНажми кнопку — твой Telegram привяжется автоматически:",
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [[
+                        ['text' => '🌐 Открыть сайт', 'url' => $auto_url],
+                    ]],
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable $e) {
+            botLog('portfolio button: sendTelegram failed: ' . $e->getMessage());
+        }
         exit;
     }
 
     // Прайс
     if ($text_key === 'прайс-лист' || $text_key === 'прайс лист' || $text_key === 'прайс') {
-       try { $p_stmt = $pdo->query("SELECT title, description, features, price_uan, price_rub, image FROM prices ORDER BY id ASC"); } catch (\Throwable $e) { $p_stmt = false; }
+        try { $p_stmt = $pdo->query("SELECT title, description, features, price_uan, price_rub, image FROM prices ORDER BY id ASC"); } catch (\Throwable $e) { $p_stmt = false; }
         $prices = $p_stmt ? $p_stmt->fetchAll(PDO::FETCH_ASSOC) : [];
         $price_msg = "📋 *Актуальный прайс-лист:*\n\n";
         foreach ($prices as $p) {
@@ -900,7 +842,6 @@ $auto_url   = rtrim($site_url, '/') . ($auto_token ? '/?tg_token=' . $auto_token
         $priceImgPath = __DIR__ . '/assets/notify/price.jpg';
         $priceFitsCaption = is_file($priceImgPath) && mb_strlen($price_msg) <= 1024;
         if ($priceFitsCaption) {
-            // Помещается целиком в подпись — одно сообщение: фото + весь текст
             sendTelegramFile($token, 'sendPhoto', [
                 'chat_id'    => $chat_id,
                 'photo'      => new CURLFile($priceImgPath),
@@ -936,19 +877,27 @@ $auto_url   = rtrim($site_url, '/') . ($auto_token ? '/?tg_token=' . $auto_token
 
     // Сделать заказ — ссылка с автопривязкой TG
     if ($text_key === 'сделать заказ' || $text_key === 'заказ') {
-       $auto_token = '';
-try { $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []); } catch (\Throwable $e) {}
-$order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=' . $auto_token : '');
-        sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $chat_id,
-            'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную:",
-            'parse_mode' => 'Markdown',
-            'reply_markup' => json_encode([
-                'inline_keyboard' => [[
-                    ['text' => '📝 Оформить заказ', 'url' => $order_url],
-                ]],
-            ], JSON_UNESCAPED_UNICODE),
-        ]);
+        $auto_token = '';
+        try {
+            $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        } catch (\Throwable $e) {
+            botLog('order button: autoLinkGenerateToken failed: ' . $e->getMessage());
+        }
+        $order_url = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=' . $auto_token : '');
+        try {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную:",
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [[
+                        ['text' => '📝 Оформить заказ', 'url' => $order_url],
+                    ]],
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable $e) {
+            botLog('order button: sendTelegram failed: ' . $e->getMessage());
+        }
         exit;
     }
 
@@ -976,9 +925,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
     // ── Обработка кнопок AdminReplyKeyboard (только для админа в ЛС) ──
     if (isBotAdmin($update) && (string)$chat_id === $admin_id) {
 
-        // Кнопка "📦 Заказы и Очередь" теперь показывает живой счётчик прямо
-        // в подписи ("📦 Заказы и Очередь (4, 🔥1)") — поэтому точное
-        // сравнение больше не сработает, сверяем по началу текста.
         if (str_starts_with($text, '📦 Заказы и Очередь')) {
             showAdminQueue($pdo, $token, $admin_id, $site_url);
             exit;
@@ -991,7 +937,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             $declined = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status='declined'")->fetchColumn();
             $tg_links = 0;
             try { $tg_links = (int)$pdo->query("SELECT COUNT(*) FROM tg_links WHERE linked=TRUE")->fetchColumn(); } catch(Throwable $e){}
-            // 💰 Финансы — сколько заработано сегодня / за месяц / всего
             $earnToday = $earnMonth = $earnTotal = ['rub' => 0, 'uan' => 0];
             try {
                 $q = $pdo->query("
@@ -1029,7 +974,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // "🌴 Режим приёма: —" / "🟢 Приём заказов: ВКЛ" / "🔴 Приём заказов: ВЫКЛ"
         if (str_starts_with($text, '🌴 Режим приёма') || str_starts_with($text, '🟢 Приём заказов') || str_starts_with($text, '🔴 Приём заказов')) {
             $newState = !isOrdersAvailable($pdo);
             setOrdersAvailable($pdo, $newState);
@@ -1044,7 +988,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // ── ⚙️ Управление БД — подменю (раньше 4 кнопки торчали в главном меню) ──
         if ($text === '⚙️ Управление БД') {
             sendTelegram($token, 'sendMessage', [
                 'chat_id'      => $admin_id,
@@ -1065,7 +1008,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // 📝 Логи ошибок — те же логи, что видны в веб-панели, но прямо в чате
         if ($text === '📝 Логи ошибок') {
             $logPath = __DIR__ . '/bot_debug.log';
             if (!is_file($logPath)) {
@@ -1166,7 +1108,7 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $admin_id,
                 'text'       => $msg,
-                'parse_mode' => 'Markdown', // Исправлено: Markdown вместо HTML
+                'parse_mode' => 'Markdown',
                 'reply_markup' => json_encode(adminDbReplyKeyboard(), JSON_UNESCAPED_UNICODE),
             ]);
             exit;
@@ -1175,7 +1117,7 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
         if ($text === '📣 Рассылка клиентам') {
             $state = ['text' => '', 'photos' => []];
             file_put_contents(sys_get_temp_dir() . '/broadcast_' . $admin_id . '.json', json_encode($state));
-            
+
             sendTelegram($token, 'sendMessage', [
                 'chat_id'    => $admin_id,
                 'text'       => "📣 *Режим подготовки рассылки*\n\n1️⃣ Отправь текст сообщения\n2️⃣ Прикрепи до 5 фото (по одному или пачкой)\n\nКогда закончишь, нажми кнопку «🚀 Начать рассылку» ниже.",
@@ -1184,7 +1126,7 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
                     'keyboard' => [
                         [['text' => '🚀 Начать рассылку']],
                         [['text' => '◀️ Отмена рассылки']]
-                    ], 
+                    ],
                     'resize_keyboard' => true
                 ], JSON_UNESCAPED_UNICODE),
             ]);
@@ -1202,7 +1144,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // Если активен режим рассылки — отправляем текст всем клиентам
         $broadcastFile = sys_get_temp_dir() . '/broadcast_' . $admin_id . '.txt';
         if (file_exists($broadcastFile) && $text !== '' && strpos($text, '/') !== 0) {
             @unlink($broadcastFile);
@@ -1219,7 +1160,7 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
                     ]);
                     $decoded = json_decode((string)$res, true);
                     if (!empty($decoded['ok'])) $sent++; else $failed++;
-                    usleep(50000); // 50ms задержка чтобы не упереться в лимит
+                    usleep(50000);
                 }
                 sendTelegram($token, 'sendMessage', [
                     'chat_id'      => $admin_id,
@@ -1243,7 +1184,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // ── Очистка всех заказов ────────────────────────────────────
         if ($text === '🗑 Очистить все заказы') {
             $captcha = strtoupper(substr(md5(uniqid()), 0, 5));
             file_put_contents(sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt', $captcha . '|' . (time() + 120));
@@ -1256,7 +1196,6 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
             exit;
         }
 
-        // Проверяем — может пользователь ввёл код подтверждения очистки
         $captchaFile = sys_get_temp_dir() . '/clear_captcha_' . $admin_id . '.txt';
         if (file_exists($captchaFile)) {
             $parts   = explode('|', file_get_contents($captchaFile));
@@ -1289,10 +1228,8 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
         }
     } // end if admin
 
-    // /status_X — клиент проверяет статус и привязывает chat_id
     if (strpos($text, '/status_') === 0) {
         $order_id = (int)str_replace('/status_', '', $text);
-        // Привязываем chat_id если ещё не привязан
         $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ? AND (client_chat_id IS NULL OR client_chat_id = '')")
             ->execute([$chat_id, $order_id]);
 
@@ -1313,16 +1250,12 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
         exit;
     }
 
-    // ── Обработка команд из БД и системных ──────────────────────────────
-    // processAdminCommand() обрабатывает: /help /mute /warn /ban /unban /kick /stats /admin
-    // Функция определена в admin/bot_commands.php и подключается в начале bot.php
     if ($text !== '' && $text[0] === '/') {
         if (processAdminCommand($pdo, $token, $chat_id, $text, $update)) {
-            exit; // команда обработана
+            exit;
         }
     }
 
-    // Неизвестный текст — показываем меню клиенту (только в личном чате)
     if ($chat_type === 'private') {
         sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
@@ -1337,15 +1270,10 @@ $order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=
 // ФУНКЦИИ
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Привязать Telegram-аккаунт к сессии на сайте по site_code.
- * Сохраняет tg_id, username, first_name, photo_url в tg_links.
- */
 function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
     botLog("linkTgAccount chat_id={$chat_id} code={$site_code}");
 
     try {
-        // Проверяем — есть ли такой код в таблице
         $stmt = $pdo->prepare("SELECT id, linked FROM tg_links WHERE site_code = ? LIMIT 1");
         $stmt->execute([$site_code]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1377,13 +1305,11 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         return;
     }
 
-    // Получаем данные пользователя из сообщения
     $user       = $message['from'] ?? [];
     $tg_id      = (string)($user['id'] ?? $chat_id);
     $username   = $user['username'] ?? '';
     $first_name = $user['first_name'] ?? '';
 
-    // Получаем фото профиля через getProfilePhotos и сохраняем локально (URL TG истекает)
     $photo_url = '';
     try {
         $photosResp = sendTelegram($token, 'getUserProfilePhotos', [
@@ -1399,7 +1325,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
                 $filePath = $fileData['result']['file_path'] ?? '';
                 if ($filePath) {
                     $tgFileUrl = "https://api.telegram.org/file/bot{$token}/{$filePath}";
-                    // Сохраняем аватарку локально чтобы URL не истекал
                     $avatarDir = __DIR__ . '/uploads/avatars/';
                     if (!is_dir($avatarDir)) @mkdir($avatarDir, 0755, true);
                     $ext = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'jpg';
@@ -1410,7 +1335,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
                         file_put_contents($localPath, $imgData);
                         $photo_url = 'uploads/avatars/' . $localName;
                     }
-                    // Не сохраняем TG URL — он истекает через ~1 час, будет показана буква-заглушка
                 }
             }
         }
@@ -1418,7 +1342,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         botLog("photo fetch error: " . $e->getMessage());
     }
 
-    // ШАГ 1 — базовый UPDATE (linked=1), работает всегда
     try {
         $pdo->prepare("UPDATE tg_links SET linked = TRUE WHERE site_code = ?")
             ->execute([$site_code]);
@@ -1432,7 +1355,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         return;
     }
 
-    // ШАГ 2 — дополнительные поля профиля (если колонки уже добавлены миграцией)
     try {
         $pdo->prepare("
             UPDATE tg_links
@@ -1441,28 +1363,22 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
         ")->execute([$tg_id, $username, $first_name, $photo_url, $site_code]);
         botLog("linkTgAccount: profile saved tg_id={$tg_id} username={$username}");
     } catch (Throwable $e) {
-        // Колонки ещё не добавлены — не критично, linked=1 уже стоит
         botLog("linkTgAccount: profile columns missing (run migration!) " . $e->getMessage());
     }
 
-    // Привязываем заказы по username и session_id — все форматы
     try {
-        // Ищем session_id из tg_links для этого site_code
         $sess_stmt = $pdo->prepare("SELECT session_id FROM tg_links WHERE site_code = ? LIMIT 1");
         $sess_stmt->execute([$site_code]);
         $sess_row = $sess_stmt->fetch(PDO::FETCH_ASSOC);
         $link_session = $sess_row['session_id'] ?? '';
 
-        $conditions = ["(client_chat_id IS NULL OR client_chat_id = '')"];
-        $params_upd  = [$tg_id];
         $where_parts = [];
+        $params_upd  = [$tg_id];
 
-        // По session_id
         if ($link_session !== '') {
             $where_parts[] = 'session_id = ?';
             $params_upd[]  = $link_session;
         }
-        // По telegram полю — все варианты написания
         if ($username !== '') {
             $where_parts[] = 'telegram = ?';
             $params_upd[]  = '@' . $username;
@@ -1476,7 +1392,7 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
 
         if (!empty($where_parts)) {
             $sql_upd = "UPDATE orders SET client_chat_id = ? WHERE (client_chat_id IS NULL OR client_chat_id = '') AND (" . implode(' OR ', $where_parts) . ")";
-            $rows_updated = $pdo->prepare($sql_upd)->execute($params_upd);
+            $pdo->prepare($sql_upd)->execute($params_upd);
             botLog("linkTgAccount: updated orders client_chat_id={$tg_id} by username/session");
         }
     } catch (Throwable $e) {
@@ -1485,7 +1401,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
 
     $name_display = $first_name ?: ($username ? '@' . $username : 'пользователь');
 
-    // Проверяем есть ли активные заказы — уведомляем о них
     try {
         $active_stmt = $pdo->prepare("SELECT id, status FROM orders WHERE client_chat_id = ? AND status IN ('pending','awaiting_payment','in_progress','urgent') ORDER BY id DESC LIMIT 5");
         $active_stmt->execute([$tg_id]);
@@ -1513,9 +1428,6 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
     ]);
 }
 
-/**
- * Показывает личный кабинет клиента — список его заказов с кнопками.
- */
 function showCabinet($pdo, $token, $chat_id) {
     try {
         $stmt = $pdo->prepare("
@@ -1570,9 +1482,6 @@ function showCabinet($pdo, $token, $chat_id) {
     }
 }
 
-/**
- * Показывает клиенту детали конкретного заказа.
- */
 function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
     try {
         $stmt = $pdo->prepare("
@@ -1592,7 +1501,6 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
             return;
         }
 
-        // Подтягиваем название услуги
         $p_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
         $p_stmt->execute([$order['service_key']]);
         $price = $p_stmt->fetch(PDO::FETCH_ASSOC);
@@ -1609,7 +1517,6 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
         }
         $date        = date('d.m.Y H:i', strtotime($order['created_at']));
 
-        // Дедлайн
         $deadline = '⏳ Срок начнётся после получения чека';
         if (!empty($order['deadline'])) {
             $deadlineDt = new DateTime($order['deadline']);
@@ -1641,10 +1548,6 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
             'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
         ]);
 
-        // ── Показываем фото, прикреплённые к заказу (референсы + чек) ──
-        // Раньше при просмотре заказа через бота клиент видел только текст —
-        // приложенные им же самим фото (референсы к ТЗ, чек оплаты) нигде
-        // не показывались, хотя он их отправлял.
         $orderPhotos = [];
         if (!empty($order['example_photo'])) {
             $decodedRefs = json_decode((string)$order['example_photo'], true);
@@ -1701,10 +1604,6 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
     }
 }
 
-/**
- * Уведомляет клиента БЕЗОПАСНО — без выброса исключения если chat_id нет.
- */
-// Заполняет client_chat_id в заказе если он пустой — через tg_links или getChat API
 function prefillClientChatId($pdo, $token, $order_id) {
     try {
         $stmt = $pdo->prepare("SELECT client_chat_id, telegram, session_id FROM orders WHERE id = ? LIMIT 1");
@@ -1713,9 +1612,8 @@ function prefillClientChatId($pdo, $token, $order_id) {
         if (!$row) return;
 
         $chat_id = trim((string)($row['client_chat_id'] ?? ''));
-        if ($chat_id !== '' && is_numeric($chat_id)) return; // уже есть
+        if ($chat_id !== '' && is_numeric($chat_id)) return;
 
-        // По session_id
         if (!empty($row['session_id'])) {
             $lnk = $pdo->prepare("SELECT COALESCE(NULLIF(tg_chat_id,''), NULLIF(CAST(tg_id AS VARCHAR),'')) AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
             $lnk->execute([$row['session_id']]);
@@ -1723,7 +1621,6 @@ function prefillClientChatId($pdo, $token, $order_id) {
             if (!empty($r['chat_id']) && is_numeric($r['chat_id'])) $chat_id = $r['chat_id'];
         }
 
-        // По telegram username через tg_links
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
             $tg = ltrim(trim(str_replace(['https://t.me/','http://t.me/','t.me/'], '', $row['telegram'])), '@');
             if ($tg !== '') {
@@ -1734,7 +1631,6 @@ function prefillClientChatId($pdo, $token, $order_id) {
             }
         }
 
-        // Через getChat API
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
             $tg = ltrim(trim(str_replace(['https://t.me/','http://t.me/','t.me/'], '', $row['telegram'])), '@');
             if ($tg !== '') {
@@ -1766,7 +1662,6 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
 
         $chat_id = trim((string)($row['client_chat_id'] ?? ''));
 
-        // Метод 2: по session_id через tg_links
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['session_id'])) {
             try {
                 $lnk = $pdo->prepare("
@@ -1781,7 +1676,6 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
             } catch (Throwable $e) {}
         }
 
-        // Метод 3: по tg_username из поля telegram заказа
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
             $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $row['telegram'])), '@');
             if ($tg_clean !== '') {
@@ -1800,7 +1694,6 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
             }
         }
 
-        // Метод 4: getChat через Telegram API
         if (($chat_id === '' || !is_numeric($chat_id)) && !empty($row['telegram'])) {
             $tg_clean = ltrim(trim(str_replace(['https://t.me/', 'http://t.me/', 't.me/'], '', $row['telegram'])), '@');
             if ($tg_clean !== '') {
@@ -1834,10 +1727,6 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
                 $res = sendTelegramFile($token, 'sendPhoto', array_merge($params, ['photo' => new CURLFile($photoPath)]));
                 $decodedPhoto = json_decode((string)$res, true);
                 if (empty($decodedPhoto['ok'])) {
-                    // Фото не ушло (битый файл / подпись > 1024 симв. / любая
-                    // другая причина) — САМОЕ ГЛАВНОЕ, чтобы клиент в любом
-                    // случае получил текст. Раньше при ошибке sendPhoto клиент
-                    // не получал вообще ничего — ни фото, ни текста.
                     botLog("safeNotifyClient order={$order_id} sendPhoto FAILED, falling back to text: " . substr((string)$res, 0, 300));
                     $fallbackParams = ['chat_id' => $chat_id, 'text' => $text];
                     if ($parseMode !== '') $fallbackParams['parse_mode'] = $parseMode;
@@ -1864,11 +1753,6 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
                 botLog("safeNotifyClient order={$order_id} chat={$chat_id} FAILED: " . substr((string)$res, 0, 200));
             }
         } else {
-            // Если не нашли chat_id вообще никаким способом — это САМАЯ частая
-            // причина "клиенту ничего не приходит". Важно: если клиент НИ РАЗУ
-            // не писал боту /start — это ограничение самого Telegram (бот
-            // технически не может первым написать пользователю, это защита от
-            // спама на уровне платформы, обойти нельзя никаким кодом).
             botLog("safeNotifyClient order={$order_id} NO CHAT_ID FOUND — client_chat_id empty, no tg_links match, getChat failed. telegram=" . ($row['telegram'] ?? '') . " session_id=" . ($row['session_id'] ?? ''));
         }
     } catch (Throwable $e) {
@@ -1882,20 +1766,17 @@ function mainKeyboard($isAdmin) {
     $buttons = [
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
         [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
-        [['text' => '🤖 Спросить KostlimAI']] // <-- Новая кнопка для вызова ИИ
+        [['text' => '🤖 Спросить KostlimAI']]
     ];
-    
-    if ($isAdmin) { 
-        $buttons[] = [['text' => '⚙️ Админ-панель']]; 
+
+    if ($isAdmin) {
+        $buttons[] = [['text' => '⚙️ Админ-панель']];
     }
-    
+
     return ['keyboard' => $buttons, 'resize_keyboard' => true];
 }
 
-// Постоянное Reply-меню для админа
 function adminReplyKeyboard($pdo = null) {
-    // Счётчик очереди прямо на кнопке — чтобы не заходить каждый раз внутрь,
-    // чтобы посмотреть, сколько сейчас заказов в работе.
     $queueLabel = '📦 Заказы и Очередь';
     $availLabel = '🌴 Режим приёма: —';
     if ($pdo !== null) {
@@ -1922,8 +1803,6 @@ function adminReplyKeyboard($pdo = null) {
     ];
 }
 
-// Подменю "⚙️ Управление БД" — раньше это были 4 отдельные кнопки прямо
-// в основном меню (мозолили глаза, хотя нужны редко); теперь спрятаны сюда.
 function adminDbReplyKeyboard() {
     return [
         'keyboard' => [
@@ -1947,12 +1826,6 @@ function adminKeyboard() {
     ];
 }
 
-/**
- * Новая структура кнопок нового заказа (вместо плоской сетки из 6-7 кнопок):
- * 🟢 Принять заказ / 🔴 Отклонить / 💬 Написать клиенту — а дальше по клику
- * открывается подменю с конкретными вариантами. Меньше визуального шума,
- * логика та же — просто в два клика вместо одного.
- */
 function orderTopMenuKeyboard($order_id, $telegram) {
     $rows = [
         [
@@ -2150,13 +2023,8 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $cardText = buildOrderCard($item, $price_info ?: [], $site_url);
     $keyboard = orderKeyboard($item['id'], $item['status'], $item['telegram']);
 
-    // Собираем фото
     $photos = [];
 
-    // Чек оплаты (payment_receipt) — может быть:
-    //  1) полный URL (ImgBB) — используем как есть
-    //  2) просто имя файла на диске (uploads/orders/имя.jpg) — оборачиваем в CURLFile
-    //  3) "сырой" Telegram file_id (старые заказы, до перехода на ImgBB) — передаём как есть
     if (!empty($item['payment_receipt'])) {
         $val = (string)$item['payment_receipt'];
         if (str_starts_with($val, 'http')) {
@@ -2166,13 +2034,11 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
             if (is_file($path)) {
                 $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => 'Чек оплаты', 'is_local' => true];
             } else {
-                // Похоже на Telegram file_id (не найден локально и не URL) — пробуем как есть
                 $photos[] = ['file' => $val, 'label' => 'Чек оплаты', 'is_local' => false];
             }
         }
     }
 
-    // Старое поле screenshot (легаси, до перехода на "оплата после одобрения")
     if (!empty($item['screenshot'])) {
         $path = __DIR__ . '/uploads/orders/' . basename((string)$item['screenshot']);
         if (is_file($path)) {
@@ -2182,12 +2048,6 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
         }
     }
 
-    // Референсы (example_photo) — хранится как JSON-массив Cloudinary-ссылок
-    // (см. order.php: $example_img_json = json_encode($example_imgs)), а НЕ
-    // как одна ссылка. Раньше код пытался использовать всю JSON-строку
-    // целиком как один URL/имя файла — она не проходила ни одну проверку
-    // (не начинается на "http", не существует как локальный файл) и просто
-    // молча пропускалась, поэтому референсы никогда не приходили в Telegram.
     if (!empty($item['example_photo'])) {
         $raw = (string)$item['example_photo'];
         $refUrls = [];
@@ -2198,7 +2058,6 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
                 if ($u !== '') $refUrls[] = $u;
             }
         } elseif ($raw !== '') {
-            // Легаси-формат — одна ссылка/один локальный файл без JSON-обёртки
             $refUrls[] = $raw;
         }
         foreach ($refUrls as $u) {
@@ -2214,7 +2073,6 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     }
 
     if (empty($photos)) {
-        // Нет фото — сразу текст с кнопками
         sendTelegram($token, 'sendMessage', [
             'chat_id'                  => $admin_id,
             'text'                     => $cardText,
@@ -2223,9 +2081,7 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
             'reply_markup'             => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
         ]);
     } elseif (count($photos) === 1) {
-        // Одно фото — текст в caption + кнопки
         $p = $photos[0];
-        // Telegram caption limit 1024, при превышении — фото отдельно, текст отдельно
         $caption = mb_strlen($cardText) <= 1024 ? $cardText : '';
         if ($p['is_local']) {
             $fields = [
@@ -2251,15 +2107,8 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
             ]);
         }
     } else {
-        // Несколько фото — mediaGroup без кнопок (ограничение TG), потом текст+кнопки
         $hasLocal = array_filter($photos, fn($p) => $p['is_local']);
         if ($hasLocal) {
-            // Смешанный альбом (часть фото — локальные файлы, часть — ссылки,
-            // например чек лежит на диске, а референсы на Cloudinary). Раньше
-            // для ссылок код тоже пытался использовать "attach://" — эта схема
-            // работает ТОЛЬКО для реально прикреплённых через multipart файлов,
-            // а не текстовых URL-полей, из-за чего Telegram отклонял вообще
-            // весь альбом целиком (ни чек, ни референсы не приходили).
             $post = ['chat_id' => $admin_id];
             $mediaPayload = [];
             foreach ($photos as $i => $p) {
@@ -2279,7 +2128,6 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
             $mediaPayload = array_map(fn($p) => ['type' => 'photo', 'media' => $p['file']], $photos);
             sendTelegram($token, 'sendMediaGroup', ['chat_id' => $admin_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
         }
-        // Текст + кнопки отдельным сообщением
         sendTelegram($token, 'sendMessage', [
             'chat_id'                  => $admin_id,
             'text'                     => $cardText,
@@ -2301,15 +2149,14 @@ function buildOrderCard($item, $price_info, $site_url) {
     $p_rub         = $price_info['price_rub'] ?? 0;
     $p_uan         = $price_info['price_uan'] ?? 0;
 
-    // Форматирование дедлайна
     $deadline_text = '';
     if (!empty($item['deadline'])) {
         $deadline_dt = new DateTime($item['deadline']);
         $diff = $deadline_dt->getTimestamp() - time();
-        
+
         if ($diff < 0) {
             $deadline_text = "🔴 *ПРОСРОЧЕНО!* На " . abs(ceil($diff / 3600)) . " ч.";
-        } elseif ($diff < 24 * 3600) { // менее 24 часов
+        } elseif ($diff < 24 * 3600) {
             $hours_left = ceil($diff / 3600);
             $deadline_text = "🟠 *СРОЧНО!* Осталось ~{$hours_left} ч. (" . $deadline_dt->format('d.m в H:i') . ")";
         } else {
@@ -2322,7 +2169,6 @@ function buildOrderCard($item, $price_info, $site_url) {
     $msg .= "━━━━━━━━━━━━━━━━━━\n";
     $msg .= "👤 *Имя:* "    . mdEscape($item['username'] ?? '') . "\n";
     $msg .= "📞 *Связь:* "  . mdEscape($item['telegram']  ?? '') . "\n";
-    // TG username из привязки (если отличается от telegram поля)
     $tgUser = trim((string)($item['tg_username'] ?? ''));
     if ($tgUser !== '' && '@' . $tgUser !== $item['telegram'] && $tgUser !== ltrim((string)$item['telegram'], '@')) {
         $msg .= "🔗 *TG аккаунт:* @" . mdEscape($tgUser) . "\n";
@@ -2350,7 +2196,6 @@ function buildOrderCard($item, $price_info, $site_url) {
         $msg .= "📝 *Причина отказа:* " . mdEscape($item['declined_reason']) . "\n";
     }
 
-    // Photos (receipt / example) are sent as media album separately
     if (!empty($item['screenshot']) || !empty($item['example_photo']) || !empty($item['payment_receipt'])) {
         $msg .= "📸 *Файлы:* отправлены как альбом (фото ниже)\n";
     } else {
@@ -2362,9 +2207,6 @@ function buildOrderCard($item, $price_info, $site_url) {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-/**
- * Смайл по статусу заказа.
- */
 function statusEmoji($status) {
     return [
         'pending'     => '⏳',
@@ -2376,9 +2218,6 @@ function statusEmoji($status) {
     ][$status] ?? '📦';
 }
 
-/**
- * Читаемый статус на русском.
- */
 function statusLabel($status) {
     return [
         'pending'     => '⏳ Ожидает подтверждения',
@@ -2406,7 +2245,6 @@ function getOrderTelegram($pdo, $order_id) {
 
 function sendOrderPhotos($token, $chat_id, $item) {
     botLog("sendOrderPhotos: order={$item['id']} start");
-    // collect available photos
     $media = [];
 
     if (!empty($item['screenshot'])) {
@@ -2418,9 +2256,6 @@ function sendOrderPhotos($token, $chat_id, $item) {
         }
     }
 
-    // example_photo хранится как JSON-массив ссылок (см. order.php), а не
-    // одна ссылка/файл — раньше это никак не парсилось и референсы всегда
-    // молча пропускались.
     if (!empty($item['example_photo'])) {
         $decoded = json_decode((string)$item['example_photo'], true);
         $refUrls = is_array($decoded) ? $decoded : [(string)$item['example_photo']];
@@ -2441,7 +2276,6 @@ function sendOrderPhotos($token, $chat_id, $item) {
     if (empty($media)) return;
 
     $count = count($media);
-    // If only one media, send as single photo
     if ($count === 1) {
         $m = $media[0];
         botLog("sendOrderPhotos: sending single photo, caption={$m['caption']}");
@@ -2454,17 +2288,12 @@ function sendOrderPhotos($token, $chat_id, $item) {
         return;
     }
 
-    // multiple media: media group (2..10)
-    // detect if any are local files
     $useFiles = false;
     foreach ($media as $m) {
         if ($m['media'] instanceof CURLFile) { $useFiles = true; break; }
     }
 
     if ($useFiles) {
-        // Смешанный альбом: локальные файлы — через attach://, ссылки — напрямую
-        // ("attach://" работает только для реально прикреплённых multipart-файлов,
-        // иначе Telegram отклоняет весь альбом целиком).
         $post = ['chat_id' => $chat_id];
         $mediaPayload = [];
         $i = 0;
@@ -2482,7 +2311,6 @@ function sendOrderPhotos($token, $chat_id, $item) {
         $res = sendTelegramFile($token, 'sendMediaGroup', $post);
         botLog("sendOrderPhotos: sendMediaGroup result=" . substr((string)$res, 0, 200));
     } else {
-        // All media are URLs — send via sendMediaGroup with JSON payload
         $mediaPayload = array_map(fn($m) => ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']], $media);
         $res = sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
         botLog("sendOrderPhotos: sendMediaGroup (urls) result=" . substr((string)$res, 0, 200));
@@ -2552,19 +2380,13 @@ function sendTelegramFile($token, $method, $params = []) {
 // AUTO-LINK SYSTEM — автопривязка TG при переходе на сайт
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Генерирует одноразовый токен для автопривязки TG.
- * Сохраняет tg_id + данные пользователя в tg_auto_links.
- * Токен действителен 72 часа.
- */
 function autoLinkGenerateToken(PDO $pdo, int $tg_chat_id, array $from): string {
-    $token = bin2hex(random_bytes(16)); // 32 символа
+    $token = bin2hex(random_bytes(16));
     $tg_username   = $from['username']   ?? '';
     $tg_first_name = $from['first_name'] ?? '';
     $tg_last_name  = $from['last_name']  ?? '';
 
     try {
-        // Создаём таблицу если нет
         $pdo->exec("CREATE TABLE IF NOT EXISTS tg_auto_links (
             id         SERIAL PRIMARY KEY,
             token      VARCHAR(64) NOT NULL UNIQUE,
@@ -2577,11 +2399,9 @@ function autoLinkGenerateToken(PDO $pdo, int $tg_chat_id, array $from): string {
             expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '72 hours'
         )");
 
-        // Помечаем старые токены этого пользователя как использованные
         $pdo->prepare("UPDATE tg_auto_links SET used=TRUE WHERE tg_id=? AND used=FALSE")
             ->execute([$tg_chat_id]);
 
-        // Вставляем новый токен
         $pdo->prepare("INSERT INTO tg_auto_links (token, tg_id, tg_username, tg_first_name, tg_last_name)
                        VALUES (?, ?, ?, ?, ?)")
             ->execute([$token, $tg_chat_id, $tg_username, $tg_first_name, $tg_last_name]);
@@ -2589,25 +2409,15 @@ function autoLinkGenerateToken(PDO $pdo, int $tg_chat_id, array $from): string {
         botLog("autoLink token generated for tg_id={$tg_chat_id}");
     } catch (Throwable $e) {
         botLog("autoLink generate error: " . $e->getMessage());
-        // Раньше тут был fallback вида "tgid_<id>" — небезопасный (принимался
-        // без проверки, см. фикс в includes/session.php::processTgAutoLink).
-        // Теперь просто отдаём пустую строку — ссылка на сайт всё равно
-        // будет работать, только без автопривязки TG (человек привяжется
-        // сам через сайт как обычно).
         return '';
     }
 
     return $token;
 }
 
-/**
- * Проверяет токен и возвращает данные TG пользователя.
- * Вызывается со стороны сайта (index.php/order.php).
- */
 function autoLinkResolveToken(PDO $pdo, string $token): ?array {
     if (strlen($token) < 8) return null;
 
-    // Fallback — прямой tg_id
     if (str_starts_with($token, 'tgid_')) {
         $tg_id = (int)substr($token, 5);
         if ($tg_id > 0) return ['tg_id' => $tg_id, 'tg_username' => '', 'tg_first_name' => ''];
@@ -2635,8 +2445,6 @@ function autoLinkResolveToken(PDO $pdo, string $token): ?array {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
 
-        // НЕ помечаем как used сразу — пользователь может обновить страницу
-        // Токен живёт 72ч, потом сам истекает
         return $row;
     } catch (Throwable $e) {
         botLog("autoLink resolve error: " . $e->getMessage());
