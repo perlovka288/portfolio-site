@@ -463,6 +463,34 @@ try {
                 $userAppeals = $astmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
             }
         } catch (Throwable $e) {}
+    } elseif ($isAdmin) {
+        // Админ мог зайти в /admin/ (тем самым $_SESSION['admin_logged']=true)
+        // в браузере/сессии, где Telegram ни разу не привязывался через
+        // обычный флоу сайта (см. tg_links.session_id) — раньше в этом
+        // случае $profile оставался пустым и в шапке светилось "Гость",
+        // хотя имя из Telegram технически известно: просто под ДРУГОЙ
+        // сессией/устройством. Подставляем его настоящую привязанную
+        // запись (по tg_id администратора) только для отображения
+        // имени/аватарки — на список заказов это не влияет.
+        try {
+            $adminRowStmt = $pdo->prepare("
+                SELECT tg_id, tg_username, tg_first_name, tg_photo_url, tg_avatar_checked_at
+                FROM tg_links WHERE tg_id = ? AND linked = TRUE
+                ORDER BY id DESC LIMIT 1
+            ");
+            $adminRowStmt->execute([$adminTgId]);
+            $adminRow = $adminRowStmt->fetch(PDO::FETCH_ASSOC);
+            if ($adminRow) {
+                $profile = $adminRow;
+                $profile['tg_photo_url'] = ensureTgAvatarFresh(
+                    $pdo,
+                    $sid,
+                    (string)$adminTgId,
+                    (string)($adminRow['tg_photo_url'] ?? ''),
+                    $adminRow['tg_avatar_checked_at'] ?? null
+                );
+            }
+        } catch (Throwable $e) {}
     }
 } catch (Throwable $e) {}
 

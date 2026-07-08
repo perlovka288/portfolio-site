@@ -201,7 +201,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     window.__aiTzPrimed = false;
 
     function openPanel() {
-        bubble.classList.add('hidden');
+        if (bubble) bubble.classList.add('hidden');
         panel.classList.add('open');
         overlay.classList.add('open');
         setTimeout(function() { input.focus(); }, 350);

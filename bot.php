@@ -449,6 +449,39 @@ if (isset($update['message'])) {
 
         $geminiModel = getenv('GEMINI_MODEL') ?: 'gemini-2.5-flash';
         $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key=" . urlencode($geminiKey);
+
+        // ── Память диалога ──────────────────────────────────────────────
+        // Раньше каждый запрос уходил в Gemini СОВЕРШЕННО без истории —
+        // только текущая фраза, поэтому бот "забывал", о чём говорили абзацем
+        // выше, и на уточняющий вопрос ("а какие цвета им подходят?") отвечал
+        // заново с нуля, будто это первое сообщение в диалоге. Теперь
+        // подтягиваем последние сообщения этого чата (обнуляется само,
+        // если человек молчал дольше 30 минут — считаем это новой темой)
+        // и передаём их Gemini как предыдущие ходы диалога.
+        $aiHistoryKey = $chat_id . ':' . ($thread_id ?: '0');
+        $aiHistoryContents = [];
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS ai_chat_log (
+                id SERIAL PRIMARY KEY,
+                chat_key VARCHAR(64) NOT NULL,
+                role VARCHAR(10) NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )");
+            $histStmt = $pdo->prepare("
+                SELECT role, message FROM ai_chat_log
+                WHERE chat_key = ? AND created_at > NOW() - INTERVAL '30 minutes'
+                ORDER BY id DESC LIMIT 16
+            ");
+            $histStmt->execute([$aiHistoryKey]);
+            $histRows = array_reverse($histStmt->fetchAll(PDO::FETCH_ASSOC));
+            foreach ($histRows as $hr) {
+                $aiHistoryContents[] = ['role' => $hr['role'], 'parts' => [['text' => $hr['message']]]];
+            }
+        } catch (Throwable $e) {
+            botLog('KostlimAI history read error: ' . $e->getMessage());
+        }
+
         // Раньше maxOutputTokens стоял 500 и thinking-бюджет не отключался —
         // у gemini-2.5-flash "рассуждения" (thinking) тратят токены ИЗ ТОГО
         // ЖЕ лимита maxOutputTokens, поэтому модель часто исчерпывала лимит
@@ -458,7 +491,7 @@ if (isset($update['message'])) {
         // Отключаем thinking (не нужен для короткого чат-ответа) и поднимаем
         // потолок токенов на сам текст ответа.
         $payload = [
-            'contents'          => [['role' => 'user', 'parts' => [['text' => $userQuery]]]],
+            'contents'          => array_merge($aiHistoryContents, [['role' => 'user', 'parts' => [['text' => $userQuery]]]]),
             'systemInstruction' => ['parts' => [['text' => $aiSystemPrompt]]],
             'generationConfig'  => [
                 'temperature'      => 0.7,
@@ -481,13 +514,34 @@ if (isset($update['message'])) {
 
         $data  = json_decode((string)$response, true);
         $reply = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $replyOk = ($reply !== '');
 
-        if ($reply === '') {
+        if (!$replyOk) {
             // Логируем реальную причину (истёкшая квота, неверный ключ, и т.п.)
             // вместо того чтобы просто молча показывать общую ошибку —
             // теперь причину видно во вкладке "Логи" в админке.
             botLog('KostlimAI Gemini error: curl=' . $curlErr . ' | resp=' . substr((string)$response, 0, 500));
             $reply = 'Не смог ответить 😔 Попробуй ещё раз через минуту или напиши: @Perlo_ovka';
+        }
+
+        // Сохраняем оба хода в историю ТОЛЬКО если ответ настоящий — иначе
+        // фраза-заглушка про ошибку попадёт в контекст как "предыдущий ответ
+        // ИИ" и будет только сбивать модель на следующих сообщениях.
+        if ($replyOk) {
+            try {
+                $insHist = $pdo->prepare("INSERT INTO ai_chat_log (chat_key, role, message) VALUES (?, ?, ?)");
+                $insHist->execute([$aiHistoryKey, 'user', $userQuery]);
+                $insHist->execute([$aiHistoryKey, 'model', $reply]);
+                // Не даём таблице расти бесконечно — храним только последние ~40
+                // сообщений на чат, остального для контекста не нужно.
+                $pdo->prepare("
+                    DELETE FROM ai_chat_log WHERE chat_key = ? AND id NOT IN (
+                        SELECT id FROM ai_chat_log WHERE chat_key = ? ORDER BY id DESC LIMIT 40
+                    )
+                ")->execute([$aiHistoryKey, $aiHistoryKey]);
+            } catch (Throwable $e) {
+                botLog('KostlimAI history write error: ' . $e->getMessage());
+            }
         }
 
         $params = ['chat_id' => $chat_id, 'text' => $reply];
