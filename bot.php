@@ -859,8 +859,9 @@ if (isset($update['message'])) {
 
     // Портфолио — отправляем ссылку с автопривязкой TG
     if ($text_key === 'смотреть portfolio' || $text_key === 'portfolio' || $text_key === 'портфолио') {
-        $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
-        $auto_url   = rtrim($site_url, '/') . '/?tg_token=' . $auto_token;
+       $auto_token = '';
+try { $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []); } catch (\Throwable $e) {}
+$auto_url   = rtrim($site_url, '/') . ($auto_token ? '/?tg_token=' . $auto_token : '/');
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $chat_id,
             'text'       => "🎨 *Kostlim Design — портфолио и заказы*\n\nНажми кнопку — твой Telegram привяжется автоматически:",
@@ -876,8 +877,8 @@ if (isset($update['message'])) {
 
     // Прайс
     if ($text_key === 'прайс-лист' || $text_key === 'прайс лист' || $text_key === 'прайс') {
-        $p_stmt = $pdo->query("SELECT title, description, features, price_uan, price_rub, image FROM prices ORDER BY id ASC");
-        $prices = $p_stmt->fetchAll(PDO::FETCH_ASSOC);
+       try { $p_stmt = $pdo->query("SELECT title, description, features, price_uan, price_rub, image FROM prices ORDER BY id ASC"); } catch (\Throwable $e) { $p_stmt = false; }
+        $prices = $p_stmt ? $p_stmt->fetchAll(PDO::FETCH_ASSOC) : [];
         $price_msg = "📋 *Актуальный прайс-лист:*\n\n";
         foreach ($prices as $p) {
             $title    = mdEscape($p['title'] ?? 'Услуга');
@@ -935,8 +936,9 @@ if (isset($update['message'])) {
 
     // Сделать заказ — ссылка с автопривязкой TG
     if ($text_key === 'сделать заказ' || $text_key === 'заказ') {
-        $auto_token  = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
-        $order_url   = rtrim($site_url, '/') . '/order.php?tg_token=' . $auto_token;
+       $auto_token = '';
+try { $auto_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []); } catch (\Throwable $e) {}
+$order_url   = rtrim($site_url, '/') . '/order.php' . ($auto_token ? '?tg_token=' . $auto_token : '');
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $chat_id,
             'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную:",
