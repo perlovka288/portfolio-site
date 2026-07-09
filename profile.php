@@ -4,7 +4,6 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
-ensureTgLinksSchema($pdo);
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
@@ -367,7 +366,7 @@ if (isset($_POST['send_appeal'])) {
 
 try {
     $stmt = $pdo->prepare("
-        SELECT tg_id, tg_username, tg_first_name, tg_photo_url, tg_avatar_checked_at, linked, created_at
+        SELECT tg_id, tg_username, tg_first_name, tg_photo_url, linked, created_at
         FROM tg_links
         WHERE session_id = ?
         ORDER BY id DESC LIMIT 1
@@ -384,16 +383,14 @@ try {
         $tg_id       = $row['tg_id'] ?? '';
         $tg_username = $row['tg_username'] ?? '';
 
-        // ── Lazy avatar refresh: re-fetch if empty, expired TG URL, or
-        // просто давно не перепроверялась (см. ensureTgAvatarFresh) ──
+        // ── Lazy avatar refresh: re-fetch if empty or expired TG URL ──
         // Вынесено в includes/session.php::ensureTgAvatarFresh(), чтобы
         // главная страница (index.php) умела то же самое, а не только профиль.
         $profile['tg_photo_url'] = ensureTgAvatarFresh(
             $pdo,
             $sid,
             (string)$tg_id,
-            (string)($row['tg_photo_url'] ?? ''),
-            $row['tg_avatar_checked_at'] ?? null
+            (string)($row['tg_photo_url'] ?? '')
         );
 
         $params  = [];
@@ -464,34 +461,6 @@ try {
                 $userAppeals = $astmt2->fetchAll(PDO::FETCH_ASSOC) ?: [];
             }
         } catch (Throwable $e) {}
-    } elseif ($isAdmin) {
-        // Админ мог зайти в /admin/ (тем самым $_SESSION['admin_logged']=true)
-        // в браузере/сессии, где Telegram ни разу не привязывался через
-        // обычный флоу сайта (см. tg_links.session_id) — раньше в этом
-        // случае $profile оставался пустым и в шапке светилось "Гость",
-        // хотя имя из Telegram технически известно: просто под ДРУГОЙ
-        // сессией/устройством. Подставляем его настоящую привязанную
-        // запись (по tg_id администратора) только для отображения
-        // имени/аватарки — на список заказов это не влияет.
-        try {
-            $adminRowStmt = $pdo->prepare("
-                SELECT tg_id, tg_username, tg_first_name, tg_photo_url, tg_avatar_checked_at
-                FROM tg_links WHERE tg_id = ? AND linked = TRUE
-                ORDER BY id DESC LIMIT 1
-            ");
-            $adminRowStmt->execute([$adminTgId]);
-            $adminRow = $adminRowStmt->fetch(PDO::FETCH_ASSOC);
-            if ($adminRow) {
-                $profile = $adminRow;
-                $profile['tg_photo_url'] = ensureTgAvatarFresh(
-                    $pdo,
-                    $sid,
-                    (string)$adminTgId,
-                    (string)($adminRow['tg_photo_url'] ?? ''),
-                    $adminRow['tg_avatar_checked_at'] ?? null
-                );
-            }
-        } catch (Throwable $e) {}
     }
 } catch (Throwable $e) {}
 
@@ -505,7 +474,12 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 
 function profileDeadlineBadge(?string $deadline, string $status): string
 {
-    if (in_array($status, ['ready', 'declined'], true)) return '';
+    // Раньше бейдж дедлайна принудительно скрывался, как только заказ
+    // переходил в статус "Готов" — то есть клиент не видел, сдали ли
+    // заказ вовремя или с опозданием. Теперь он не пропадает после "Готов",
+    // просрочку по-прежнему видно (как и в списке заказов в админке).
+    // "Отклонён" — единственный статус, где дедлайн уже не имеет смысла.
+    if ($status === 'declined') return '';
     if (empty($deadline)) return '';
     try {
         $dl  = new DateTime($deadline);
@@ -516,6 +490,15 @@ function profileDeadlineBadge(?string $deadline, string $status): string
     $isUrgent = $status === 'urgent';
     $diff     = $dl->getTimestamp() - time();
     $dateStr  = $dl->format('d.m.Y в H:i');
+
+    // Заказ уже сдан — показываем итог (успели/не успели), но без вечной
+    // тревожной пульсации: она была нужна, пока заказ ещё в работе.
+    if ($status === 'ready') {
+        if ($overdue) {
+            return '<span class="order-deadline-badge deadline-overdue" style="animation:none;">🔴 Сдан с опозданием (дедлайн был ' . $dateStr . ')</span>';
+        }
+        return '<span class="order-deadline-badge deadline-normal">✅ Сдан в срок (дедлайн был ' . $dateStr . ')</span>';
+    }
 
     if ($overdue) {
         $icon  = '🔴';

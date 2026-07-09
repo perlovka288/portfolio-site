@@ -21,7 +21,7 @@ try {
 
 $message = '';
 $uploadDir = '../uploads/';
-define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN'));
+define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
 define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
 if (!defined('PRIVATE_PACK_CHAT_ID')) {
     define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
@@ -205,7 +205,7 @@ function calcDeadline(string $created_at, bool $isUrgent = false): ?\DateTime
  * Если дедлайна в базе ещё нет (заказ ещё не оплачен) — считать его
  * явно через calcDeadline() ДО вызова этой функции.
  */
-function deadlineBadge(string $deadlineDatetime, bool $isUrgent = false): string
+function deadlineBadge(string $deadlineDatetime, bool $isUrgent = false, string $status = ''): string
 {
     try {
         $dl = new \DateTime($deadlineDatetime);
@@ -219,10 +219,45 @@ function deadlineBadge(string $deadlineDatetime, bool $isUrgent = false): string
     $color = $overdue ? '#ef4444' : ($isUrgent ? '#f97316' : '#60a5fa');
     $bg    = $overdue ? 'rgba(239,68,68,.18)' : ($isUrgent ? 'rgba(249,115,22,.18)' : 'rgba(96,165,250,.12)');
     $icon  = $overdue ? '🔴' : ($isUrgent ? '⚡' : '📅');
-    $label = $overdue
-        ? "ПРОСРОЧЕН ({$dateStr})"
-        : ($isUrgent ? "Срочно: {$dateStr}" : "Сдать: {$dateStr}");
+    if ($status === 'ready') {
+        // Заказ уже сдан — не "ПРОСРОЧЕН" (звучит как незакрытая проблема),
+        // а итог: успели в дедлайн или нет. Бейдж всё равно продолжает
+        // показываться после статуса "Готов", просто с адекватной подписью.
+        $icon  = $overdue ? '🔴' : '✅';
+        $label = $overdue ? "Сдан с опозданием (дедлайн был {$dateStr})" : "Сдан в срок (дедлайн был {$dateStr})";
+    } else {
+        $label = $overdue
+            ? "ПРОСРОЧЕН ({$dateStr})"
+            : ($isUrgent ? "Срочно: {$dateStr}" : "Сдать: {$dateStr}");
+    }
     return "<span style=\"display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;background:{$bg};color:{$color};border:1px solid {$color}33;\">{$icon} {$label}</span>";
+}
+
+// ── Ручное начисление денег в статистику (кнопка "+" рядом со статистикой) ──
+if (isset($_POST['add_manual_earning'])) {
+    $meMethod   = in_array($_POST['me_method'] ?? '', ['donation','crypto','monobank','other'], true) ? $_POST['me_method'] : 'other';
+    $meCurrency = in_array($_POST['me_currency'] ?? '', ['RUB','USD','UAH'], true) ? $_POST['me_currency'] : 'RUB';
+    $meAmount   = (float)str_replace(',', '.', $_POST['me_amount'] ?? '0');
+    $meNote     = trim((string)($_POST['me_note'] ?? ''));
+    if ($meAmount > 0) {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS manual_earnings (
+                id SERIAL PRIMARY KEY,
+                method VARCHAR(20) NOT NULL DEFAULT 'other',
+                amount NUMERIC(12,2) NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'RUB',
+                note VARCHAR(255) NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )");
+            $pdo->prepare("INSERT INTO manual_earnings (method, amount, currency, note) VALUES (?,?,?,?)")
+                ->execute([$meMethod, $meAmount, $meCurrency, $meNote]);
+        } catch (Throwable $e) {}
+    }
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#earnings'); exit;
+}
+if (isset($_GET['delete_manual_earning_id'])) {
+    try { $pdo->prepare("DELETE FROM manual_earnings WHERE id = ?")->execute([(int)$_GET['delete_manual_earning_id']]); } catch (Throwable $e) {}
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#earnings'); exit;
 }
 
 // ── AJAX endpoint: добавить портфолио ────────────────────────────
@@ -1316,6 +1351,35 @@ foreach ($payStats as $row) {
     $payByMethod[$method] += $rubAmt;
     $totalRubFromPaid += $rubAmt;
 }
+
+// ── Ручные начисления (кнопка "+" рядом со статистикой) ──────────────
+// Не любой доход идёт через оформленный заказ на сайте — донат мимо бота,
+// перевод напрямую в монобанк и т.п. Раньше такие суммы просто нигде не
+// учитывались. Таблица создаётся сама при первом обращении.
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS manual_earnings (
+        id SERIAL PRIMARY KEY,
+        method VARCHAR(20) NOT NULL DEFAULT 'other',
+        amount NUMERIC(12,2) NOT NULL,
+        currency VARCHAR(3) NOT NULL DEFAULT 'RUB',
+        note VARCHAR(255) NOT NULL DEFAULT '',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )");
+    $manualRows = $pdo->query("SELECT method, currency, COALESCE(SUM(amount),0) AS total FROM manual_earnings GROUP BY method, currency")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($manualRows as $row) {
+        $amt = (float)$row['total'];
+        $rubAmt = match($row['currency']) {
+            'USD' => $amt * $usdRate,
+            'UAH' => $amt * $uahRate,
+            default => $amt,
+        };
+        $method = $row['method'] ?: 'other';
+        if (!isset($payByMethod[$method])) $payByMethod[$method] = 0;
+        $payByMethod[$method] += $rubAmt;
+        $totalRubFromPaid += $rubAmt;
+    }
+} catch (Throwable $e) {}
+
 $totalUsdFromPaid = $usdRate > 0 ? $totalRubFromPaid / $usdRate : 0;
 $totalUahFromPaid = $uahRate > 0 ? $totalRubFromPaid / $uahRate : 0;
 
@@ -1692,6 +1756,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <?php endif; ?>
 
             <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
+            <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="color:#8a8a96;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
+                <button type="button" onclick="document.getElementById('manualEarningModal').classList.add('open')" title="Добавить сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+            </div>
             <section class="stats-grid" style="margin-bottom:0;">
                 <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
                     <span>💳 Донейшен</span>
@@ -1720,6 +1788,61 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </div>
                 </div>
             </section>
+
+            <?php
+                // Последние ручные начисления — чтобы было видно, что и когда
+                // добавляли руками, и можно было удалить, если ошиблись.
+                $recentManual = [];
+                try { $recentManual = $pdo->query("SELECT * FROM manual_earnings ORDER BY id DESC LIMIT 8")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
+            ?>
+            <?php if ($recentManual): ?>
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+                <?php foreach ($recentManual as $me): ?>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9a9aa8;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:7px 10px;">
+                        <span style="color:#fdba74;font-weight:800;">+<?= number_format((float)$me['amount'],2,'.',',') ?> <?= htmlspecialchars($me['currency']) ?></span>
+                        <span><?= htmlspecialchars(['donation'=>'Донейшен','crypto'=>'Крипта','monobank'=>'Монобанк','other'=>'Другое'][$me['method']] ?? $me['method']) ?></span>
+                        <?php if (!empty($me['note'])): ?><span style="color:#666;">— <?= htmlspecialchars($me['note']) ?></span><?php endif; ?>
+                        <span style="margin-left:auto;color:#555;"><?= date('d.m H:i', strtotime($me['created_at'])) ?></span>
+                        <a href="?delete_manual_earning_id=<?= (int)$me['id'] ?>#earnings" onclick="return confirm('Удалить эту запись из статистики?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+
+            <!-- Модалка ручного добавления суммы -->
+            <div id="manualEarningModal" class="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9999;">
+                <form method="POST" style="background:#171720;border:1px solid #2a2a38;border-radius:14px;padding:22px;width:320px;display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <strong style="color:#fff;font-size:15px;">➕ Добавить сумму</strong>
+                        <button type="button" onclick="document.getElementById('manualEarningModal').classList.remove('open')" style="background:none;border:0;color:#888;font-size:18px;cursor:pointer;">×</button>
+                    </div>
+                    <label style="font-size:12px;color:#9a9aa8;">Способ
+                        <select name="me_method" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                            <option value="donation">💳 Донейшен</option>
+                            <option value="crypto">₿ Крипта</option>
+                            <option value="monobank">🏦 Монобанк</option>
+                            <option value="other">💰 Другое</option>
+                        </select>
+                    </label>
+                    <div style="display:flex;gap:8px;">
+                        <label style="font-size:12px;color:#9a9aa8;flex:1;">Сумма
+                            <input type="text" name="me_amount" required placeholder="1000" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;box-sizing:border-box;">
+                        </label>
+                        <label style="font-size:12px;color:#9a9aa8;width:90px;">Валюта
+                            <select name="me_currency" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                                <option value="RUB">₽ RUB</option>
+                                <option value="USD">$ USD</option>
+                                <option value="UAH">₴ UAH</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label style="font-size:12px;color:#9a9aa8;">Заметка (необязательно)
+                        <input type="text" name="me_note" placeholder="Например: перевод мимо бота" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;box-sizing:border-box;">
+                    </label>
+                    <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;">Добавить</button>
+                </form>
+            </div>
+            <style>#manualEarningModal.open{display:flex;}</style>
 
             <!-- ════════════════════════════════════════════════════════════
                  ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ
@@ -1919,10 +2042,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     $isUrgent = $order['status'] === 'urgent';
                                     $deadlineHtml = '';
                                     if (!empty($order['deadline'])) {
-                                        $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent);
+                                        $deadlineHtml = deadlineBadge($order['deadline'], $isUrgent, $order['status']);
                                     } elseif (in_array($order['status'], ['in_progress','urgent'], true)) {
                                         $fallbackDl = calcDeadline($order['created_at'], $isUrgent);
-                                        if ($fallbackDl) $deadlineHtml = deadlineBadge($fallbackDl->format('Y-m-d H:i:s'), $isUrgent);
+                                        if ($fallbackDl) $deadlineHtml = deadlineBadge($fallbackDl->format('Y-m-d H:i:s'), $isUrgent, $order['status']);
                                     }
                                     $viewUrl = $_SERVER['PHP_SELF'] . '?view_order=' . (int)$order['id'];
                                 ?>
@@ -2218,10 +2341,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     $isUrgentView = $viewOrder['status'] === 'urgent';
                                     $dlBadge = '';
                                     if (!empty($viewOrder['deadline'])) {
-                                        $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView);
+                                        $dlBadge = deadlineBadge($viewOrder['deadline'], $isUrgentView, $viewOrder['status']);
                                     } elseif (in_array($viewOrder['status'], ['in_progress','urgent'], true)) {
                                         $fallbackDlView = calcDeadline($viewOrder['created_at'], $isUrgentView);
-                                        if ($fallbackDlView) $dlBadge = deadlineBadge($fallbackDlView->format('Y-m-d H:i:s'), $isUrgentView);
+                                        if ($fallbackDlView) $dlBadge = deadlineBadge($fallbackDlView->format('Y-m-d H:i:s'), $isUrgentView, $viewOrder['status']);
                                     }
                                     $cleanTg = trim($viewOrder['telegram'] ?? '');
                                     $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
