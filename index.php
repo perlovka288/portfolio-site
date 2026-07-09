@@ -14,7 +14,6 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
-ensureTgLinksSchema($pdo);
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
@@ -52,14 +51,11 @@ try {
         tg_username VARCHAR(128) NOT NULL DEFAULT '',
         tg_first_name VARCHAR(255) NOT NULL DEFAULT '',
         tg_photo_url TEXT DEFAULT NULL,
-        tg_id VARCHAR(64) DEFAULT NULL,
         rating SMALLINT NOT NULL DEFAULT 5,
         text TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         approved BOOLEAN NOT NULL DEFAULT TRUE
     )");
-    // На случай, если таблица уже существовала без этой колонки (миграция).
-    try { $pdo->exec("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS tg_id VARCHAR(64) DEFAULT NULL"); } catch (Throwable $e) {}
 } catch (Throwable $e) {}
 
 // ── Инициализация профиля и прав (перенесено вверх для работы удаления) ──
@@ -123,7 +119,7 @@ try {
 } catch (Throwable $e) {}
 
 try {
-    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url, tg_avatar_checked_at FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT site_code, linked, tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$sid]);
     $linkRow = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($linkRow && $linkRow['linked'] && $linkRow['linked'] !== 'f') {
@@ -133,15 +129,11 @@ try {
         // Аватарка могла не подтянуться при первой привязке (короткий таймаут
         // к Telegram API) — досасываем и кэшируем в Cloudinary прямо тут,
         // чтобы она была видна сразу на главной, а не только в профиле.
-        // Плюс: перепроверяется раз в несколько часов на КАЖДОМ заходе на
-        // сайт, чтобы подхватывать смену фото в Telegram, а не залипать
-        // на первой закэшированной картинке навсегда.
         $tgProfile['tg_photo_url'] = ensureTgAvatarFresh(
             $pdo,
             $sid,
             (string)($linkRow['tg_id'] ?? ''),
-            (string)($linkRow['tg_photo_url'] ?? ''),
-            $linkRow['tg_avatar_checked_at'] ?? null
+            (string)($linkRow['tg_photo_url'] ?? '')
         );
     } elseif ($linkRow) {
         $linkCode = $linkRow['site_code'];
@@ -259,22 +251,7 @@ try {
 // Загружаем отзывы
 $reviews = [];
 try {
-    // Раньше tg_photo_url в отзыве — это "снимок" аватарки на момент публикации
-    // отзыва, застывший навсегда. Теперь дополнительно подтягиваем самую
-    // свежую версию аватарки этого же человека из tg_links (она обновляется
-    // при каждом его визите на сайт, см. ensureTgAvatarFresh) — по tg_id
-    // (новые отзывы) с запасным вариантом по tg_username (старые отзывы,
-    // сохранённые до того как tg_id стал сохраняться).
-    $reviews = $pdo->query("
-        SELECT r.*, COALESCE(
-            (SELECT tl.tg_photo_url FROM tg_links tl WHERE tl.tg_id = r.tg_id AND tl.tg_photo_url IS NOT NULL AND tl.tg_photo_url <> '' ORDER BY tl.id DESC LIMIT 1),
-            (SELECT tl2.tg_photo_url FROM tg_links tl2 WHERE tl2.tg_username <> '' AND tl2.tg_username = r.tg_username AND tl2.tg_photo_url IS NOT NULL AND tl2.tg_photo_url <> '' ORDER BY tl2.id DESC LIMIT 1),
-            r.tg_photo_url
-        ) AS tg_photo_url
-        FROM reviews r
-        WHERE r.approved = TRUE
-        ORDER BY r.id DESC LIMIT 50
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    $reviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
 } catch(Throwable $e) {}
 $admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
@@ -517,6 +494,27 @@ body::after {
 /* ══ Портфолио ══ */
 .portfolio-stage { margin-top: 34px; padding-bottom: 70px; position:relative; z-index:1; }
 .portfolio-grid { display:grid; grid-template-columns:repeat(3,minmax(260px,1fr)); gap:28px; align-items:start; }
+
+/* Появление карточек портфолио при скролле — "выходят из темноты", а не
+   просто мгновенно появляются. Затемнение (brightness) + лёгкий подъём
+   снизу + размытие, которое снимается по мере проявления. */
+.scroll-reveal {
+    opacity: 0;
+    transform: translateY(46px);
+    filter: brightness(0) blur(10px);
+    transition: opacity 1.1s cubic-bezier(.2,.7,.2,1),
+                transform 1.1s cubic-bezier(.2,.7,.2,1),
+                filter 1.3s cubic-bezier(.2,.7,.2,1);
+    will-change: opacity, transform, filter;
+}
+.scroll-reveal.in-view {
+    opacity: 1;
+    transform: translateY(0);
+    filter: brightness(1) blur(0);
+}
+@media (prefers-reduced-motion: reduce) {
+    .scroll-reveal, .scroll-reveal.in-view { opacity:1; transform:none; filter:none; transition:none; }
+}
 .portfolio-card { background:transparent; display:flex; flex-direction:column; gap:12px; }
 .portfolio-media {
     position:relative; width:100%; aspect-ratio:16/9; overflow:hidden;
@@ -883,7 +881,7 @@ body::after {
             $ratioStyle = (!$isDesign && $width > 0 && $height > 0) ? "--card-ratio:{$width}/{$height};" : '';
             $sizeText   = ($width > 0 && $height > 0) ? "{$width}x{$height}" : '';
         ?>
-        <article class="portfolio-card filter-item <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
+        <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
             <div class="portfolio-media">
                 <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
                      class="<?= $isDesign ? 'design-banner' : '' ?>"
@@ -1173,18 +1171,8 @@ body::after {
     var closeBtn = document.getElementById('tgFloatClose');
     if (!banner) return;
 
-    // Раньше баннер прятался до конца сессии браузера (sessionStorage) —
-    // если человек случайно/по привычке его закрывал, он больше вообще
-    // не видел предложение привязать TG в этом визите, а часто и в
-    // следующих (пока не чистил куки). Теперь используем localStorage
-    // с меткой времени: баннер молчит только 24 часа после закрытия,
-    // а дальше на каждом новом заходе снова мягко напоминает — пока
-    // человек не привяжет Telegram (тогда $isLinked=true и блок вообще
-    // не рендерится, см. PHP-условие выше).
-    var HIDE_HOURS = 24;
-    var dismissedAt = parseInt(localStorage.getItem('tgBannerDismissedAt') || '0', 10);
-    var hoursSince = (Date.now() - dismissedAt) / 3600000;
-    if (dismissedAt && hoursSince < HIDE_HOURS) return;
+    // Не показываем если пользователь уже закрывал (до конца сессии)
+    if (sessionStorage.getItem('tgBannerClosed')) return;
 
     // Показываем через 4 секунды
     var showTimer = setTimeout(function() {
@@ -1193,7 +1181,7 @@ body::after {
 
     closeBtn.addEventListener('click', function() {
         banner.classList.remove('show');
-        localStorage.setItem('tgBannerDismissedAt', String(Date.now()));
+        sessionStorage.setItem('tgBannerClosed', '1');
         clearTimeout(showTimer);
     });
 })();
@@ -1320,6 +1308,29 @@ function filterPortfolio(category, event) {
         item.style.display = (category === 'all' || item.classList.contains(category)) ? 'flex' : 'none';
     });
 }
+
+// ── Появление карточек портфолио "из темноты" при скролле ──
+(function() {
+    var revealItems = document.querySelectorAll('.scroll-reveal');
+    if (!revealItems.length) return;
+    if (!('IntersectionObserver' in window)) {
+        // Старые браузеры без поддержки — просто показываем всё сразу.
+        revealItems.forEach(function(el) { el.classList.add('in-view'); });
+        return;
+    }
+    var revealObserver = new IntersectionObserver(function(entries, obs) {
+        entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+                // Небольшая последовательная задержка по позиции в сетке —
+                // карточки "проступают" не все одновременно, а волной.
+                var delay = (Array.prototype.indexOf.call(revealItems, entry.target) % 3) * 90;
+                setTimeout(function() { entry.target.classList.add('in-view'); }, delay);
+                obs.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+    revealItems.forEach(function(el) { revealObserver.observe(el); });
+})();
 
 // ── Лайки ──
 var _likeInFlight = {}; // защита от двойного клика

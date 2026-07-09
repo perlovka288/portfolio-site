@@ -10,6 +10,7 @@ require_once __DIR__ . '/psd_manager.php';
 require_once __DIR__ . '/bot_commands.php';
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
+ensurePromoSchema($pdo);
 
 try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
@@ -258,6 +259,29 @@ if (isset($_POST['add_manual_earning'])) {
 if (isset($_GET['delete_manual_earning_id'])) {
     try { $pdo->prepare("DELETE FROM manual_earnings WHERE id = ?")->execute([(int)$_GET['delete_manual_earning_id']]); } catch (Throwable $e) {}
     header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#earnings'); exit;
+}
+
+// ── Промокоды: добавление / переключение активности / удаление ──────
+if (isset($_POST['add_promo'])) {
+    $pcCode  = trim((string)($_POST['pc_code'] ?? ''));
+    $pcPct   = trim((string)($_POST['pc_discount'] ?? ''));
+    $pcBonus = trim((string)($_POST['pc_bonus'] ?? ''));
+    if ($pcCode !== '') {
+        try {
+            $pdo->prepare("INSERT INTO promo_codes (code, discount_percent, bonus_text, active) VALUES (?,?,?,TRUE)
+                ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, bonus_text = EXCLUDED.bonus_text, active = TRUE")
+                ->execute([$pcCode, $pcPct !== '' ? (int)$pcPct : null, $pcBonus]);
+        } catch (Throwable $e) {}
+    }
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#promo'); exit;
+}
+if (isset($_GET['toggle_promo_id'])) {
+    try { $pdo->prepare("UPDATE promo_codes SET active = NOT active WHERE id = ?")->execute([(int)$_GET['toggle_promo_id']]); } catch (Throwable $e) {}
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#promo'); exit;
+}
+if (isset($_GET['delete_promo_id'])) {
+    try { $pdo->prepare("DELETE FROM promo_codes WHERE id = ?")->execute([(int)$_GET['delete_promo_id']]); } catch (Throwable $e) {}
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#promo'); exit;
 }
 
 // ── AJAX endpoint: добавить портфолио ────────────────────────────
@@ -1843,6 +1867,48 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 </form>
             </div>
             <style>#manualEarningModal.open{display:flex;}</style>
+
+            <!-- ════════════════════════════════════════════════════════════
+                 ПРОМОКОДЫ
+            ════════════════════════════════════════════════════════════ -->
+            <div id="promo" style="margin-top:26px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <h2 style="margin:0;font-size:16px;">🎁 Промокоды</h2>
+                </div>
+                <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#14141c;border:1px solid #22222e;border-radius:10px;padding:12px;margin-bottom:12px;">
+                    <label style="font-size:11px;color:#9a9aa8;">Код
+                        <input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;text-transform:uppercase;width:160px;">
+                    </label>
+                    <label style="font-size:11px;color:#9a9aa8;">Скидка %  (необязательно)
+                        <input type="number" name="pc_discount" min="0" max="100" placeholder="10" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:110px;">
+                    </label>
+                    <label style="font-size:11px;color:#9a9aa8;flex:1;min-width:200px;">Бонус (текст, покажется клиенту)
+                        <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка" style="display:block;margin-top:4px;width:100%;box-sizing:border-box;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    </label>
+                    <button type="submit" name="add_promo" style="border:0;border-radius:8px;padding:9px 16px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;height:37px;">Сохранить</button>
+                </form>
+                <?php
+                    $promoList = [];
+                    try { $promoList = $pdo->query("SELECT * FROM promo_codes ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
+                ?>
+                <?php if ($promoList): ?>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <?php foreach ($promoList as $pc): ?>
+                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:9px 12px;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
+                            <strong style="color:#fdba74;letter-spacing:.5px;"><?= htmlspecialchars($pc['code']) ?></strong>
+                            <?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?><span style="color:#4ade80;">−<?= (int)$pc['discount_percent'] ?>%</span><?php endif; ?>
+                            <span style="color:#9a9aa8;"><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></span>
+                            <span style="color:#555;">использован: <?= (int)$pc['uses_count'] ?> раз</span>
+                            <span style="margin-left:auto;color:<?= $pc['active'] ? '#4ade80' : '#666' ?>;font-weight:800;"><?= $pc['active'] ? 'активен' : 'выключен' ?></span>
+                            <a href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo" style="color:#60a5fa;text-decoration:none;font-weight:800;"><?= $pc['active'] ? 'Выключить' : 'Включить' ?></a>
+                            <a href="?delete_promo_id=<?= (int)$pc['id'] ?>#promo" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                    <p style="color:#666;font-size:13px;">Промокодов пока нет.</p>
+                <?php endif; ?>
+            </div>
 
             <!-- ════════════════════════════════════════════════════════════
                  ОБЗОР + ОСТАЛЬНЫЕ ПАНЕЛИ

@@ -4,9 +4,34 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
-ensureTgLinksSchema($pdo);
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
+ensurePromoSchema($pdo);
+
+// ── AJAX: проверка промокода при вводе (галочка ✓ прямо в форме заказа) ──
+if (isset($_GET['check_promo'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $codeInput = trim((string)$_GET['check_promo']);
+    if ($codeInput === '') { echo json_encode(['valid' => false]); exit; }
+    try {
+        $stmt = $pdo->prepare("SELECT code, discount_percent, bonus_text FROM promo_codes WHERE UPPER(code) = UPPER(?) AND active = TRUE LIMIT 1");
+        $stmt->execute([$codeInput]);
+        $promo = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($promo) {
+            echo json_encode([
+                'valid'            => true,
+                'code'             => $promo['code'],
+                'discount_percent' => $promo['discount_percent'],
+                'bonus_text'       => $promo['bonus_text'],
+            ]);
+        } else {
+            echo json_encode(['valid' => false]);
+        }
+    } catch (Throwable $e) {
+        echo json_encode(['valid' => false]);
+    }
+    exit;
+}
 
 // 🌴 Режим "приём заказов выключен" (админ поставил на паузу через бота)
 if (!isOrdersAvailable($pdo)) {
@@ -365,6 +390,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             );
         }
 
+        // ── Промокод ──────────────────────────────────────────────────
+        // Проверяем ЕЩЁ РАЗ на сервере (JS-галочка в форме — только подсказка
+        // для клиента, доверять ей при сохранении заказа нельзя).
+        $promoCodeInput = trim((string)($_POST['promo_code'] ?? ''));
+        if ($promoCodeInput !== '') {
+            try {
+                $promoStmt = $pdo->prepare("SELECT code, discount_percent, bonus_text FROM promo_codes WHERE UPPER(code) = UPPER(?) AND active = TRUE LIMIT 1");
+                $promoStmt->execute([$promoCodeInput]);
+                $promoRow = $promoStmt->fetch(PDO::FETCH_ASSOC);
+                if ($promoRow) {
+                    $pdo->prepare("UPDATE orders SET promo_code = ? WHERE id = ?")->execute([$promoRow['code'], $order_id]);
+                    $pdo->prepare("UPDATE promo_codes SET uses_count = uses_count + 1 WHERE code = ?")->execute([$promoRow['code']]);
+
+                    $bonusStr = $promoRow['bonus_text'] !== ''
+                        ? $promoRow['bonus_text']
+                        : ((int)$promoRow['discount_percent'] > 0 ? 'скидка ' . (int)$promoRow['discount_percent'] . '%' : 'бонус');
+
+                    if ($client_chat_id) {
+                        tgEscapeSend($bot_token, $client_chat_id,
+                            "🎁 Ваш промокод \"" . tgEsc($promoRow['code']) . "\" сработал и дал вам бонус в виде: " . tgEsc($bonusStr) . "\n\nАдминистратор учтёт это при оформлении заказа \#{$order_id}\.",
+                            __DIR__ . '/assets/notify/promo.jpg'
+                        );
+                    }
+                }
+            } catch (Throwable $e) {}
+        }
+
         // ✅ ИСПРАВЛЕНО: Объединяем ТЕКСТ + МЕДИА в ОДНО сообщение в Telegram
         if (!empty($my_chat_id)) {
             $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
@@ -612,6 +664,14 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             </div>
             <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
             <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько</div>
+        </div>
+        <div class="mb16">
+            <label class="order-label">Промокод (необязательно)</label>
+            <div class="promo-input-row">
+                <input type="text" name="promo_code" id="s<?= $s ?>_promo" class="order-textarea promo-input" placeholder="Есть промокод? Впиши его сюда" autocomplete="off">
+                <span class="promo-check" id="s<?= $s ?>_promo_check"></span>
+            </div>
+            <div class="promo-hint" id="s<?= $s ?>_promo_hint"></div>
         </div>
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="normal"></div>
@@ -1171,6 +1231,13 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 
 .order-label-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
 .order-label-row .order-label { margin-bottom:0; }
+
+.promo-input-row { position:relative; display:flex; align-items:center; }
+.promo-input { padding-right:40px !important; height:auto; }
+.promo-check { position:absolute; right:12px; font-size:18px; pointer-events:none; }
+.promo-hint { font-size:12px; margin-top:6px; min-height:1px; }
+.promo-hint.valid { color:#4ade80; }
+.promo-hint.invalid { color:#fb7185; }
 .ai-tz-help-btn {
     background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.35); color: #fdba74;
     font-size: 11px; font-weight: 800; border-radius: 8px; padding: 6px 10px; cursor: pointer;
@@ -1307,6 +1374,14 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             </div>
             <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
             <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
+        </div>
+        <div class="mb16">
+            <label class="order-label">Промокод (необязательно)</label>
+            <div class="promo-input-row">
+                <input type="text" name="promo_code" id="s1_promo" class="order-textarea promo-input" placeholder="Есть промокод? Впиши его сюда" autocomplete="off">
+                <span class="promo-check" id="s1_promo_check"></span>
+            </div>
+            <div class="promo-hint" id="s1_promo_hint"></div>
         </div>
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>" data-theme="dark" data-size="normal"></div>
@@ -1548,6 +1623,41 @@ function showToastMsg(msg, color) {
     document.body.appendChild(t);
     setTimeout(function() { t.style.opacity='0'; setTimeout(function(){ t.remove(); }, 400); }, 3000);
 }
+
+// ── Проверка промокода прямо в поле (галочка ✓, если код существует) ──
+(function() {
+    var promoTimers = {};
+    document.querySelectorAll('.promo-input').forEach(function(input) {
+        var id        = input.id; // sN_promo
+        var checkIcon = document.getElementById(id + '_check');
+        var hint      = document.getElementById(id.replace('_promo', '_promo_hint'));
+        input.addEventListener('input', function() {
+            var val = input.value.trim();
+            clearTimeout(promoTimers[id]);
+            if (checkIcon) checkIcon.textContent = '';
+            if (hint) { hint.textContent = ''; hint.className = 'promo-hint'; }
+            if (val === '') return;
+            promoTimers[id] = setTimeout(function() {
+                fetch('order.php?check_promo=' + encodeURIComponent(val))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.valid) {
+                            if (checkIcon) checkIcon.textContent = '✅';
+                            if (hint) {
+                                var bonusStr = data.bonus_text || (data.discount_percent ? ('скидка ' + data.discount_percent + '%') : 'бонус');
+                                hint.textContent = 'Промокод действует: ' + bonusStr;
+                                hint.className = 'promo-hint valid';
+                            }
+                        } else {
+                            if (checkIcon) checkIcon.textContent = '❌';
+                            if (hint) { hint.textContent = 'Такого промокода нет или он уже не активен'; hint.className = 'promo-hint invalid'; }
+                        }
+                    })
+                    .catch(function() {});
+            }, 450);
+        });
+    });
+})();
 
 async function archiveSlot(slot) {
     var form = document.getElementById('form-slot-' + slot);

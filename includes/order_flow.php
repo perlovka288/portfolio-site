@@ -1,5 +1,27 @@
 <?php
 
+/**
+ * Промокоды: таблица + колонка на заказе, куда сохраняется применённый код.
+ */
+function ensurePromoSchema(PDO $pdo): void
+{
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS promo_codes (
+            id SERIAL PRIMARY KEY,
+            code VARCHAR(50) NOT NULL,
+            discount_percent SMALLINT DEFAULT NULL,
+            bonus_text VARCHAR(255) NOT NULL DEFAULT '',
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            uses_count INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            CONSTRAINT uniq_promo_code UNIQUE (code)
+        )");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR(50) DEFAULT NULL");
+    } catch (Throwable $e) {
+        error_log('ensurePromoSchema error: ' . $e->getMessage());
+    }
+}
+
 function ensureOrderFlowSchema(PDO $pdo): void
 {
     try {
