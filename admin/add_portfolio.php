@@ -148,118 +148,246 @@ render:
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Добавить работу | Kostlim Admin</title>
+    <link rel="stylesheet" href="assets/admin-theme.css">
     <style>
-        * { box-sizing: border-box; }
-        body { background: #0d0d12; color: #e8e8f0; font-family: 'Segoe UI', sans-serif; margin: 0; }
-        .wrap { max-width: 600px; margin: 50px auto; padding: 0 20px; }
-        h1 { color: #fff; font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 30px; }
-        .card { background: #111116; border: 1px solid #1f1f2a; border-radius: 16px; padding: 30px; }
-        label { display: block; color: #8a8a93; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
-        input[type=text], input[type=number], select, input[type=url] {
-            width: 100%; padding: 12px; border-radius: 8px;
-            background: #16161f; border: 1px solid #262633; color: #fff;
-            font-size: 14px; margin-bottom: 18px;
+        .ap-preview-note {
+            display: flex;
+            gap: 10px;
+            padding: 12px 14px;
+            background: rgba(255, 138, 42, .07);
+            border: 1px solid rgba(255, 138, 42, .18);
+            border-radius: var(--radius-ctrl);
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-muted);
+            margin-bottom: 20px;
         }
-        input[type=file] { color: #8a8a93; font-size: 13px; margin-bottom: 18px; }
-        .price-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .btn-submit {
-            width: 100%; padding: 15px; border: none; border-radius: 8px;
-            background: #a95851; color: #fff; font-size: 14px; font-weight: 900;
-            text-transform: uppercase; letter-spacing: .5px; cursor: pointer; transition: background .2s;
-        }
-        .btn-submit:hover { background: #c76860; }
-        .msg-ok  { background: rgba(0,255,163,.1); border: 1px solid #00ffa3; color: #00ffa3; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
-        .msg-err { background: rgba(239,68,68,.1); border: 1px solid #ef4444; color: #ef4444; padding: 14px; border-radius: 8px; margin-bottom: 20px; }
-        .separator { color: #4a4a5a; margin: 16px 0; text-align: center; font-size: 12px; }
-        a { color: #a95851; }
-        .wm-preview { background: #0a0a10; border: 1px solid #1f1f2a; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 12px; color: #666; }
-        .wm-preview strong { color: #a95851; }
+        .ap-preview-note svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; margin-top: 1px; }
+        .ap-preview-note strong { color: var(--text); }
+        .ap-psd-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
     </style>
 </head>
-<body>
-<div class="wrap">
-    <h1>➕ Добавить работу в портфолио</h1>
+<body class="at-root">
+<div class="at-page" style="max-width: 640px;">
 
-    <?php if ($success_msg): ?>
-    <div class="msg-ok"><?= htmlspecialchars($success_msg) ?></div>
-    <?php endif; ?>
-    <?php if ($error_msg): ?>
-    <div class="msg-err"><?= htmlspecialchars($error_msg) ?></div>
-    <?php endif; ?>
-
-    <div class="wm-preview">
-        🖼 <strong>Водяной знак</strong> накладывается автоматически — плашка снизу с аватаркой, <strong>KOSTLIM DESIGN</strong> и <strong>T.ME/DESIGNKOSTLIM</strong>. Аватарка подтягивается каждый раз свежая по ссылке из <code>AVATAR_URL</code>.
+    <div class="at-page-header">
+        <h1>➕ Добавить работу в портфолио</h1>
+        <p>Загрузи работу — водяной знак наложится и пост уйдёт в канал автоматически.</p>
     </div>
 
-    <div class="card">
-        <form method="POST" enctype="multipart/form-data">
-            <label>Название работы *</label>
-            <input type="text" name="title" required placeholder="Например: Баннер для YouTube-канала"
-                   value="<?= htmlspecialchars($_POST['title'] ?? '') ?>">
+    <?php if ($success_msg): ?>
+        <div class="at-msg at-msg-ok"><?= htmlspecialchars($success_msg) ?></div>
+    <?php endif; ?>
+    <?php if ($error_msg): ?>
+        <div class="at-msg at-msg-err"><?= htmlspecialchars($error_msg) ?></div>
+    <?php endif; ?>
 
-            <div class="price-row">
+    <div class="ap-preview-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        <div><strong>Водяной знак</strong> накладывается автоматически — плашка снизу с аватаркой, <strong>KOSTLIM DESIGN</strong> и <strong>T.ME/DESIGNKOSTLIM</strong>. Аватарка подтягивается каждый раз свежая по ссылке из <code>AVATAR_URL</code>.</div>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data">
+
+        <div class="at-card">
+            <div class="at-card-head">
                 <div>
-                    <label>Цена (₽)</label>
-                    <input type="number" name="price_rub" min="0" placeholder="0"
+                    <p class="at-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4a1 1 0 0 1 1-1h4"/><path d="M4 17v3a1 1 0 0 0 1 1h4"/><path d="M20 7V4a1 1 0 0 0-1-1h-4"/><path d="M20 17v3a1 1 0 0 1-1 1h-4"/></svg>
+                        Основное
+                    </p>
+                    <p class="at-card-desc">Название, цена и категория работы</p>
+                </div>
+                <div class="at-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                </div>
+            </div>
+
+            <div class="at-field">
+                <label class="at-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+                    Название работы *
+                </label>
+                <input type="text" name="title" class="at-input" required
+                       placeholder="Например: Баннер для YouTube-канала"
+                       value="<?= htmlspecialchars($_POST['title'] ?? '') ?>">
+            </div>
+
+            <div class="at-row-2">
+                <div class="at-field">
+                    <label class="at-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        Цена (₽)
+                    </label>
+                    <input type="number" name="price_rub" class="at-input" min="0" placeholder="0"
                            value="<?= (int)($_POST['price_rub'] ?? 0) ?>">
                 </div>
-                <div>
-                    <label>Цена (грн)</label>
-                    <input type="number" name="price_uah" min="0" placeholder="0"
+                <div class="at-field">
+                    <label class="at-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        Цена (грн)
+                    </label>
+                    <input type="number" name="price_uah" class="at-input" min="0" placeholder="0"
                            value="<?= (int)($_POST['price_uah'] ?? 0) ?>">
                 </div>
             </div>
 
-            <label>Категория</label>
-            <select name="category">
-                <?php foreach ($portfolio_categories as $cat): ?>
-                    <?php
-                        $catKey = (string)($cat['category_key'] ?? '');
-                        $selected = (($_POST['category'] ?? 'preview') === $catKey) ? 'selected' : '';
-                    ?>
-                    <option value="<?= htmlspecialchars($catKey) ?>" <?= $selected ?>>
-                        <?= htmlspecialchars($cat['title'] ?? $catKey) ?>
-                        <?php if ((int)($cat['width_px'] ?? 0) > 0 && (int)($cat['height_px'] ?? 0) > 0): ?>
-                            (<?= (int)$cat['width_px'] ?>x<?= (int)$cat['height_px'] ?>)
-                        <?php endif; ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-            <div style="color:#666;font-size:12px;margin:-10px 0 18px;">
-                Размер категории задает рамку работы внутри Telegram-постера. Постер и фон остаются отдельно, работа не режется.
+            <div class="at-field">
+                <label class="at-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 8-9-6-9 6 9 6 9-6Z"/><path d="m3 16 9 6 9-6"/><path d="M3 12l9 6 9-6"/></svg>
+                    Категория
+                </label>
+                <select name="category" class="at-select">
+                    <?php foreach ($portfolio_categories as $cat): ?>
+                        <?php
+                            $catKey = (string)($cat['category_key'] ?? '');
+                            $selected = (($_POST['category'] ?? 'preview') === $catKey) ? 'selected' : '';
+                        ?>
+                        <option value="<?= htmlspecialchars($catKey) ?>" <?= $selected ?>>
+                            <?= htmlspecialchars($cat['title'] ?? $catKey) ?>
+                            <?php if ((int)($cat['width_px'] ?? 0) > 0 && (int)($cat['height_px'] ?? 0) > 0): ?>
+                                (<?= (int)$cat['width_px'] ?>x<?= (int)$cat['height_px'] ?>)
+                            <?php endif; ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="at-hint">Размер категории задаёт рамку работы внутри Telegram-постера. Постер и фон остаются отдельно, работа не режется.</p>
+            </div>
+        </div>
+
+        <div class="at-card">
+            <div class="at-card-head">
+                <div>
+                    <p class="at-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                        Изображение
+                    </p>
+                    <p class="at-card-desc">Загрузи файл или укажи прямую ссылку</p>
+                </div>
+                <div class="at-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
             </div>
 
-            <label>Изображение (загрузи файл)</label>
-            <input type="file" name="image" accept="image/*">
-
-            <div class="separator">— или укажи прямую ссылку —</div>
-
-            <label>Прямая ссылка на картинку</label>
-            <input type="url" name="image_url" placeholder="https://i.ibb.co/example.jpg"
-                   value="<?= htmlspecialchars($_POST['image_url'] ?? '') ?>">
-
-            <div style="border-top:1px solid #262633; margin: 16px 0;"></div>
-            
-            <label>📁 PSD файлы (до 3 шт)</label>
-            <div style="background: #0d0d14; border: 2px dashed #2a2a3a; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 18px;">
-                <div style="font-size: 32px; margin-bottom: 8px;">📂</div>
-                <div style="color: #8a8a93; font-size: 12px; margin-bottom: 8px;">До 32 МБ через форму · до 300 МБ через бота: <code>/upload</code></div>
-                <div style="color: #5a5a63; font-size: 11px;">При публикации превью + PSD уйдут в приват-пак <?= htmlspecialchars($private_chat) ?></div>
-                <input type="file" name="psd_files[]" multiple accept=".psd,application/octet-stream" 
-                       style="margin-top: 10px; color: #8a8a93; font-size: 13px; cursor: pointer;">
+            <div class="at-field">
+                <label class="at-dropzone" id="ap-image-drop">
+                    <input type="file" name="image" accept="image/*" id="ap-image-input">
+                    <div class="at-dropzone-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </div>
+                    <div class="at-dropzone-title">Перетащите файл сюда</div>
+                    <div class="at-dropzone-sub">или нажмите, чтобы выбрать</div>
+                    <div class="at-dropzone-formats">PNG · JPG</div>
+                </label>
+                <div class="at-file-preview" id="ap-image-preview">
+                    <span class="name"></span>
+                    <span class="size"></span>
+                    <span class="check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    </span>
+                </div>
             </div>
 
-            <button type="submit" class="btn-submit">
-                💾 Сохранить и опубликовать в канал
-            </button>
-        </form>
-    </div>
+            <div class="at-sep">или укажи прямую ссылку</div>
 
-    <p style="text-align:center; margin-top:20px; font-size:13px; color:#4a4a5a;">
-        <a href="../index.php">← На сайт</a>
-    </p>
+            <div class="at-field at-field-icon">
+                <label class="at-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    Прямая ссылка на картинку
+                </label>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <input type="url" name="image_url" class="at-input" placeholder="https://i.ibb.co/example.jpg"
+                       value="<?= htmlspecialchars($_POST['image_url'] ?? '') ?>">
+            </div>
+        </div>
+
+        <div class="at-card">
+            <div class="at-card-head">
+                <div>
+                    <p class="at-card-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        PSD файлы
+                    </p>
+                    <p class="at-card-desc">До 3 шт. При публикации уйдут в приват-пак</p>
+                </div>
+                <div class="at-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+            </div>
+
+            <label class="at-dropzone" id="ap-psd-drop">
+                <input type="file" name="psd_files[]" multiple accept=".psd,application/octet-stream" id="ap-psd-input">
+                <div class="at-dropzone-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="at-dropzone-title">Перетащите PSD сюда</div>
+                <div class="at-dropzone-sub">До 32 МБ через форму · до 300 МБ через бота: <code>/upload</code></div>
+                <div class="at-dropzone-formats">PSD</div>
+            </label>
+            <p class="at-hint">При публикации превью + PSD уйдут в приват-пак <?= htmlspecialchars($private_chat) ?></p>
+            <div class="ap-psd-list" id="ap-psd-list"></div>
+        </div>
+
+        <button type="submit" class="at-btn at-btn-primary at-btn-block" style="margin-top: 4px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Сохранить и опубликовать в канал
+        </button>
+    </form>
+
+    <p class="at-footer-link"><a href="../index.php">← На сайт</a></p>
 </div>
+
+<script>
+(function () {
+    function bindPreview(inputId, previewId, isMulti) {
+        var input = document.getElementById(inputId);
+        var preview = document.getElementById(previewId);
+        if (!input || !preview) return;
+        input.addEventListener('change', function () {
+            var files = input.files;
+            if (!files || !files.length) { preview.classList.remove('is-visible'); return; }
+            if (isMulti) {
+                preview.innerHTML = '';
+                Array.prototype.forEach.call(files, function (f) {
+                    var row = document.createElement('div');
+                    row.className = 'at-file-preview is-visible';
+                    row.innerHTML = '<span class="name">' + f.name + '</span>' +
+                        '<span class="size">' + (f.size / 1024 / 1024).toFixed(1) + ' MB</span>' +
+                        '<span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>';
+                    preview.appendChild(row);
+                });
+            } else {
+                var f = files[0];
+                preview.querySelector('.name').textContent = f.name;
+                preview.querySelector('.size').textContent = (f.size / 1024 / 1024).toFixed(1) + ' MB';
+                preview.classList.add('is-visible');
+            }
+        });
+    }
+    bindPreview('ap-image-input', 'ap-image-preview', false);
+    bindPreview('ap-psd-input', 'ap-psd-list', true);
+
+    ['ap-image-drop', 'ap-psd-drop'].forEach(function (id) {
+        var zone = document.getElementById(id);
+        if (!zone) return;
+        ['dragenter', 'dragover'].forEach(function (evt) {
+            zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.add('is-drag'); });
+        });
+        ['dragleave', 'drop'].forEach(function (evt) {
+            zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.remove('is-drag'); });
+        });
+        zone.addEventListener('drop', function (e) {
+            var input = zone.querySelector('input[type=file]');
+            if (input && e.dataTransfer.files.length) {
+                input.files = e.dataTransfer.files;
+                input.dispatchEvent(new Event('change'));
+            }
+        });
+    });
+})();
+</script>
 </body>
 </html>
 
