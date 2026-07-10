@@ -2607,7 +2607,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <?php else: ?>
                                     <p class="empty-hint">Услуг пока нет — добавьте первую выше 👆</p>
                                 <?php endif; ?>
-                        </form>
+                            </form>
+                        </div>
                     </div>
 
                     <!-- ════ УПРАВЛЕНИЕ КЕЙСАМИ ════ -->
