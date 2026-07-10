@@ -38,23 +38,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход в Control Panel</title>
     <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
-    <link rel="stylesheet" href="assets/admin-theme.css">
     <style>
-        .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .login-card { width: 100%; max-width: 380px; }
-        .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-        .login-brand .at-card-icon { width: 40px; height: 40px; }
-        .login-brand .at-card-icon svg { width: 20px; height: 20px; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: #0F1117;
+            color: #fff;
+            font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 380px;
+            background: #171A22;
+            border: 1px solid rgba(255,255,255,.06);
+            border-radius: 16px;
+            padding: 26px;
+            box-shadow: 0 4px 24px rgba(0,0,0,.28);
+        }
+        .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+        .login-brand .icon {
+            width: 40px; height: 40px; flex-shrink: 0;
+            border-radius: 10px;
+            background: rgba(255,138,42,.12);
+            color: #FF8A2A;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .login-brand .icon svg { width: 20px; height: 20px; display: block; }
         .login-brand h2 { font-size: 18px; font-weight: 800; margin: 0; }
-        .login-brand span { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .login-brand span { display: block; font-size: 12px; color: #9AA4B2; margin-top: 2px; }
+
+        .field { margin-bottom: 16px; }
+        .field:last-of-type { margin-bottom: 0; }
+        label {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .06em; color: #9AA4B2; margin-bottom: 7px;
+        }
+        label svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .8; display: block; }
+        input {
+            width: 100%; height: 48px; padding: 0 14px;
+            background: #12141C; border: 1px solid rgba(255,255,255,.08);
+            border-radius: 12px; color: #fff; font-size: 14px;
+            font-family: inherit; outline: none;
+            transition: border-color .15s ease;
+        }
+        input::placeholder { color: #566072; }
+        input:focus { border-color: #FF8A2A; }
+
+        .btn {
+            width: 100%; height: 48px; margin-top: 22px;
+            border: none; border-radius: 12px;
+            background: #FF8A2A; color: #17110A;
+            font-size: 14px; font-weight: 700; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            transition: background .15s ease, transform .12s ease;
+            font-family: inherit;
+        }
+        .btn svg { width: 17px; height: 17px; display: block; }
+        .btn:hover { background: #FF9C48; }
+        .btn:active { transform: scale(.98); }
+
+        .msg-err {
+            background: rgba(255,77,94,.1);
+            border: 1px solid rgba(255,77,94,.3);
+            color: #FF4D5E;
+            padding: 12px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
     </style>
 </head>
-<body class="at-root">
-<div class="login-shell">
-    <div class="login-card at-card">
+<body>
+    <div class="login-card">
         <div class="login-brand">
-            <div class="at-card-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <div class="icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             </div>
             <div>
                 <h2>Control Panel</h2>
@@ -63,40 +128,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
 
         <?php if ($error): ?>
-            <div class="at-msg at-msg-err"><?= htmlspecialchars($error) ?></div>
+            <div class="msg-err"><?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
 
         <form action="login.php" method="POST">
-            <div class="at-field">
-                <label class="at-label">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <div class="field">
+                <label>
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     Логин администратора
                 </label>
-                <input type="text" name="username" class="at-input" value="Kostlim" placeholder="Kostlim" required>
+                <input type="text" name="username" value="Kostlim" placeholder="Kostlim" required>
             </div>
 
-            <div class="at-field">
-                <label class="at-label">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+            <div class="field">
+                <label>
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
                     Email адрес
                 </label>
-                <input type="email" name="email" class="at-input" value="jeffkostlim@gmail.com" placeholder="jeffkostlim@gmail.com" required>
+                <input type="email" name="email" value="jeffkostlim@gmail.com" placeholder="jeffkostlim@gmail.com" required>
             </div>
 
-            <div class="at-field">
-                <label class="at-label">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <div class="field">
+                <label>
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     Пароль доступа
                 </label>
-                <input type="password" name="password" class="at-input" placeholder="••••••••" required>
+                <input type="password" name="password" placeholder="••••••••" required>
             </div>
 
-            <button type="submit" class="at-btn at-btn-primary at-btn-block">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+            <button type="submit" class="btn">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
                 Авторизоваться
             </button>
         </form>
     </div>
-</div>
 </body>
 </html>
