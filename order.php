@@ -14,10 +14,20 @@ if (isset($_GET['check_promo'])) {
     $codeInput = trim((string)$_GET['check_promo']);
     if ($codeInput === '') { echo json_encode(['valid' => false]); exit; }
     try {
-        $stmt = $pdo->prepare("SELECT code, discount_percent, bonus_text FROM promo_codes WHERE UPPER(code) = UPPER(?) AND active = TRUE LIMIT 1");
-        $stmt->execute([$codeInput]);
-        $promo = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($promo) {
+        // Пытаемся понять, кто это, чтобы проверить "уже использовал ли он
+        // этот код" — по session_id и, если сессия уже привязана к Telegram,
+        // по tg_id (надёжнее, чем session_id, который меняется по браузерам).
+        $sidForPromo = session_id();
+        $chatIdForPromo = null;
+        try {
+            $lnkStmt = $pdo->prepare("SELECT tg_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $lnkStmt->execute([$sidForPromo]);
+            $chatIdForPromo = (int)($lnkStmt->fetchColumn() ?: 0) ?: null;
+        } catch (Throwable $e) {}
+
+        $result = checkPromoCode($pdo, $codeInput, $chatIdForPromo, $sidForPromo);
+        if ($result['valid']) {
+            $promo = $result['promo'];
             echo json_encode([
                 'valid'            => true,
                 'code'             => $promo['code'],
@@ -25,7 +35,13 @@ if (isset($_GET['check_promo'])) {
                 'bonus_text'       => $promo['bonus_text'],
             ]);
         } else {
-            echo json_encode(['valid' => false]);
+            $reasonText = match($result['reason']) {
+                'already_used' => 'already_used',
+                'expired'      => 'expired',
+                'maxed_out'    => 'maxed_out',
+                default        => 'not_found',
+            };
+            echo json_encode(['valid' => false, 'reason' => $reasonText]);
         }
     } catch (Throwable $e) {
         echo json_encode(['valid' => false]);
@@ -392,20 +408,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
 
         // ── Промокод ──────────────────────────────────────────────────
         // Проверяем ЕЩЁ РАЗ на сервере (JS-галочка в форме — только подсказка
-        // для клиента, доверять ей при сохранении заказа нельзя).
-        $promoCodeInput = trim((string)($_POST['promo_code'] ?? ''));
+        // для клиента, доверять ей при сохранении заказа нельзя). Делаем это
+        // ДО формирования уведомления админу, чтобы промокод и итоговая цена
+        // со скидкой сразу попали в само сообщение о новом заказе, а не только
+        // куда-то отдельно.
+        $promoCodeInput  = trim((string)($_POST['promo_code'] ?? ''));
+        $appliedPromo    = null;
+        $promoAdminLine  = '';
         if ($promoCodeInput !== '') {
             try {
-                $promoStmt = $pdo->prepare("SELECT code, discount_percent, bonus_text FROM promo_codes WHERE UPPER(code) = UPPER(?) AND active = TRUE LIMIT 1");
-                $promoStmt->execute([$promoCodeInput]);
-                $promoRow = $promoStmt->fetch(PDO::FETCH_ASSOC);
-                if ($promoRow) {
+                $promoCheck = checkPromoCode($pdo, $promoCodeInput, $client_chat_id, session_id());
+                if ($promoCheck['valid']) {
+                    $promoRow = $promoCheck['promo'];
                     $pdo->prepare("UPDATE orders SET promo_code = ? WHERE id = ?")->execute([$promoRow['code'], $order_id]);
                     $pdo->prepare("UPDATE promo_codes SET uses_count = uses_count + 1 WHERE code = ?")->execute([$promoRow['code']]);
+                    $appliedPromo = $promoRow;
 
                     $bonusStr = $promoRow['bonus_text'] !== ''
                         ? $promoRow['bonus_text']
                         : ((int)$promoRow['discount_percent'] > 0 ? 'скидка ' . (int)$promoRow['discount_percent'] . '%' : 'бонус');
+
+                    $promoAdminLine = "🎁 <b>Промокод:</b> " . htmlspecialchars($promoRow['code'])
+                        . ((int)$promoRow['discount_percent'] > 0 ? " (−" . (int)$promoRow['discount_percent'] . "%)" : '') . "\n";
 
                     if ($client_chat_id) {
                         tgEscapeSend($bot_token, $client_chat_id,
@@ -413,18 +437,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                             __DIR__ . '/assets/notify/promo.jpg'
                         );
                     }
+                } elseif ($promoCheck['reason'] === 'already_used' && $client_chat_id) {
+                    // Клиент как-то обошёл проверку в форме (например, отключил
+                    // JS) — код просто не применяем, заказ всё равно создаётся.
+                    $promoAdminLine = "⚠️ <b>Промокод:</b> клиент пытался повторно использовать код \"" . htmlspecialchars($promoCodeInput) . "\" — уже был применён к его прошлому заказу.\n";
                 }
             } catch (Throwable $e) {}
         }
 
         // ✅ ИСПРАВЛЕНО: Объединяем ТЕКСТ + МЕДИА в ОДНО сообщение в Telegram
         if (!empty($my_chat_id)) {
-            $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
-            $price_stmt->execute([$service_key]);
-            $price_info    = $price_stmt->fetch(PDO::FETCH_ASSOC);
-            $service_title = $price_info['title'] ?? $service_key;
-            $p_rub         = $price_info['price_rub'] ?? 0;
-            $p_uan         = $price_info['price_uan'] ?? 0;
+            // Единая функция расчёта: сначала +50% за срочность (если клиент
+            // попросил срочный), затем скидка по промокоду — порядок именно
+            // такой, см. computeOrderPriceWithPromo().
+            $orderForPrice = [
+                'service_key'       => $service_key,
+                'status'            => 'pending',
+                'requested_urgency' => $requestedUrgency,
+                'promo_code'        => $appliedPromo['code'] ?? null,
+            ];
+            $priceCalc     = computeOrderPriceWithPromo($pdo, $orderForPrice);
+            $service_title = $pdo->prepare("SELECT title FROM prices WHERE category_key = ? LIMIT 1");
+            $service_title->execute([$service_key]);
+            $service_title = (string)($service_title->fetchColumn() ?: $service_key);
+            $p_rub         = $priceCalc['final_rub'];
+            $p_uan         = $priceCalc['final_uan'];
 
             // ✅ Формируем ПОЛНЫЙ текст ТЗ
             $slotLabel = $orderSlot >= 2 ? " [ЗАКАЗ №{$orderSlot}]" : "";
@@ -438,9 +475,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             if ($cooperation) {
                 $full_msg_text .= "💼 <b>Сотрудничество:</b> Да\n";
                 $full_msg_text .= "💰 <b>Стоимость:</b> 0₽ / 0₴\n";
+            } elseif ($appliedPromo) {
+                $full_msg_text .= "💰 <b>Стоимость:</b> <s>{$priceCalc['base_rub']}₽ / {$priceCalc['base_uan']}₴</s> → <b>{$p_rub}₽ / {$p_uan}₴</b>\n";
             } else {
                 $full_msg_text .= "💰 <b>Стоимость:</b> {$p_rub}₽ / {$p_uan}₴\n";
             }
+            $full_msg_text .= $promoAdminLine;
             $full_msg_text .= "\n📝 <b>ТЕХНИЧЕСКОЕ ЗАДАНИЕ:</b>\n";
             $full_msg_text .= "<pre>" . htmlspecialchars($details) . "</pre>\n";
             $full_msg_text .= "🌐 <b>IP:</b> <code>{$user_ip}</code>";
@@ -1650,7 +1690,13 @@ function showToastMsg(msg, color) {
                             }
                         } else {
                             if (checkIcon) checkIcon.textContent = '❌';
-                            if (hint) { hint.textContent = 'Такого промокода нет или он уже не активен'; hint.className = 'promo-hint invalid'; }
+                            var reasonMsgs = {
+                                already_used: 'Этот промокод вы уже использовали ранее',
+                                expired:      'Срок действия промокода истёк',
+                                maxed_out:    'Лимит активаций промокода исчерпан',
+                                not_found:    'Такого промокода нет или он уже не активен',
+                            };
+                            if (hint) { hint.textContent = reasonMsgs[data.reason] || 'Такого промокода нет или он уже не активен'; hint.className = 'promo-hint invalid'; }
                         }
                     })
                     .catch(function() {});

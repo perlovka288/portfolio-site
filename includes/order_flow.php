@@ -13,13 +13,107 @@ function ensurePromoSchema(PDO $pdo): void
             bonus_text VARCHAR(255) NOT NULL DEFAULT '',
             active BOOLEAN NOT NULL DEFAULT TRUE,
             uses_count INT NOT NULL DEFAULT 0,
+            max_uses INT DEFAULT NULL,
+            expires_at TIMESTAMP DEFAULT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             CONSTRAINT uniq_promo_code UNIQUE (code)
         )");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR(50) DEFAULT NULL");
+        foreach (['max_uses INT', 'expires_at TIMESTAMP'] as $col) {
+            try { $pdo->exec("ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS {$col} DEFAULT NULL"); } catch (Throwable $e) {}
+        }
     } catch (Throwable $e) {
         error_log('ensurePromoSchema error: ' . $e->getMessage());
     }
+}
+
+/**
+ * Проверяет промокод для конкретного человека (по client_chat_id и/или
+ * session_id) и возвращает подробный результат — используется и на сайте
+ * при вводе кода (AJAX), и при реальном сохранении заказа.
+ *
+ * Промокод одноразовый НА ЧЕЛОВЕКА: если у этого же человека уже есть
+ * заказ с этим кодом, который дошёл хотя бы до "в работе" (in_progress/
+ * urgent/ready) — считается использованным. Заказы, которые ещё pending
+ * (не решено) или declined (не пошёл) — не блокируют повторный ввод,
+ * потому что первое применение могло не состояться по факту.
+ */
+function checkPromoCode(PDO $pdo, string $codeInput, ?int $clientChatId, string $sessionId): array
+{
+    $codeInput = trim($codeInput);
+    if ($codeInput === '') return ['valid' => false, 'reason' => 'empty'];
+
+    $stmt = $pdo->prepare("SELECT * FROM promo_codes WHERE UPPER(code) = UPPER(?) LIMIT 1");
+    $stmt->execute([$codeInput]);
+    $promo = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$promo || !$promo['active']) return ['valid' => false, 'reason' => 'not_found'];
+
+    if (!empty($promo['expires_at']) && strtotime($promo['expires_at']) < time()) {
+        return ['valid' => false, 'reason' => 'expired'];
+    }
+    if (!empty($promo['max_uses']) && (int)$promo['uses_count'] >= (int)$promo['max_uses']) {
+        return ['valid' => false, 'reason' => 'maxed_out'];
+    }
+
+    try {
+        $usedStmt = $pdo->prepare("
+            SELECT id FROM orders
+            WHERE UPPER(promo_code) = UPPER(?)
+              AND status IN ('in_progress','urgent','ready')
+              AND ((client_chat_id IS NOT NULL AND client_chat_id = ?) OR (session_id IS NOT NULL AND session_id = ?))
+            LIMIT 1
+        ");
+        $usedStmt->execute([$promo['code'], $clientChatId ?: 0, $sessionId]);
+        if ($usedStmt->fetch()) {
+            return ['valid' => false, 'reason' => 'already_used'];
+        }
+    } catch (Throwable $e) {}
+
+    return ['valid' => true, 'promo' => $promo];
+}
+
+/**
+ * Считает итоговую цену заказа: сначала накидывает срочность (+50%), и
+ * ТОЛЬКО ПОТОМ вычитает скидку промокода — порядок специально такой
+ * (см. пожелание админа), иначе скидка "съедает" часть наценки за срочность.
+ */
+function computeOrderPriceWithPromo(PDO $pdo, array $order): array
+{
+    $baseRub = 0; $baseUan = 0; $discountPct = 0; $bonusText = ''; $promoCode = '';
+    try {
+        $bp = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+        $bp->execute([$order['service_key'] ?? '']);
+        $row = $bp->fetch(PDO::FETCH_ASSOC);
+        $baseRub = (float)($row['price_rub'] ?? 0);
+        $baseUan = (float)($row['price_uan'] ?? 0);
+    } catch (Throwable $e) {}
+
+    if (in_array($order['status'] ?? '', ['urgent'], true) || ($order['requested_urgency'] ?? '') === 'urgent') {
+        $baseRub *= 1.5;
+        $baseUan *= 1.5;
+    }
+
+    if (!empty($order['promo_code'])) {
+        try {
+            $pp = $pdo->prepare("SELECT code, discount_percent, bonus_text FROM promo_codes WHERE UPPER(code) = UPPER(?) LIMIT 1");
+            $pp->execute([$order['promo_code']]);
+            $pr = $pp->fetch(PDO::FETCH_ASSOC);
+            if ($pr) {
+                $promoCode   = $pr['code'];
+                $discountPct = (int)($pr['discount_percent'] ?? 0);
+                $bonusText   = (string)($pr['bonus_text'] ?? '');
+            }
+        } catch (Throwable $e) {}
+    }
+
+    $finalRub = $discountPct > 0 ? round($baseRub * (1 - $discountPct / 100), 2) : $baseRub;
+    $finalUan = $discountPct > 0 ? round($baseUan * (1 - $discountPct / 100), 2) : $baseUan;
+
+    return [
+        'base_rub' => round($baseRub, 2), 'base_uan' => round($baseUan, 2),
+        'final_rub' => $finalRub, 'final_uan' => $finalUan,
+        'discount_percent' => $discountPct, 'promo_code' => $promoCode, 'bonus_text' => $bonusText,
+    ];
 }
 
 function ensureOrderFlowSchema(PDO $pdo): void
@@ -150,7 +244,7 @@ function downloadTelegramFileToLocal(string $token, string $fileId, string $dest
     }
 }
 
-function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCooperation = false, bool $isUrgent = false): string
+function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCooperation = false, bool $isUrgent = false, int $discountPercent = 0, string $promoCode = ''): string
 {
     $baseRub = (int)($priceInfo['price_rub'] ?? 0);
     $baseUan = (int)($priceInfo['price_uan'] ?? 0);
@@ -162,6 +256,15 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     // Срочный заказ (24ч вместо 5 суток) — наценка +50% к стоимости
     $rub = $isUrgent ? (int)round($baseRub * 1.5) : $baseRub;
     $uan = $isUrgent ? (int)round($baseUan * 1.5) : $baseUan;
+
+    // Порядок важен: сначала наценка за срочность, и ТОЛЬКО ПОТОМ скидка по
+    // промокоду — иначе скидка "съедала" бы часть наценки за срочность.
+    $rubBeforeDiscount = $rub;
+    $uanBeforeDiscount = $uan;
+    if ($discountPercent > 0 && !$isCooperation) {
+        $rub = (int)round($rub * (1 - $discountPercent / 100));
+        $uan = (int)round($uan * (1 - $discountPercent / 100));
+    }
 
     $rubDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn')), ENT_QUOTES);
     $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: '4874070010369708 (Monobank)')), ENT_QUOTES);
@@ -183,7 +286,12 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     $priceBlock = "💰💰💰 <b>К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
     if ($isUrgent && !$isCooperation) {
         $priceBlock = "Базовая стоимость: {$baseRub} ₽ / {$baseUan} ₴\n"
-            . "⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rub - $baseRub) . " ₽ / +" . ($uan - $baseUan) . " ₴\n\n"
+            . "⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rubBeforeDiscount - $baseRub) . " ₽ / +" . ($uanBeforeDiscount - $baseUan) . " ₴\n\n"
+            . "💰💰💰 <b>ИТОГО К ОПЛАТЕ: {$rubBeforeDiscount} ₽ / {$uanBeforeDiscount} ₴</b> 💰💰💰\n\n";
+    }
+    if ($discountPercent > 0 && !$isCooperation) {
+        $priceBlock = ($isUrgent ? $priceBlock : "Стоимость без скидки: {$rubBeforeDiscount} ₽ / {$uanBeforeDiscount} ₴\n\n")
+            . "🎁 Промокод \"" . htmlspecialchars($promoCode) . "\" (−{$discountPercent}%): −" . ($rubBeforeDiscount - $rub) . " ₽ / −" . ($uanBeforeDiscount - $uan) . " ₴\n\n"
             . "💰💰💰 <b>ИТОГО К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
     }
 

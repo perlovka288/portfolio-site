@@ -240,6 +240,7 @@ if (isset($_POST['add_manual_earning'])) {
     $meCurrency = in_array($_POST['me_currency'] ?? '', ['RUB','USD','UAH'], true) ? $_POST['me_currency'] : 'RUB';
     $meAmount   = (float)str_replace(',', '.', $_POST['me_amount'] ?? '0');
     $meNote     = trim((string)($_POST['me_note'] ?? ''));
+    $meSign     = ($_POST['me_sign'] ?? 'add') === 'subtract' ? -1 : 1;
     if ($meAmount > 0) {
         try {
             $pdo->exec("CREATE TABLE IF NOT EXISTS manual_earnings (
@@ -251,7 +252,7 @@ if (isset($_POST['add_manual_earning'])) {
                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
             )");
             $pdo->prepare("INSERT INTO manual_earnings (method, amount, currency, note) VALUES (?,?,?,?)")
-                ->execute([$meMethod, $meAmount, $meCurrency, $meNote]);
+                ->execute([$meMethod, $meAmount * $meSign, $meCurrency, $meNote]);
         } catch (Throwable $e) {}
     }
     header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#earnings'); exit;
@@ -263,14 +264,27 @@ if (isset($_GET['delete_manual_earning_id'])) {
 
 // ── Промокоды: добавление / переключение активности / удаление ──────
 if (isset($_POST['add_promo'])) {
-    $pcCode  = trim((string)($_POST['pc_code'] ?? ''));
-    $pcPct   = trim((string)($_POST['pc_discount'] ?? ''));
-    $pcBonus = trim((string)($_POST['pc_bonus'] ?? ''));
+    $pcCode     = trim((string)($_POST['pc_code'] ?? ''));
+    $pcPct      = trim((string)($_POST['pc_discount'] ?? ''));
+    $pcBonus    = trim((string)($_POST['pc_bonus'] ?? ''));
+    $pcDuration = trim((string)($_POST['pc_duration'] ?? '')); // '' | '7' | '10' | '15' | '20' | '25' | '30' | 'custom' | 'none'
+    $pcCustomDate = trim((string)($_POST['pc_custom_date'] ?? ''));
+    $pcMaxUses  = trim((string)($_POST['pc_max_uses'] ?? ''));
+
+    $pcExpiresAt = null;
+    if ($pcDuration !== '' && $pcDuration !== 'none') {
+        if ($pcDuration === 'custom' && $pcCustomDate !== '') {
+            $pcExpiresAt = $pcCustomDate . ' 23:59:59';
+        } elseif (ctype_digit($pcDuration)) {
+            $pcExpiresAt = date('Y-m-d H:i:s', strtotime('+' . (int)$pcDuration . ' days'));
+        }
+    }
+
     if ($pcCode !== '') {
         try {
-            $pdo->prepare("INSERT INTO promo_codes (code, discount_percent, bonus_text, active) VALUES (?,?,?,TRUE)
-                ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, bonus_text = EXCLUDED.bonus_text, active = TRUE")
-                ->execute([$pcCode, $pcPct !== '' ? (int)$pcPct : null, $pcBonus]);
+            $pdo->prepare("INSERT INTO promo_codes (code, discount_percent, bonus_text, max_uses, expires_at, active) VALUES (?,?,?,?,?,TRUE)
+                ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, bonus_text = EXCLUDED.bonus_text, max_uses = EXCLUDED.max_uses, expires_at = EXCLUDED.expires_at, active = TRUE")
+                ->execute([$pcCode, $pcPct !== '' ? (int)$pcPct : null, $pcBonus, $pcMaxUses !== '' ? (int)$pcMaxUses : null, $pcExpiresAt]);
         } catch (Throwable $e) {}
     }
     header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#promo'); exit;
@@ -410,6 +424,7 @@ function notifyClientOrderStatus(PDO $pdo, int $orderId, string $newStatus): voi
     // (раньше "Отклонить"/"Взять в работу", нажатые из веб-панели, уходили
     // вообще без фото — теперь единообразно).
     $statusPhotos = [
+        'in_progress' => __DIR__ . '/../assets/notify/v_rabotu.jpg',
         'ready'       => __DIR__ . '/../assets/notify/gotovo.jpg',
         'urgent'      => __DIR__ . '/../assets/notify/fast.jpg',
         'declined'    => __DIR__ . '/../assets/notify/otkaz.jpg',
@@ -1482,6 +1497,17 @@ if (isset($_GET['view_order'])) {
     }
 }
 
+// ── Базовая цена заказа для калькулятора скидки в модалке "Готово" ──────
+// Единая функция computeOrderPriceWithPromo() (includes/order_flow.php) —
+// сначала +50% за срочность, потом скидка по промокоду.
+$readyCalcBaseRub = 0; $readyCalcBaseUan = 0; $readyCalcDiscountPct = 0;
+if ($viewOrder) {
+    $priceCalcView = computeOrderPriceWithPromo($pdo, $viewOrder);
+    $readyCalcBaseRub     = $priceCalcView['base_rub'];
+    $readyCalcBaseUan     = $priceCalcView['base_uan'];
+    $readyCalcDiscountPct = $priceCalcView['discount_percent'];
+}
+
 if (isset($_POST['send_order_message'])) {
     $oid  = (int)($_POST['order_id'] ?? 0);
     $subj = trim($_POST['msg_subject'] ?? 'Сообщение от администрации');
@@ -1782,7 +1808,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
             <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="color:#8a8a96;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
-                <button type="button" onclick="document.getElementById('manualEarningModal').classList.add('open')" title="Добавить сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+                <button type="button" onclick="document.getElementById('manualEarningModal').style.display='flex'" title="Добавить/убрать сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
             </div>
             <section class="stats-grid" style="margin-bottom:0;">
                 <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
@@ -1822,8 +1848,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <?php if ($recentManual): ?>
             <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
                 <?php foreach ($recentManual as $me): ?>
+                    <?php $meAmt = (float)$me['amount']; ?>
                     <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9a9aa8;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:7px 10px;">
-                        <span style="color:#fdba74;font-weight:800;">+<?= number_format((float)$me['amount'],2,'.',',') ?> <?= htmlspecialchars($me['currency']) ?></span>
+                        <span style="color:<?= $meAmt >= 0 ? '#4ade80' : '#f87171' ?>;font-weight:800;"><?= $meAmt >= 0 ? '+' : '' ?><?= number_format($meAmt,2,'.',',') ?> <?= htmlspecialchars($me['currency']) ?></span>
                         <span><?= htmlspecialchars(['donation'=>'Донейшен','crypto'=>'Крипта','monobank'=>'Монобанк','other'=>'Другое'][$me['method']] ?? $me['method']) ?></span>
                         <?php if (!empty($me['note'])): ?><span style="color:#666;">— <?= htmlspecialchars($me['note']) ?></span><?php endif; ?>
                         <span style="margin-left:auto;color:#555;"><?= date('d.m H:i', strtotime($me['created_at'])) ?></span>
@@ -1837,8 +1864,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <div id="manualEarningModal" class="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9999;">
                 <form method="POST" style="background:#171720;border:1px solid #2a2a38;border-radius:14px;padding:22px;width:320px;display:flex;flex-direction:column;gap:12px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;">
-                        <strong style="color:#fff;font-size:15px;">➕ Добавить сумму</strong>
-                        <button type="button" onclick="document.getElementById('manualEarningModal').classList.remove('open')" style="background:none;border:0;color:#888;font-size:18px;cursor:pointer;">×</button>
+                        <strong style="color:#fff;font-size:15px;">➕ Изменить сумму</strong>
+                        <button type="button" onclick="document.getElementById('manualEarningModal').style.display='none'" style="background:none;border:0;color:#888;font-size:18px;cursor:pointer;">×</button>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <label style="flex:1;cursor:pointer;">
+                            <input type="radio" name="me_sign" value="add" checked style="display:none;" onchange="this.closest('form').querySelector('#meSignAdd').style.background='rgba(34,197,94,.18)';this.closest('form').querySelector('#meSignAdd').style.borderColor='#4ade80';this.closest('form').querySelector('#meSignSub').style.background='transparent';this.closest('form').querySelector('#meSignSub').style.borderColor='#2a2a38';">
+                            <div id="meSignAdd" style="text-align:center;padding:8px;border-radius:8px;border:1px solid #4ade80;background:rgba(34,197,94,.18);color:#4ade80;font-weight:800;font-size:12px;">➕ Добавить</div>
+                        </label>
+                        <label style="flex:1;cursor:pointer;">
+                            <input type="radio" name="me_sign" value="subtract" style="display:none;" onchange="this.closest('form').querySelector('#meSignSub').style.background='rgba(239,68,68,.18)';this.closest('form').querySelector('#meSignSub').style.borderColor='#ef4444';this.closest('form').querySelector('#meSignAdd').style.background='transparent';this.closest('form').querySelector('#meSignAdd').style.borderColor='#2a2a38';">
+                            <div id="meSignSub" style="text-align:center;padding:8px;border-radius:8px;border:1px solid #2a2a38;color:#f87171;font-weight:800;font-size:12px;">➖ Убрать</div>
+                        </label>
                     </div>
                     <label style="font-size:12px;color:#9a9aa8;">Способ
                         <select name="me_method" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
@@ -1863,10 +1900,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <label style="font-size:12px;color:#9a9aa8;">Заметка (необязательно)
                         <input type="text" name="me_note" placeholder="Например: перевод мимо бота" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;box-sizing:border-box;">
                     </label>
-                    <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;">Добавить</button>
+                    <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;">Сохранить</button>
                 </form>
             </div>
-            <style>#manualEarningModal.open{display:flex;}</style>
 
             <!-- ════════════════════════════════════════════════════════════
                  ПРОМОКОДЫ
@@ -1885,8 +1921,27 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <label style="font-size:11px;color:#9a9aa8;flex:1;min-width:200px;">Бонус (текст, покажется клиенту)
                         <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка" style="display:block;margin-top:4px;width:100%;box-sizing:border-box;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
                     </label>
+                    <label style="font-size:11px;color:#9a9aa8;">Срок действия
+                        <select name="pc_duration" id="pc_duration_select" onchange="document.getElementById('pc_custom_date_wrap').style.display = this.value==='custom' ? 'block' : 'none';" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                            <option value="none">Без срока</option>
+                            <option value="7">Неделя (7 дней)</option>
+                            <option value="10">10 дней</option>
+                            <option value="15">15 дней</option>
+                            <option value="20">20 дней</option>
+                            <option value="25">25 дней</option>
+                            <option value="30">Месяц (30 дней)</option>
+                            <option value="custom">Другая дата…</option>
+                        </select>
+                    </label>
+                    <label id="pc_custom_date_wrap" style="font-size:11px;color:#9a9aa8;display:none;">Дата окончания
+                        <input type="date" name="pc_custom_date" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    </label>
+                    <label style="font-size:11px;color:#9a9aa8;">Лимит активаций (необязательно)
+                        <input type="number" name="pc_max_uses" min="1" placeholder="без лимита" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:130px;">
+                    </label>
                     <button type="submit" name="add_promo" style="border:0;border-radius:8px;padding:9px 16px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;height:37px;">Сохранить</button>
                 </form>
+                <p style="font-size:11px;color:#555;margin:-4px 0 12px;">Каждый промокод одноразовый на человека: как только у клиента появится заказ с этим кодом в работе (не «ожидает» и не «отклонён») — повторно ввести тот же код он не сможет.</p>
                 <?php
                     $promoList = [];
                     try { $promoList = $pdo->query("SELECT * FROM promo_codes ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
@@ -1894,11 +1949,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <?php if ($promoList): ?>
                 <div style="display:flex;flex-direction:column;gap:6px;">
                     <?php foreach ($promoList as $pc): ?>
-                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:9px 12px;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
+                        <?php
+                            $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
+                            $pcMaxed   = !empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses'];
+                        ?>
+                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:9px 12px;flex-wrap:wrap;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
                             <strong style="color:#fdba74;letter-spacing:.5px;"><?= htmlspecialchars($pc['code']) ?></strong>
                             <?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?><span style="color:#4ade80;">−<?= (int)$pc['discount_percent'] ?>%</span><?php endif; ?>
                             <span style="color:#9a9aa8;"><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></span>
-                            <span style="color:#555;">использован: <?= (int)$pc['uses_count'] ?> раз</span>
+                            <span style="color:<?= $pcMaxed ? '#f87171' : '#555' ?>;">использован: <?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : '' ?></span>
+                            <?php if (!empty($pc['expires_at'])): ?>
+                                <span style="color:<?= $pcExpired ? '#f87171' : '#666' ?>;">до <?= date('d.m.Y', strtotime($pc['expires_at'])) ?><?= $pcExpired ? ' (истёк)' : '' ?></span>
+                            <?php endif; ?>
                             <span style="margin-left:auto;color:<?= $pc['active'] ? '#4ade80' : '#666' ?>;font-weight:800;"><?= $pc['active'] ? 'активен' : 'выключен' ?></span>
                             <a href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo" style="color:#60a5fa;text-decoration:none;font-weight:800;"><?= $pc['active'] ? 'Выключить' : 'Включить' ?></a>
                             <a href="?delete_promo_id=<?= (int)$pc['id'] ?>#promo" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
@@ -2466,12 +2528,31 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                     <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
                                                 </div>
                                                 <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Цена</div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;">
+                                                        <?php if (!empty($viewOrder['promo_code']) && $readyCalcDiscountPct > 0): ?>
+                                                            <s style="color:#666;"><?= number_format($readyCalcBaseRub,0) ?>₽</s> → <span style="color:#4ade80;"><?= number_format($readyCalcBaseRub * (1 - $readyCalcDiscountPct/100),0) ?>₽</span>
+                                                        <?php else: ?>
+                                                            <?= number_format($readyCalcBaseRub,0) ?>₽
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
+                                                <?php if (!empty($viewOrder['promo_code'])): ?>
+                                                <div>
+                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Промокод</div>
+                                                    <div style="font-size:14px;color:#fdba74;font-weight:700;">🎁 <?= htmlspecialchars($viewOrder['promo_code']) ?><?= $readyCalcDiscountPct > 0 ? ' (−' . (int)$readyCalcDiscountPct . '%)' : '' ?></div>
+                                                </div>
+                                                <?php endif; ?>
+                                                <div>
                                                     <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
                                                     <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
                                                 </div>
                                             </div>
                                             <?php if (!empty($viewOrder['details'])): ?>
                                                 <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
+                                                <?php if (!empty($viewOrder['promo_code'])): ?>
+                                                <div style="font-size:12px;color:#fdba74;margin-bottom:8px;">🎁 Промокод "<?= htmlspecialchars($viewOrder['promo_code']) ?>" был применён к этому заказу<?= $readyCalcDiscountPct > 0 ? ' (скидка ' . (int)$readyCalcDiscountPct . '%)' : '' ?>.</div>
+                                                <?php endif; ?>
                                                 <div style="background:#0b0b10;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
                                             <?php endif; ?>
                                         </div>
@@ -2570,7 +2651,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <button type="submit" name="order_action" value="take_work" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚀 Взять в работу</button>
                                                 <button type="submit" name="order_action" value="urgent" style="border:1px solid rgba(239,184,74,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(239,184,74,.15);color:#efb84a;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">⚡ Сделать срочным</button>
                                                 <button type="submit" name="order_action" value="cooperation" onclick="return confirm('Отметить заказ как сотрудничество? Оплата не потребуется.')" style="border:1px solid rgba(250,204,21,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(250,204,21,.12);color:#facc15;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🤝 Сотрудничество</button>
-                                                <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
+                                                <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>, <?= (float)$readyCalcBaseRub ?>, <?= (float)$readyCalcBaseUan ?>, <?= (int)$readyCalcDiscountPct ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
                                                     <button type="submit" name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚫 Бан</button>
@@ -2771,6 +2852,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="crypto" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-crypto" onclick="selectPayMethod2('crypto')" style="border:1px solid rgba(96,165,250,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#93c5fd;background:rgba(96,165,250,.08);cursor:pointer;transition:.15s;">₿<br>Крипта</div></label>
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="monobank" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-monobank" onclick="selectPayMethod2('monobank')" style="border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#86efac;background:rgba(34,197,94,.08);cursor:pointer;transition:.15s;">🏦<br>Монобанк</div></label>
             </div>
+            <div id="discount-calc" style="background:#0e0e15;border:1px solid #232330;border-radius:12px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🧮 Калькулятор скидки</div>
+                <div id="discount-base-line" style="font-size:12px;color:#9a9aa8;margin-bottom:10px;">Базовая цена (с учётом срочности): <strong id="discount-base-text" style="color:#fff;">—</strong></div>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                    <input type="range" id="discount-slider" min="1" max="100" value="10" style="flex:1;accent-color:#f97316;">
+                    <span style="min-width:42px;text-align:right;font-weight:900;color:#fdba74;font-size:14px;"><span id="discount-pct-label">10</span>%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <label style="font-size:11px;color:#888;white-space:nowrap;">Скидка, ₽:</label>
+                    <input type="number" id="discount-amount-input" step="0.01" min="0" style="flex:1;background:#0a0a10;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid #1e1e28;">
+                    <span style="font-size:12px;color:#9a9aa8;">Итого к оплате: <strong id="discount-final-text" style="color:#4ade80;font-size:15px;">—</strong></span>
+                    <button type="button" onclick="applyDiscountToAmount()" style="border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-weight:800;font-size:11px;border-radius:8px;padding:7px 10px;cursor:pointer;">Подставить в сумму</button>
+                </div>
+            </div>
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">
                 <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Сумма..." style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;width:100%;box-sizing:border-box;">
@@ -2789,14 +2886,74 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>
 <script>
 let _selectedPayMethod = 'donation';
-function openReadyModal(orderId) {
+let _discountBaseRub = 0;
+let _discountBaseUan = 0;
+
+function openReadyModal(orderId, baseRub, baseUan, discountPct) {
     document.getElementById('ready-order-id').value = orderId;
     document.getElementById('ready-modal').style.display = 'flex';
     selectPayMethod2('donation');
+
+    _discountBaseRub = Number(baseRub) || 0;
+    _discountBaseUan = Number(baseUan) || 0;
+
+    var slider = document.getElementById('discount-slider');
+    var pct = Number(discountPct) || 0;
+    // Если у заказа уже стоит промокод со скидкой — сразу выставляем её
+    // ползунком, чтобы не сверять руками; если нет — по умолчанию 10%,
+    // просто как отправная точка для расчёта.
+    slider.value = pct > 0 ? pct : 10;
+
+    document.getElementById('discount-base-text').textContent =
+        _discountBaseRub > 0 ? (_discountBaseRub.toFixed(2) + ' ₽ / ' + _discountBaseUan.toFixed(2) + ' ₴') : 'нет данных о цене услуги';
+
+    recalcDiscountFromSlider();
 }
+
 function closeReadyModal() {
     document.getElementById('ready-modal').style.display = 'none';
 }
+
+// Ползунок -> сумма скидки (двигаем ползунок, поле суммы плавно подстраивается)
+function recalcDiscountFromSlider() {
+    var slider = document.getElementById('discount-slider');
+    var pct = Number(slider.value);
+    document.getElementById('discount-pct-label').textContent = pct;
+    var discountRub = _discountBaseRub * pct / 100;
+    document.getElementById('discount-amount-input').value = discountRub.toFixed(2);
+    updateDiscountFinalText(pct);
+}
+
+// Поле суммы -> процент (вписал сумму руками, ползунок сам встаёт на нужный %)
+function recalcDiscountFromAmount() {
+    var amountInput = document.getElementById('discount-amount-input');
+    var amount = Number(amountInput.value) || 0;
+    var pct = _discountBaseRub > 0 ? Math.min(100, Math.max(0, (amount / _discountBaseRub) * 100)) : 0;
+    var slider = document.getElementById('discount-slider');
+    slider.value = Math.round(pct);
+    document.getElementById('discount-pct-label').textContent = Math.round(pct);
+    updateDiscountFinalText(pct, amount);
+}
+
+function updateDiscountFinalText(pct, exactAmountRub) {
+    var discountRub = (exactAmountRub !== undefined) ? exactAmountRub : (_discountBaseRub * pct / 100);
+    var finalRub = Math.max(0, _discountBaseRub - discountRub);
+    var finalUan = _discountBaseUan > 0 ? Math.max(0, _discountBaseUan * (finalRub / (_discountBaseRub || 1))) : 0;
+    document.getElementById('discount-final-text').textContent =
+        _discountBaseRub > 0 ? (finalRub.toFixed(2) + ' ₽ / ' + finalUan.toFixed(2) + ' ₴') : '—';
+}
+
+function applyDiscountToAmount() {
+    var pct = Number(document.getElementById('discount-slider').value);
+    var discountRub = _discountBaseRub * pct / 100;
+    var finalRub = Math.max(0, _discountBaseRub - discountRub);
+    document.getElementById('ready-amount').value = finalRub.toFixed(2);
+    document.getElementById('ready-currency').value = 'RUB';
+}
+
+document.getElementById('discount-slider').addEventListener('input', recalcDiscountFromSlider);
+document.getElementById('discount-amount-input').addEventListener('input', recalcDiscountFromAmount);
+
 function selectPayMethod(radioEl) {
     if (radioEl && radioEl.value) selectPayMethod2(radioEl.value);
 }
