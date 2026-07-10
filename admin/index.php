@@ -22,7 +22,7 @@ try {
 
 $message = '';
 $uploadDir = '../uploads/';
-define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
+define('TELEGRAM_BOT_TOKEN', getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
 define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
 if (!defined('PRIVATE_PACK_CHAT_ID')) {
     define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
@@ -155,7 +155,7 @@ if (isset($_POST['save_bot_commands'])) {
 
     // Синхронизируем с Telegram (setMyCommands)
     try {
-        $_botToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
         $_allCmds  = $pdo->query("SELECT command, description FROM bot_commands ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
         $_tgCmds   = array_map(fn($c) => ['command' => ltrim($c['command'],'/'), 'description' => ($c['description'] ?: $c['command'])], $_allCmds);
         if (!empty($_tgCmds)) {
@@ -482,6 +482,88 @@ function setOrderDeadline(PDO $pdo, int $orderId, bool $isUrgent = false): void
     } catch (\Throwable $e) {}
 }
 
+/**
+ * Отправляет клиенту реквизиты на оплату — 1-в-1 с тем, что шлёт бот при
+ * нажатии "Обычный (5 сут.)" / "Срочный (24ч, +50%)" в Telegram
+ * (см. adm_accept_ / adm_accept_urgent_ в bot.php). Раньше кнопка "Принять"
+ * в веб-панели сразу переводила заказ в "в работе" БЕЗ этого шага вообще —
+ * из-за этого сайт и бот вели себя по-разному для одного и того же заказа.
+ */
+function adminAcceptWithPayment(PDO $pdo, int $orderId, bool $isUrgent): void
+{
+    $pdo->prepare("UPDATE orders SET status = 'awaiting_payment', payment_status = 'requested', accepted_at = NOW(), is_urgent = ? WHERE id = ?")
+        ->execute([$isUrgent ? 1 : 0, $orderId]);
+
+    $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$order) return;
+
+    // Ищем chat_id клиента — та же логика, что в notifyClientOrderStatus.
+    $chatId = trim((string)($order['client_chat_id'] ?? ''));
+    if (($chatId === '' || !is_numeric($chatId)) && !empty($order['session_id'])) {
+        try {
+            $lnk = $pdo->prepare("SELECT NULLIF(CAST(tg_id AS VARCHAR),'') AS chat_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+            $lnk->execute([$order['session_id']]);
+            $lnkRow = $lnk->fetch(PDO::FETCH_ASSOC);
+            if (!empty($lnkRow['chat_id']) && is_numeric($lnkRow['chat_id'])) {
+                $chatId = $lnkRow['chat_id'];
+                $pdo->prepare("UPDATE orders SET client_chat_id = ? WHERE id = ?")->execute([$chatId, $orderId]);
+                $order['client_chat_id'] = $chatId;
+            }
+        } catch (Throwable $e) {}
+    }
+
+    $promoDiscountPct = 0;
+    $promoCodeApplied = '';
+    if (!empty($order['promo_code'])) {
+        try {
+            $ppStmt = $pdo->prepare("SELECT discount_percent FROM promo_codes WHERE UPPER(code) = UPPER(?) LIMIT 1");
+            $ppStmt->execute([$order['promo_code']]);
+            $promoDiscountPct = (int)($ppStmt->fetchColumn() ?: 0);
+            $promoCodeApplied = $order['promo_code'];
+        } catch (Throwable $e) {}
+    }
+
+    $priceInfo = [];
+    try {
+        $priceStmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+        $priceStmt->execute([$order['service_key'] ?? '']);
+        $priceInfo = $priceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {}
+
+    $payText = paymentInstructionsText($orderId, array_merge($priceInfo, ['cooperation' => $order['cooperation'] ?? false]), !empty($order['cooperation']), $isUrgent, $promoDiscountPct, $promoCodeApplied);
+
+    if ($chatId === '' || !is_numeric($chatId)) return;
+
+    $payUrl = PUBLIC_SITE_URL . 'profile.php?order=' . $orderId;
+    $keyboard = paymentKeyboard($orderId, $payUrl);
+    $photoPath = __DIR__ . '/../assets/notify/pay.jpg';
+
+    if (is_file($photoPath)) {
+        $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendPhoto');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+            CURLOPT_POSTFIELDS => [
+                'chat_id' => $chatId, 'caption' => $payText, 'parse_mode' => 'HTML',
+                'photo' => new CURLFile($photoPath), 'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+        curl_exec($ch); curl_close($ch);
+    } else {
+        $ch = curl_init('https://api.telegram.org/bot' . TELEGRAM_BOT_TOKEN . '/sendMessage');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20,
+            CURLOPT_POSTFIELDS => [
+                'chat_id' => $chatId, 'text' => $payText, 'parse_mode' => 'HTML',
+                'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+        curl_exec($ch); curl_close($ch);
+    }
+    try { addOrderMessage($pdo, $orderId, 'admin', 'Заказ принят. Клиенту отправлены реквизиты.'); } catch (Throwable $e) {}
+}
+
 // ── Админские POST действия над заказом ──────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
     $orderId = (int)($_POST['order_id'] ?? 0);
@@ -490,7 +572,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
     if ($orderId > 0) {
         try {
             $msgAdmin = '';
-            if ($action === 'take_work') {
+            if ($action === 'accept_normal') {
+                // Точная копия "✅ Обычный (5 сут.)" из Telegram — раньше кнопка
+                // "Принять" в веб-панели сразу ставила "в работе" МИНУЯ оплату.
+                adminAcceptWithPayment($pdo, $orderId, false);
+                $msgAdmin = "✅ Заказ #{$orderId} принят, клиенту отправлены реквизиты на оплату.";
+            } elseif ($action === 'accept_urgent') {
+                adminAcceptWithPayment($pdo, $orderId, true);
+                $msgAdmin = "⚡ Заказ #{$orderId} принят как срочный, клиенту отправлены реквизиты (+50%).";
+            } elseif ($action === 'accept_queue') {
+                // Точная копия "📥 Просто в очередь" из Telegram — сразу в работу,
+                // минуя оплату (для бартера/договорённостей без денег).
+                $deadline = calculateOrderDeadline(false);
+                $pdo->prepare("UPDATE orders SET status = 'in_progress', payment_status = 'skipped', accepted_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
+                    ->execute([$deadline, $orderId]);
+                notifyClientOrderStatus($pdo, $orderId, 'in_progress');
+                $msgAdmin = "📥 Заказ #{$orderId} принят в очередь, минуя оплату.";
+            } elseif ($action === 'take_work') {
                 $pdo->prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?")->execute([$orderId]);
                 setOrderDeadline($pdo, $orderId, false);
                 notifyClientOrderStatus($pdo, $orderId, 'in_progress');
@@ -513,7 +611,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $_currSymbols = ['RUB' => '₽', 'USD' => '$', 'UAH' => '₴'];
                 $_sym = $_currSymbols[$paidCurrency] ?? $paidCurrency;
                 $_adminTg = getenv('ADMIN_ID') ?: '1710365896';
-                $_tok = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+                $_tok = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
                 $_ch = curl_init("https://api.telegram.org/bot{$_tok}/sendMessage");
                 curl_setopt_array($_ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
                     CURLOPT_POSTFIELDS => ['chat_id' => $_adminTg, 'parse_mode' => 'HTML',
@@ -1689,6 +1787,29 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .admin-order-card-price { text-align: right; font-size: 13px; font-weight: 800; color: #fff; flex-shrink: 0; }
         .admin-order-card-price span { color: #8a8a96; font-weight: 500; }
         .admin-order-card-accept { flex-shrink: 0; }
+
+        /* Выпадающее меню "Принять" — те же 4 варианта, что и в Telegram-боте
+           (Обычный / Срочный / Сотрудничество / Просто в очередь), вместо
+           одной кнопки, которая раньше сразу ставила заказ в работу без
+           оплаты — теперь сайт и бот ведут себя одинаково. */
+        details.accept-menu { position: relative; display: inline-block; }
+        details.accept-menu summary::-webkit-details-marker { display: none; }
+        details.accept-menu .accept-menu-popup {
+            position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+            background: #171720; border: 1px solid #2a2a38; border-radius: 10px;
+            padding: 6px; display: flex; flex-direction: column; gap: 4px;
+            min-width: 210px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+        }
+        details.accept-menu .accept-menu-popup button {
+            border: 0; background: transparent; color: #e8e8ee; text-align: left;
+            padding: 8px 10px; border-radius: 7px; font-size: 12px; font-weight: 700;
+            cursor: pointer; font-family: Montserrat, sans-serif; width: 100%;
+        }
+        details.accept-menu .accept-menu-popup button:hover { background: #24242e; }
+        details.accept-menu-full .accept-menu-popup { flex-direction: column; }
+        details.accept-menu-full .accept-menu-popup button {
+            border: 1px solid #2a2a38; margin-bottom: 4px; text-align: center;
+        }
         .admin-order-card-chevron { color: #4a4a58; font-size: 18px; flex-shrink: 0; transition: color .18s, transform .18s; }
         .admin-order-card:hover .admin-order-card-chevron { color: #f97316; transform: translateX(3px); }
         @media (max-width: 640px) {
@@ -2142,10 +2263,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             </div>
                                             <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                                                 <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;margin-top:0;">Открыть</a>
-                                                <form method="POST" style="margin:0;">
-                                                    <input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>">
-                                                    <button type="submit" name="order_action" value="take_work" class="btn-panel" style="background:#10b981;padding:8px 12px;margin-top:0;">Принять</button>
-                                                </form>
+                                                <details class="accept-menu">
+                                                    <summary class="btn-panel" style="background:#10b981;padding:8px 12px;margin-top:0;list-style:none;cursor:pointer;">Принять ▾</summary>
+                                                    <div class="accept-menu-popup">
+                                                        <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>"><button type="submit" name="order_action" value="accept_normal">✅ Обычный (5 сут.)</button></form>
+                                                        <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>"><button type="submit" name="order_action" value="accept_urgent">⚡️ Срочный (24ч, +50%)</button></form>
+                                                        <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>"><button type="submit" name="order_action" value="cooperation">🤝 Сотрудничество</button></form>
+                                                        <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$pord['id'] ?>"><button type="submit" name="order_action" value="accept_queue">📥 Просто в очередь</button></form>
+                                                    </div>
+                                                </details>
                                             </div>
                                         </div>
                                     <?php endforeach; ?>
@@ -2191,10 +2317,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     </div>
                                     <div class="admin-order-card-price"><?= (int)($order['price_rub']??0) ?> ₽<br><span><?= (int)($order['price_uan']??0) ?> ₴</span></div>
                                     <?php if ($order['status'] === 'pending'): ?>
-                                        <form method="POST" style="margin:0;" onclick="event.stopPropagation();">
-                                            <input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>">
-                                            <button type="submit" name="order_action" value="take_work" class="btn-panel admin-order-card-accept" style="background:#10b981;margin-top:0;padding:8px 14px;">Принять</button>
-                                        </form>
+                                        <details class="accept-menu" onclick="event.stopPropagation();" style="margin-top:0;">
+                                            <summary class="btn-panel admin-order-card-accept" style="background:#10b981;margin-top:0;padding:8px 14px;list-style:none;cursor:pointer;">Принять ▾</summary>
+                                            <div class="accept-menu-popup">
+                                                <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><button type="submit" name="order_action" value="accept_normal">✅ Обычный (5 сут.)</button></form>
+                                                <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><button type="submit" name="order_action" value="accept_urgent">⚡️ Срочный (24ч, +50%)</button></form>
+                                                <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><button type="submit" name="order_action" value="cooperation">🤝 Сотрудничество</button></form>
+                                                <form method="POST" style="margin:0;"><input type="hidden" name="order_id" value="<?= (int)$order['id'] ?>"><button type="submit" name="order_action" value="accept_queue">📥 Просто в очередь</button></form>
+                                            </div>
+                                        </details>
                                     <?php endif; ?>
                                     <span class="admin-order-card-chevron">→</span>
                                 </div>
@@ -2648,9 +2779,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
                                             <form method="POST" style="display:grid;grid-template-columns:1fr;gap:8px;width:100%;margin:0;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
-                                                <button type="submit" name="order_action" value="take_work" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚀 Взять в работу</button>
-                                                <button type="submit" name="order_action" value="urgent" style="border:1px solid rgba(239,184,74,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(239,184,74,.15);color:#efb84a;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">⚡ Сделать срочным</button>
-                                                <button type="submit" name="order_action" value="cooperation" onclick="return confirm('Отметить заказ как сотрудничество? Оплата не потребуется.')" style="border:1px solid rgba(250,204,21,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(250,204,21,.12);color:#facc15;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🤝 Сотрудничество</button>
+                                                <details class="accept-menu accept-menu-full">
+                                                    <summary style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;list-style:none;text-align:center;">🚀 Принять заказ ▾</summary>
+                                                    <div class="accept-menu-popup" style="position:static;width:100%;box-sizing:border-box;margin-top:8px;">
+                                                        <button type="submit" name="order_action" value="accept_normal">✅ Обычный (5 сут.)</button>
+                                                        <button type="submit" name="order_action" value="accept_urgent">⚡️ Срочный (24ч, +50%)</button>
+                                                        <button type="submit" name="order_action" value="cooperation" onclick="return confirm('Отметить заказ как сотрудничество? Оплата не потребуется.')">🤝 Сотрудничество</button>
+                                                        <button type="submit" name="order_action" value="accept_queue">📥 Просто в очередь</button>
+                                                    </div>
+                                                </details>
                                                 <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>, <?= (float)$readyCalcBaseRub ?>, <?= (float)$readyCalcBaseUan ?>, <?= (int)$readyCalcDiscountPct ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
@@ -2971,6 +3108,14 @@ function selectPayMethod2(method) {
 }
 document.getElementById('ready-modal').addEventListener('click', function(e) {
     if (e.target === this) closeReadyModal();
+});
+</script>
+<script>
+// Закрываем открытое меню "Принять", если кликнули куда-то ещё
+document.addEventListener('click', function(e) {
+    document.querySelectorAll('details.accept-menu[open]').forEach(function(d) {
+        if (!d.contains(e.target)) d.removeAttribute('open');
+    });
 });
 </script>
 </body>
