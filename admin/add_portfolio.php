@@ -10,7 +10,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/psd_manager.php';
 
 // ── Настройки ────────────────────────────────────────────────────
-$bot_token     = getenv('BOT_TOKEN')    ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$bot_token     = getenv('BOT_TOKEN')    ?: getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $channel_id    = getenv('CHANNEL_ID')   ?: "@designkostlim";
 $private_chat  = getenv('PRIVATE_CHAT_ID') ?: "-1003781426510";
 $admin_id      = getenv('ADMIN_ID')     ?: "1710365896";

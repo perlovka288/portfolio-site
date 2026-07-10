@@ -114,7 +114,7 @@ if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 
-$bot_token   = getenv('BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$bot_token   = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
 $my_chat_id  = getenv('ADMIN_ID')  ?: "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
 $support_tg  = 'https://t.me/Perlo_ovka';

@@ -337,7 +337,7 @@ if (isset($_POST['send_appeal'])) {
         $appealMsg = 'ok';
 
         // ── Уведомление админу в Telegram ──
-        $_tgToken = getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_tgToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
         $_adminId = getenv('ADMIN_ID') ?: '1710365896';
         $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
         $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"
