@@ -1845,63 +1845,61 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         @media (max-width: 1100px) { .admin-board { grid-template-columns: 1fr; } .admin-tabs { position: static; grid-template-columns: repeat(2,1fr); } .stats-grid { grid-template-columns: repeat(2,1fr); } .admin-layout { grid-template-columns: 1fr; } }
         @media (max-width: 640px) { .admin-shell { padding: 16px; } .admin-top { align-items: flex-start; flex-direction: column; } .admin-tabs { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr; } .two-cols { grid-template-columns: 1fr; } }
 
-        /* ═══════════════════════════════════════════════════════
-           НЕОНОВЫЕ ИКОНКИ В ЗАГОЛОВКАХ (как на главном меню)
-           ═══════════════════════════════════════════════════════ */
-        .neon-emoji { display: inline-block; filter: drop-shadow(0 0 6px rgba(249,115,22,.65)) drop-shadow(0 0 16px rgba(249,115,22,.35)); }
-        .panel-head { text-align: center; margin-bottom: 22px; }
-        .panel-head h2 { font-size: 20px; margin-bottom: 6px; justify-content: center; }
-        .panel-head p { color: #8a8a96; font-size: 12.5px; margin: 0; }
-        .panel h2 { display: flex; align-items: center; gap: 9px; }
+        /* ══════════════════════════════════════════════════════════════
+           НОВАЯ КОНЦЕПЦИЯ: центральная форма + сетка карточек + Drawer
+           Единый паттерн для Портфолио / Услуг / Категорий / Промокодов
+        ══════════════════════════════════════════════════════════════ */
+        .section-block { margin-bottom: 40px; }
+        .section-heading { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 900; margin: 0 0 18px; letter-spacing: .2px; }
+        .section-heading .neon-ico { font-size: 18px; filter: drop-shadow(0 0 8px rgba(249,115,22,.55)); }
 
-        /* ═══════════════════════════════════════════════════════
-           ЦЕНТРИРОВАННАЯ СИММЕТРИЧНАЯ ФОРМА ДОБАВЛЕНИЯ
-           ═══════════════════════════════════════════════════════ */
-        .centered-form-wrap { max-width: 620px; margin: 0 auto; }
-        .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-        .field-grid > div { min-width: 0; }
-        .centered-form-wrap .btn-panel { max-width: 320px; margin: 18px auto 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .create-card { max-width: 960px; margin: 0 auto 6px; background: linear-gradient(180deg,#14141c,#111116); border: 1px solid rgba(255,255,255,.06); border-radius: 20px; padding: 28px 30px 26px; box-shadow: 0 0 30px rgba(249,115,22,.08), 0 20px 50px rgba(0,0,0,.35); }
+        .create-card-head { text-align: center; margin-bottom: 20px; }
+        .create-card-head h2 { font-size: 19px; margin: 0 0 6px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .create-card-head p { color: #8a8a96; font-size: 12.5px; margin: 0; }
+        .create-card hr.divider { border: none; border-top: 1px solid rgba(255,255,255,.06); margin: 18px 0; }
+        .create-card label { text-align: left; }
+        .create-card .btn-panel { max-width: 420px; margin-left: auto; margin-right: auto; display: block; }
 
-        /* ═══════════════════════════════════════════════════════
-           СЕТКА КЕЙСОВ — 3 КАРТОЧКИ В РЯД
-           ═══════════════════════════════════════════════════════ */
-        .case-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
-        .case-card { position: relative; background: #0b0b10; border: 1px solid #20202c; border-radius: 14px; overflow: hidden; cursor: pointer; transition: .22s; text-align: left; padding: 0; }
-        .case-card:hover { border-color: rgba(249,115,22,.55); transform: translateY(-3px); box-shadow: 0 14px 32px rgba(249,115,22,.18), 0 0 0 1px rgba(249,115,22,.25); }
-        .case-card-thumb { position: relative; width: 100%; aspect-ratio: 16/9; background: #111116; overflow: hidden; }
-        .case-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: .35s; }
-        .case-card:hover .case-card-thumb img { transform: scale(1.06); }
-        .case-card-ava { position: absolute; right: 8px; bottom: -22px; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #f97316; box-shadow: 0 4px 14px rgba(0,0,0,.5); background: #0b0b10; }
-        .case-card-body { padding: 14px 14px 14px; }
-        .case-card-title { font-size: 13.5px; font-weight: 800; color: #fff; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .case-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .case-card-cat { color: #8a8a96; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .case-card-price { color: #fdba74; font-size: 11.5px; font-weight: 900; flex-shrink: 0; }
-        .case-card-edit-hint { position: absolute; top: 8px; right: 8px; background: rgba(8,8,11,.75); backdrop-filter: blur(4px); border: 1px solid rgba(249,115,22,.45); color: #fdba74; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; padding: 5px 9px; border-radius: 999px; opacity: 0; transition: .2s; pointer-events: none; }
-        .case-card:hover .case-card-edit-hint { opacity: 1; }
+        .grid-wrap { max-width: 1160px; margin: 34px auto 0; }
+        .card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 22px; }
+        @media (max-width: 1000px) { .card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        @media (max-width: 620px)  { .card-grid { grid-template-columns: 1fr; } }
 
-        /* ═══════════════════════════════════════════════════════
-           УНИВЕРСАЛЬНАЯ МОДАЛКА РЕДАКТИРОВАНИЯ
-           ═══════════════════════════════════════════════════════ */
-        .admin-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(4,4,6,.72); backdrop-filter: blur(3px); z-index: 1000; align-items: center; justify-content: center; padding: 24px; }
-        .admin-modal-overlay.open { display: flex; }
-        .admin-modal { width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #111116; border: 1px solid rgba(249,115,22,.35); border-radius: 16px; padding: 22px; box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 40px rgba(249,115,22,.08); animation: modalIn .18s ease-out; }
-        @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        .admin-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-        .admin-modal-head h3 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
-        .admin-modal-close { border: 1px solid #2a2a38; background: #171720; color: #c8c8d8; width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center; transition: .2s; flex-shrink: 0; }
-        .admin-modal-close:hover { border-color: #f97316; color: #fff; background: rgba(249,115,22,.15); }
-        .admin-modal-thumbs { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 6px; }
-        .admin-modal-thumbs .m-main { width: 100%; height: 120px; border-radius: 10px; border: 1px solid #20202c; object-fit: cover; }
-        .admin-modal-thumbs .m-ava { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; border: 2px solid #f97316; object-fit: cover; margin-left: -66px; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
-        .admin-modal .delete-link { display: block; text-align: center; margin-top: 12px; }
-        .case-grid-empty { color: #8a8a96; text-align: center; padding: 30px 0; }
+        .item-card { position: relative; background: #181A23; border: 1px solid rgba(255,255,255,.05); border-radius: 17px; overflow: hidden; cursor: pointer; box-shadow: 0 0 25px rgba(255,136,0,.08); transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
+        .item-card:hover { transform: scale(1.03); box-shadow: 0 0 42px rgba(255,136,0,.22), 0 14px 32px rgba(0,0,0,.45); border-color: rgba(249,115,22,.35); }
+        .item-card-media { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #0d0d12; overflow: hidden; }
+        .item-card-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .item-card-media .no-media { display:flex; align-items:center; justify-content:center; height:100%; color:#3d3d4a; font-size:34px; }
+        .item-card-body { padding: 13px 15px 15px; }
+        .item-card-title { font-size: 14px; font-weight: 800; color: #fff; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .item-card-sub { font-size: 11.5px; color: #8a8a96; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .3px; }
+        .item-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .item-card-price { font-weight: 900; color: #fdba74; font-size: 13px; }
+        .item-card-badge { font-size: 10.5px; font-weight: 800; padding: 3px 10px; border-radius: 999px; background: rgba(34,197,94,.15); color: #86efac; white-space: nowrap; }
+        .item-card-badge.off { background: rgba(255,255,255,.06); color: #8a8a96; }
+        .empty-hint { color: #666674; font-size: 13px; text-align: center; padding: 30px 10px; }
 
-        @media (max-width: 900px) { .case-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-        @media (max-width: 640px) { .case-grid { grid-template-columns: 1fr; } .field-grid { grid-template-columns: 1fr; } }
+        .drawer-overlay { position: fixed; inset: 0; background: rgba(5,5,8,.6); backdrop-filter: blur(2px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+        .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+        .edit-drawer { position: fixed; top: 0; right: 0; height: 100%; width: 420px; max-width: 92vw; background: #111116; border-left: 1px solid #20202c; z-index: 301; padding: 26px 24px 24px; overflow-y: auto; transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1); box-shadow: -24px 0 60px rgba(0,0,0,.55); }
+        .edit-drawer.open { transform: translateX(0); }
+        .edit-drawer-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+        .edit-drawer-head h3 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
+        .edit-drawer-close { background: transparent; border: 1px solid #2a2a38; color: #8a8a96; font-size: 15px; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; line-height: 1; transition: .2s; }
+        .edit-drawer-close:hover { color: #fff; border-color: #f97316; background: rgba(249,115,22,.12); }
+        .edit-drawer .drawer-preview { width: 100%; border-radius: 12px; margin: 14px 0 4px; object-fit: cover; max-height: 180px; background: #0d0d12; }
+        .edit-drawer .btn-panel { margin-top: 18px; }
+        .drawer-danger { width: 100%; margin-top: 10px; border: 1px solid rgba(255,107,118,.3); background: rgba(255,107,118,.08); color: #ff6b76; border-radius: 10px; padding: 11px 14px; font-weight: 800; font-size: 12.5px; text-align: center; cursor: pointer; text-decoration: none; display: block; transition: .2s; font-family: Montserrat,sans-serif; }
+        .drawer-danger:hover { background: rgba(255,107,118,.16); }
+        .drawer-toggle { width: 100%; margin-top: 8px; border: 1px solid #2a2a38; background: #171720; color: #d8d8e8; border-radius: 10px; padding: 11px 14px; font-weight: 800; font-size: 12.5px; text-align: center; cursor: pointer; text-decoration: none; display: block; transition: .2s; font-family: Montserrat,sans-serif; }
+        .drawer-toggle:hover { border-color: #f97316; background: rgba(249,115,22,.1); color: #fff; }
+        .drawer-meta-row { display: flex; justify-content: space-between; font-size: 12px; color: #8a8a96; padding: 8px 0; border-bottom: 1px solid #20202c; }
+        .drawer-meta-row b { color: #d8d8e8; font-weight: 700; }
     </style>
 </head>
 <body>
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawers()"></div>
 
 <div id="admin-toast"></div>
 
@@ -1940,6 +1938,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
             <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
             <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
+            <button type="button" class="admin-tab"        data-tab="promo"      onclick="activateAdminTab('promo')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 22a2 2 0 0 1-2.83 0l-6.17-6.17a2 2 0 0 1 0-2.83L11.59 3.41A2 2 0 0 1 13 2.83L20.59 13.41z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg> Промокоды</button>
             <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
             <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
@@ -2081,71 +2080,86 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             </div>
 
             <!-- ════════════════════════════════════════════════════════════
-                 ПРОМОКОДЫ
+                 ПРОМОКОДЫ — отдельная вкладка, тот же паттерн: форма → карточки → drawer
             ════════════════════════════════════════════════════════════ -->
-            <div id="promo" style="margin-top:26px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                    <h2 style="margin:0;font-size:16px;">🎁 Промокоды</h2>
+            <div class="panel tab-hidden section-block" data-panel="promo">
+                <div class="create-card">
+                    <div class="create-card-head">
+                        <h2>🎟 Создать промокод</h2>
+                        <p>Каждый промокод одноразовый на человека: повторно ввести код, уже занятый в заказе, клиент не сможет</p>
+                    </div>
+                    <form method="POST">
+                        <div class="two-cols">
+                            <div><label>🔤 Код</label><input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="text-transform:uppercase;"></div>
+                            <div><label>％ Скидка (необязательно)</label><input type="number" name="pc_discount" min="0" max="100" placeholder="10"></div>
+                        </div>
+                        <label>🎁 Бонус (текст, покажется клиенту)</label>
+                        <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка">
+                        <hr class="divider">
+                        <div class="two-cols">
+                            <div>
+                                <label>⏳ Срок действия</label>
+                                <select name="pc_duration" id="pc_duration_select" onchange="document.getElementById('pc_custom_date_wrap').style.display = this.value==='custom' ? 'block' : 'none';">
+                                    <option value="none">Без срока</option>
+                                    <option value="7">Неделя (7 дней)</option>
+                                    <option value="10">10 дней</option>
+                                    <option value="15">15 дней</option>
+                                    <option value="20">20 дней</option>
+                                    <option value="25">25 дней</option>
+                                    <option value="30">Месяц (30 дней)</option>
+                                    <option value="custom">Другая дата…</option>
+                                </select>
+                            </div>
+                            <div><label>🔢 Лимит активаций</label><input type="number" name="pc_max_uses" min="1" placeholder="без лимита"></div>
+                        </div>
+                        <div id="pc_custom_date_wrap" style="display:none;">
+                            <label>📅 Дата окончания</label>
+                            <input type="date" name="pc_custom_date">
+                        </div>
+                        <button type="submit" name="add_promo" class="btn-panel">🟠 Создать промокод</button>
+                    </form>
                 </div>
-                <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#14141c;border:1px solid #22222e;border-radius:10px;padding:12px;margin-bottom:12px;">
-                    <label style="font-size:11px;color:#9a9aa8;">Код
-                        <input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;text-transform:uppercase;width:160px;">
-                    </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Скидка %  (необязательно)
-                        <input type="number" name="pc_discount" min="0" max="100" placeholder="10" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:110px;">
-                    </label>
-                    <label style="font-size:11px;color:#9a9aa8;flex:1;min-width:200px;">Бонус (текст, покажется клиенту)
-                        <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка" style="display:block;margin-top:4px;width:100%;box-sizing:border-box;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
-                    </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Срок действия
-                        <select name="pc_duration" id="pc_duration_select" onchange="document.getElementById('pc_custom_date_wrap').style.display = this.value==='custom' ? 'block' : 'none';" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
-                            <option value="none">Без срока</option>
-                            <option value="7">Неделя (7 дней)</option>
-                            <option value="10">10 дней</option>
-                            <option value="15">15 дней</option>
-                            <option value="20">20 дней</option>
-                            <option value="25">25 дней</option>
-                            <option value="30">Месяц (30 дней)</option>
-                            <option value="custom">Другая дата…</option>
-                        </select>
-                    </label>
-                    <label id="pc_custom_date_wrap" style="font-size:11px;color:#9a9aa8;display:none;">Дата окончания
-                        <input type="date" name="pc_custom_date" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
-                    </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Лимит активаций (необязательно)
-                        <input type="number" name="pc_max_uses" min="1" placeholder="без лимита" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:130px;">
-                    </label>
-                    <button type="submit" name="add_promo" style="border:0;border-radius:8px;padding:9px 16px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;height:37px;">Сохранить</button>
-                </form>
-                <p style="font-size:11px;color:#555;margin:-4px 0 12px;">Каждый промокод одноразовый на человека: как только у клиента появится заказ с этим кодом в работе (не «ожидает» и не «отклонён») — повторно ввести тот же код он не сможет.</p>
+
                 <?php
                     $promoList = [];
                     try { $promoList = $pdo->query("SELECT * FROM promo_codes ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
                 ?>
-                <?php if ($promoList): ?>
-                <div style="display:flex;flex-direction:column;gap:6px;">
-                    <?php foreach ($promoList as $pc): ?>
-                        <?php
-                            $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
-                            $pcMaxed   = !empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses'];
-                        ?>
-                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:9px 12px;flex-wrap:wrap;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
-                            <strong style="color:#fdba74;letter-spacing:.5px;"><?= htmlspecialchars($pc['code']) ?></strong>
-                            <?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?><span style="color:#4ade80;">−<?= (int)$pc['discount_percent'] ?>%</span><?php endif; ?>
-                            <span style="color:#9a9aa8;"><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></span>
-                            <span style="color:<?= $pcMaxed ? '#f87171' : '#555' ?>;">использован: <?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : '' ?></span>
-                            <?php if (!empty($pc['expires_at'])): ?>
-                                <span style="color:<?= $pcExpired ? '#f87171' : '#666' ?>;">до <?= date('d.m.Y', strtotime($pc['expires_at'])) ?><?= $pcExpired ? ' (истёк)' : '' ?></span>
-                            <?php endif; ?>
-                            <span style="margin-left:auto;color:<?= $pc['active'] ? '#4ade80' : '#666' ?>;font-weight:800;"><?= $pc['active'] ? 'активен' : 'выключен' ?></span>
-                            <a href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo" style="color:#60a5fa;text-decoration:none;font-weight:800;"><?= $pc['active'] ? 'Выключить' : 'Включить' ?></a>
-                            <a href="?delete_promo_id=<?= (int)$pc['id'] ?>#promo" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
-                        </div>
-                    <?php endforeach; ?>
+                <div class="grid-wrap">
+                    <?php if ($promoList): ?>
+                    <div class="card-grid">
+                        <?php foreach ($promoList as $pc): ?>
+                            <?php
+                                $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
+                                $pcMaxed   = !empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses'];
+                                $pcDrawerId = 'drawer-promo-' . (int)$pc['id'];
+                            ?>
+                            <div class="item-card" onclick="openDrawer('<?= $pcDrawerId ?>')" style="<?= $pc['active'] ? '' : 'opacity:.5;' ?>">
+                                <div class="item-card-media"><div class="no-media">🎟</div></div>
+                                <div class="item-card-body">
+                                    <div class="item-card-title"><?= htmlspecialchars($pc['code']) ?></div>
+                                    <div class="item-card-sub"><?= htmlspecialchars($pc['bonus_text'] ?: 'без бонуса') ?></div>
+                                    <div class="item-card-foot">
+                                        <span class="item-card-price"><?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?>−<?= (int)$pc['discount_percent'] ?>%<?php else: ?>—<?php endif; ?></span>
+                                        <span class="item-card-badge <?= $pc['active'] ? '' : 'off' ?>"><?= $pc['active'] ? '🟢 Активен' : '⚪ Выключен' ?></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="edit-drawer" id="<?= $pcDrawerId ?>" onclick="event.stopPropagation()">
+                                <div class="edit-drawer-head"><h3>🎟 <?= htmlspecialchars($pc['code']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+                                <div class="drawer-meta-row"><span>Скидка</span><b><?= (int)($pc['discount_percent'] ?? 0) > 0 ? '−' . (int)$pc['discount_percent'] . '%' : '—' ?></b></div>
+                                <div class="drawer-meta-row"><span>Бонус</span><b><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></b></div>
+                                <div class="drawer-meta-row"><span>Использован</span><b style="color:<?= $pcMaxed ? '#f87171' : '#d8d8e8' ?>;"><?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : ' / без лимита' ?></b></div>
+                                <div class="drawer-meta-row"><span>Срок действия</span><b style="color:<?= $pcExpired ? '#f87171' : '#d8d8e8' ?>;"><?= !empty($pc['expires_at']) ? date('d.m.Y', strtotime($pc['expires_at'])) . ($pcExpired ? ' (истёк)' : '') : 'бессрочно' ?></b></div>
+                                <div class="drawer-meta-row"><span>Статус</span><b style="color:<?= $pc['active'] ? '#4ade80' : '#8a8a96' ?>;"><?= $pc['active'] ? 'Активен' : 'Выключен' ?></b></div>
+                                <a class="drawer-toggle" href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo"><?= $pc['active'] ? '⏸ Выключить' : '▶️ Включить' ?></a>
+                                <a class="drawer-danger" href="?delete_promo_id=<?= (int)$pc['id'] ?>" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')">🗑 Удалить промокод</a>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php else: ?>
+                        <p class="empty-hint">Промокодов пока нет — создайте первый выше 👆</p>
+                    <?php endif; ?>
                 </div>
-                <?php else: ?>
-                    <p style="color:#666;font-size:13px;">Промокодов пока нет.</p>
-                <?php endif; ?>
             </div>
 
             <!-- ════════════════════════════════════════════════════════════
@@ -2239,21 +2253,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </form>
                     </div>
 
-                    <!-- ════ ПОРТФОЛИО ════ -->
-                    <section class="panel" data-panel="portfolio-add">
-                        <div class="centered-form-wrap">
-                            <div class="panel-head">
-                                <h2><span class="neon-emoji">📁</span> Добавить в портфолио</h2>
+                    <!-- ════ ПОРТФОЛИО: ДОБАВЛЕНИЕ ════ -->
+                    <section class="panel section-block" data-panel="portfolio-add">
+                        <div class="create-card">
+                            <div class="create-card-head">
+                                <h2>✨ Добавить в портфолио</h2>
                                 <p>Загрузи новую работу — она появится в кейсах и на сайте</p>
                             </div>
                             <form id="portfolio-form" enctype="multipart/form-data">
-                                <div class="field-grid">
+                                <div class="two-cols">
+                                    <div><label>📝 Название проекта</label><input type="text" name="title" required placeholder="Например: сет Naruto"></div>
                                     <div>
-                                        <label>Название проекта</label>
-                                        <input type="text" name="title" required placeholder="Например: сет Naruto">
-                                    </div>
-                                    <div>
-                                        <label>Категория графики</label>
+                                        <label>🖼 Категория графики</label>
                                         <select name="category_key" id="category_select" onchange="toggleAvatarField()">
                                             <?php foreach ($categories as $category): ?>
                                                 <option value="<?= htmlspecialchars($category['category_key']) ?>">
@@ -2264,20 +2275,22 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         </select>
                                     </div>
                                 </div>
+                                <hr class="divider">
                                 <div class="two-cols">
                                     <div><label>💰 Цена в рублях</label><input type="number" name="price_rub" value="0" min="0"></div>
-                                    <div><label>💰 Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
+                                    <div><label>💵 Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
                                 </div>
-                                <label>🖼️ Главное изображение / шапка</label>
+                                <hr class="divider">
+                                <label>🖼 Главное изображение / шапка</label>
                                 <input type="file" name="image" accept="image/*" required>
-                                <label class="tg-checkbox"><input type="checkbox" name="publish_tg" value="1" checked> 📣 Публиковать в Telegram-канал</label>
                                 <div id="avatar_upload_block" style="display:none;">
                                     <label>👤 Аватарка к оформлению</label>
                                     <input type="file" name="avatar_image" accept="image/*">
                                     <div class="avatar-hint">Для категории "Оформление" шапка широкая, аватарка — круглое превью.</div>
                                 </div>
+                                <label class="tg-checkbox" style="margin-top:16px;"><input type="checkbox" name="publish_tg" value="1" checked> ✈️ Публиковать в Telegram-канал</label>
                                 <button type="submit" class="btn-panel" id="portfolio-submit-btn">
-                                    <span class="btn-text">✨ Загрузить в кейсы</span>
+                                    <span class="btn-text">🟠 Добавить проект</span>
                                     <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем на ImgBB...</span>
                                 </button>
                             </form>
@@ -2286,28 +2299,56 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </section>
 
                     <!-- ════ КАТЕГОРИИ ════ -->
-                    <section class="panel" data-panel="categories">
-                        <h2>🧩 Создать категорию</h2>
-                        <form action="" method="POST">
-                            <label>Название категории</label>
-                            <input type="text" name="cat_title" required placeholder="Например: Пост VK">
-                            <label>Ключ категории</label>
-                            <input type="text" name="cat_key" placeholder="vk_post">
-                            <div class="avatar-hint">Латиница без пробелов.</div>
-                            <div class="two-cols">
-                                <div><label>Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
-                                <div><label>Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
+                    <section class="panel section-block" data-panel="categories">
+                        <div class="create-card">
+                            <div class="create-card-head">
+                                <h2>📂 Создать категорию</h2>
+                                <p>Категории используются в портфолио и прайсе для группировки работ</p>
                             </div>
-                            <label style="display:flex;gap:8px;align-items:center;margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" style="width:auto;margin:0;"> Это оформление с аватаркой</label>
-                            <button type="submit" name="add_portfolio_category" class="btn-panel">Добавить категорию</button>
-                        </form>
-                        <div style="margin-top:14px;display:grid;gap:8px;">
-                            <?php foreach ($categories as $category): ?>
-                                <div style="display:flex;justify-content:space-between;gap:10px;color:#d8d8e8;font-size:12px;border-top:1px solid #242432;padding-top:8px;">
-                                    <span><?= htmlspecialchars($category['title']) ?><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> · <?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?><?php endif; ?></span>
-                                    <a class="delete-link" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">Удалить</a>
+                            <form action="" method="POST">
+                                <div class="two-cols">
+                                    <div><label>📝 Название категории</label><input type="text" name="cat_title" required placeholder="Например: Пост VK"></div>
+                                    <div><label>🔑 Ключ категории</label><input type="text" name="cat_key" placeholder="vk_post"></div>
                                 </div>
-                            <?php endforeach; ?>
+                                <div class="avatar-hint">Ключ — латиницей, без пробелов.</div>
+                                <hr class="divider">
+                                <div class="two-cols">
+                                    <div><label>↔️ Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
+                                    <div><label>↕️ Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
+                                </div>
+                                <label class="tg-checkbox" style="margin-top:16px;"><input type="checkbox" name="cat_is_design" value="1"> 👤 Это оформление с аватаркой</label>
+                                <button type="submit" name="add_portfolio_category" class="btn-panel">🟠 Добавить категорию</button>
+                            </form>
+                        </div>
+
+                        <div class="grid-wrap">
+                            <?php if ($categories): ?>
+                            <div class="card-grid">
+                                <?php foreach ($categories as $category): ?>
+                                    <?php $catDrawerId = 'drawer-cat-' . (int)$category['id']; ?>
+                                    <div class="item-card" onclick="openDrawer('<?= $catDrawerId ?>')">
+                                        <div class="item-card-media"><div class="no-media">📂</div></div>
+                                        <div class="item-card-body">
+                                            <div class="item-card-title"><?= htmlspecialchars($category['title']) ?></div>
+                                            <div class="item-card-sub">🔑 <?= htmlspecialchars($category['category_key']) ?></div>
+                                            <div class="item-card-foot">
+                                                <span class="item-card-price"><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?><?php else: ?>— px —<?php endif; ?></span>
+                                                <?php if (!empty($category['is_design'])): ?><span class="item-card-badge">👤 С аватаркой</span><?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="edit-drawer" id="<?= $catDrawerId ?>" onclick="event.stopPropagation()">
+                                        <div class="edit-drawer-head"><h3>📂 <?= htmlspecialchars($category['title']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+                                        <div class="drawer-meta-row"><span>Ключ</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
+                                        <div class="drawer-meta-row"><span>Размер рамки</span><b><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?> px<?php else: ?>не задан<?php endif; ?></b></div>
+                                        <div class="drawer-meta-row"><span>Оформление с аватаркой</span><b><?= !empty($category['is_design']) ? 'Да' : 'Нет' ?></b></div>
+                                        <a class="drawer-danger" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php else: ?>
+                                <p class="empty-hint">Категорий пока нет — добавьте первую выше 👆</p>
+                            <?php endif; ?>
                         </div>
                     </section>
 
@@ -2471,25 +2512,32 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </section>
 
                     <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
-                    <section class="panel" data-panel="price-add">
-                        <h2>➕ Добавить услугу в прайс</h2>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <label>Название услуги</label>
-                            <input type="text" name="service_title" required placeholder="Например: Баннер для постов">
-                            <label>Ключ услуги</label>
-                            <input type="text" name="service_key" placeholder="post_banner">
-                            <div class="two-cols">
-                                <div><label>Цена в рублях</label><input type="number" name="service_price_rub" value="0" min="0"></div>
-                                <div><label>Цена в гривнах</label><input type="number" name="service_price_uan" value="0" min="0"></div>
+                    <section class="panel section-block" data-panel="price-add">
+                        <div class="create-card">
+                            <div class="create-card-head">
+                                <h2>🎨 Добавить услугу</h2>
+                                <p>Новая позиция появится в прайс-листе и на сайте</p>
                             </div>
-                            <label>Описание</label>
-                            <textarea name="service_description" placeholder="Коротко, что входит в услугу"></textarea>
-                            <label>Фичи</label>
-                            <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
-                            <label>Обложка услуги</label>
-                            <input type="file" name="service_image" accept="image/*">
-                            <button type="submit" name="add_price_service" class="btn-panel">Добавить услугу</button>
-                        </form>
+                            <form action="" method="POST" enctype="multipart/form-data">
+                                <div class="two-cols">
+                                    <div><label>📝 Название услуги</label><input type="text" name="service_title" required placeholder="Например: Баннер для постов"></div>
+                                    <div><label>🔑 Ключ услуги</label><input type="text" name="service_key" placeholder="post_banner"></div>
+                                </div>
+                                <hr class="divider">
+                                <div class="two-cols">
+                                    <div><label>💰 Цена в рублях</label><input type="number" name="service_price_rub" value="0" min="0"></div>
+                                    <div><label>💵 Цена в гривнах</label><input type="number" name="service_price_uan" value="0" min="0"></div>
+                                </div>
+                                <hr class="divider">
+                                <label>📄 Описание</label>
+                                <textarea name="service_description" placeholder="Коротко, что входит в услугу"></textarea>
+                                <label>⚡ Фичи</label>
+                                <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
+                                <label>🖼 Обложка услуги</label>
+                                <input type="file" name="service_image" accept="image/*">
+                                <button type="submit" name="add_price_service" class="btn-panel">🟠 Добавить услугу</button>
+                            </form>
+                        </div>
                     </section>
 
                     <!-- ════ АВАТАРКА САЙТА ════ -->
@@ -2515,123 +2563,113 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                 <section>
                     <!-- ════ МЕНЕДЖЕР ЦЕН ════ -->
-                    <div class="panel" data-panel="price-manager">
-                        <h2>💲 Менеджер цен и прайс-листа</h2>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <div class="admin-table-wrap">
-                                <table>
-                                    <thead><tr><th>Обложка</th><th>Услуга</th><th>Описание и фичи</th><th>Цены</th><th></th></tr></thead>
-                                    <tbody>
-                                        <?php foreach ($services as $service): $id = (int)$service['id']; ?>
-                                            <tr>
-                                                <td>
-                                                    <?php if (!empty($service['image'])): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div><?php else: ?><span style="color:#666674;font-size:11px;">Нет обложки</span><?php endif; ?>
-                                                    <div style="margin-top:8px;"><input type="file" name="price_images[<?= $id ?>]" accept="image/*"></div>
-                                                </td>
-                                                <td>
-                                                    <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
-                                                    <div style="color:#8a8a96;margin-top:6px;font-size:11px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
-                                                </td>
-                                                <td>
-                                                    <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
-                                                    <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Фичи через |" style="margin-top:8px;">
-                                                </td>
-                                                <td>
-                                                    <input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>">
-                                                    <input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>" style="margin-top:8px;">
-                                                </td>
-                                                <td><a class="delete-link" href="?delete_price_id=<?= $id ?>" onclick="return confirm('Удалить услугу?')">Удалить</a></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <button type="submit" name="save_all_prices" class="btn-panel" style="background:#22c55e;">Сохранить весь прайс</button>
+                    <div class="panel section-block" data-panel="price-manager">
+                        <div class="section-heading"><span class="neon-ico">💲</span> Все услуги</div>
+                        <div class="grid-wrap">
+                            <form action="" method="POST" enctype="multipart/form-data">
+                                <?php if ($services): ?>
+                                <div class="card-grid">
+                                    <?php foreach ($services as $service): $id = (int)$service['id']; $drawerId = 'drawer-price-' . $id; ?>
+                                        <div class="item-card" onclick="openDrawer('<?= $drawerId ?>')">
+                                            <div class="item-card-media">
+                                                <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" alt=""><?php else: ?><div class="no-media">🎨</div><?php endif; ?>
+                                            </div>
+                                            <div class="item-card-body">
+                                                <div class="item-card-title"><?= htmlspecialchars($service['title']??'') ?></div>
+                                                <div class="item-card-sub">🔑 <?= htmlspecialchars($service['category_key']??'') ?></div>
+                                                <div class="item-card-foot">
+                                                    <span class="item-card-price">💰<?= money($service['price_rub']??0) ?> ₽ / <?= money($service['price_uan']??0) ?> ₴</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="edit-drawer" id="<?= $drawerId ?>" onclick="event.stopPropagation()">
+                                            <div class="edit-drawer-head"><h3>✏️ Редактирование услуги</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+                                            <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="drawer-preview" alt=""><?php endif; ?>
+                                            <label>📝 Название услуги</label>
+                                            <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
+                                            <label>📄 Описание</label>
+                                            <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
+                                            <label>⚡ Фичи</label>
+                                            <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Через | например: PSD-файл|2 правки">
+                                            <div class="two-cols">
+                                                <div><label>💰 Цена ₽</label><input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>"></div>
+                                                <div><label>💵 Цена ₴</label><input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>"></div>
+                                            </div>
+                                            <hr class="divider">
+                                            <label>🖼 Заменить обложку</label>
+                                            <input type="file" name="price_images[<?= $id ?>]" accept="image/*">
+                                            <div class="avatar-hint">Кнопка ниже сохраняет изменения по всем услугам сразу.</div>
+                                            <button type="submit" name="save_all_prices" class="btn-panel" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 8px 24px rgba(34,197,94,.3);">💾 Сохранить прайс</button>
+                                            <a class="drawer-danger" href="?delete_price_id=<?= $id ?>" onclick="return confirm('Удалить услугу?')">🗑 Удалить услугу</a>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php else: ?>
+                                    <p class="empty-hint">Услуг пока нет — добавьте первую выше 👆</p>
+                                <?php endif; ?>
                         </form>
                     </div>
 
                     <!-- ════ УПРАВЛЕНИЕ КЕЙСАМИ ════ -->
-                    <div class="panel" data-panel="portfolio-list">
-                        <h2><span class="neon-emoji">🎬</span> Управление кейсами</h2>
-
-                        <?php if (empty($works)): ?>
-                            <p class="case-grid-empty">Кейсов пока нет — добавь первый выше 👆</p>
-                        <?php else: ?>
-                            <div class="case-grid">
+                    <div class="panel section-block" data-panel="portfolio-list">
+                        <div class="section-heading"><span class="neon-ico">🎬</span> Все проекты</div>
+                        <div class="grid-wrap">
+                            <?php if ($works): ?>
+                            <div class="card-grid">
                                 <?php foreach ($works as $work): ?>
                                     <?php
                                         $img = $work['image']??''; $ava = $work['avatar_image']??''; $cat = $work['category_key']??'preview';
-                                        $mid = 'case-modal-' . (int)$work['id'];
+                                        $fid = 'case-edit-' . (int)$work['id'];
+                                        $drawerId = 'drawer-case-' . (int)$work['id'];
                                         $catLabel = $categoryLabels[$cat] ?? $cat;
                                     ?>
-                                    <div class="case-card" onclick="openCaseModal('<?= $mid ?>')">
-                                        <div class="case-card-thumb">
-                                            <?php if ($img !== ''): ?><img src="<?= htmlspecialchars(imgSrc($img)) ?>" alt="" draggable="false"><?php endif; ?>
-                                            <?php if ($ava !== ''): ?><img src="<?= htmlspecialchars(imgSrc($ava)) ?>" class="case-card-ava" alt="" draggable="false"><?php endif; ?>
-                                            <span class="case-card-edit-hint">✏️ Изменить</span>
+                                    <div class="item-card" onclick="openDrawer('<?= $drawerId ?>')">
+                                        <div class="item-card-media">
+                                            <?php if ($img !== ''): ?><img src="<?= htmlspecialchars(imgSrc($img)) ?>" alt="" draggable="false"><?php else: ?><div class="no-media">🖼</div><?php endif; ?>
                                         </div>
-                                        <div class="case-card-body">
-                                            <div class="case-card-title"><?= htmlspecialchars($work['title']??'') ?></div>
-                                            <div class="case-card-meta">
-                                                <span class="case-card-cat"><?= htmlspecialchars($catLabel) ?></span>
-                                                <span class="case-card-price"><?= (int)($work['price_rub']??0) ?>₽ / <?= (int)($work['price_uan']??0) ?>₴</span>
+                                        <div class="item-card-body">
+                                            <div class="item-card-title"><?= htmlspecialchars($work['title']??'') ?></div>
+                                            <div class="item-card-sub">🎨 <?= htmlspecialchars($catLabel) ?></div>
+                                            <div class="item-card-foot">
+                                                <span class="item-card-price">💰<?= money($work['price_rub']??0) ?> ₽ / <?= money($work['price_uan']??0) ?> ₴</span>
+                                                <span class="item-card-badge">🟢 Активно</span>
                                             </div>
                                         </div>
                                     </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
 
-                        <!-- Модалки редактирования каждого кейса — открываются кликом по карточке -->
-                        <?php foreach ($works as $work): ?>
-                            <?php
-                                $img = $work['image']??''; $ava = $work['avatar_image']??''; $cat = $work['category_key']??'preview';
-                                $fid = 'case-edit-' . (int)$work['id'];
-                                $mid = 'case-modal-' . (int)$work['id'];
-                            ?>
-                            <div class="admin-modal-overlay" id="<?= $mid ?>" onclick="if(event.target===this) closeCaseModal('<?= $mid ?>')">
-                                <div class="admin-modal">
-                                    <div class="admin-modal-head">
-                                        <h3>✏️ Редактировать кейс</h3>
-                                        <button type="button" class="admin-modal-close" onclick="closeCaseModal('<?= $mid ?>')">✕</button>
-                                    </div>
-
-                                    <!-- Форма объявлена пустой здесь и связана с полями ниже через атрибут
-                                         form="<?= $fid ?>", чтобы избежать проблем с версткой формы. -->
+                                    <!-- Форма кейса объявлена пустой здесь; поля лежат в Drawer ниже
+                                         и связаны через атрибут form="<?= $fid ?>" -->
                                     <form id="<?= $fid ?>" action="" method="POST" enctype="multipart/form-data"></form>
                                     <input type="hidden" form="<?= $fid ?>" name="portfolio_id" value="<?= (int)$work['id'] ?>">
-
-                                    <div class="admin-modal-thumbs">
-                                        <?php if ($img !== ''): ?><img class="m-main" src="<?= htmlspecialchars(imgSrc($img)) ?>" alt=""><?php endif; ?>
-                                        <?php if ($ava !== ''): ?><img class="m-ava" src="<?= htmlspecialchars(imgSrc($ava)) ?>" alt=""><?php endif; ?>
+                                    <div class="edit-drawer" id="<?= $drawerId ?>" onclick="event.stopPropagation()">
+                                        <div class="edit-drawer-head"><h3>✏️ Редактирование</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+                                        <?php if ($img !== ''): ?><img src="<?= htmlspecialchars(imgSrc($img)) ?>" class="drawer-preview" alt=""><?php endif; ?>
+                                        <label>📝 Название</label>
+                                        <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>">
+                                        <label>🖼 Категория</label>
+                                        <select form="<?= $fid ?>" name="portfolio_category">
+                                            <?php foreach ($categories as $catOpt): ?>
+                                                <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <div class="two-cols">
+                                            <div><label>💰 Цена ₽</label><input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>"></div>
+                                            <div><label>💵 Цена ₴</label><input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>"></div>
+                                        </div>
+                                        <hr class="divider">
+                                        <label>🖼 Заменить главное изображение</label>
+                                        <input type="file" form="<?= $fid ?>" name="portfolio_image" accept="image/*">
+                                        <label>👤 Заменить аватарку</label>
+                                        <input type="file" form="<?= $fid ?>" name="portfolio_avatar" accept="image/*">
+                                        <button type="submit" form="<?= $fid ?>" name="update_portfolio_media" class="btn-panel">💾 Сохранить изменения</button>
+                                        <a class="drawer-danger" href="?delete_portfolio_id=<?= (int)$work['id'] ?>" onclick="return confirm('Удалить кейс?')">🗑 Удалить кейс</a>
                                     </div>
-
-                                    <label>Название</label>
-                                    <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>">
-
-                                    <label>Категория</label>
-                                    <select form="<?= $fid ?>" name="portfolio_category">
-                                        <?php foreach ($categories as $catOpt): ?>
-                                            <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-
-                                    <div class="two-cols">
-                                        <div><label>💰 Цена, ₽</label><input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>"></div>
-                                        <div><label>💰 Цена, ₴</label><input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>"></div>
-                                    </div>
-
-                                    <label>🖼️ Заменить главное изображение</label>
-                                    <input type="file" form="<?= $fid ?>" name="portfolio_image" accept="image/*">
-
-                                    <label>👤 Заменить аватарку</label>
-                                    <input type="file" form="<?= $fid ?>" name="portfolio_avatar" accept="image/*">
-
-                                    <button type="submit" form="<?= $fid ?>" name="update_portfolio_media" class="btn-panel">💾 Сохранить изменения</button>
-                                    <a class="delete-link" href="?delete_portfolio_id=<?= (int)$work['id'] ?>" onclick="return confirm('Удалить кейс?')">🗑️ Удалить кейс</a>
-                                </div>
+                                <?php endforeach; ?>
                             </div>
-                        <?php endforeach; ?>
+                            <?php else: ?>
+                                <p class="empty-hint">Кейсов пока нет — добавьте первый выше 👆</p>
+                            <?php endif; ?>
+                        </div>
                     </div>
 
                     <!-- ════ ОБРАЩЕНИЯ ════ -->
@@ -2975,6 +3013,20 @@ function toggleAvatarField() {
     block.style.display = designCategories.includes(category) ? 'block' : 'none';
 }
 
+function openDrawer(id) {
+    document.querySelectorAll('.edit-drawer.open').forEach(d => d.classList.remove('open'));
+    const d = document.getElementById(id);
+    if (d) d.classList.add('open');
+    const ov = document.getElementById('drawer-overlay');
+    if (ov) ov.classList.add('open');
+}
+function closeDrawers() {
+    document.querySelectorAll('.edit-drawer.open').forEach(d => d.classList.remove('open'));
+    const ov = document.getElementById('drawer-overlay');
+    if (ov) ov.classList.remove('open');
+}
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeDrawers(); });
+
 function activateAdminTab(tab) {
     const ordPanel = document.getElementById('order-detail-panel');
     if (ordPanel) ordPanel.style.display = 'none';
@@ -2995,9 +3047,10 @@ function activateAdminTab(tab) {
 
     if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
     else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); }
-    else if (tab === 'price')     { show('price-add','price-manager');      if (layout) layout.classList.remove('single-column'); }
+    else if (tab === 'price')     { show('price-add','price-manager'); }
     else if (tab === 'orders')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
+    else if (tab === 'promo')     { show('promo'); }
     else if (tab === 'reviews')   { show('reviews'); }
     else if (tab === 'commands')  { show('commands'); }
     else if (tab === 'rules')     { show('rules'); }
@@ -3005,26 +3058,8 @@ function activateAdminTab(tab) {
     else if (tab === 'avatar')    { show('avatar'); }
     else if (tab === 'logs')      { show('logs'); }
     else if (tab === 'ai-prompt') { show('ai-prompt'); }
+    if (typeof closeDrawers === 'function') closeDrawers();
 }
-
-/* ═══ Модалка редактирования кейса — открывается кликом по карточке ═══ */
-function openCaseModal(id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.add('open');
-    document.body.style.overflow = 'hidden';
-}
-function closeCaseModal(id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.remove('open');
-    document.body.style.overflow = '';
-}
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        document.querySelectorAll('.admin-modal-overlay.open').forEach(o => closeCaseModal(o.id));
-    }
-});
 
 function initFileInputs() {
     document.querySelectorAll('input[type="file"]').forEach(input => {
