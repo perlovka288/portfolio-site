@@ -217,7 +217,7 @@ function deadlineBadge(string $deadlineDatetime, bool $isUrgent = false, string 
     $diff = $now->diff($dl);
     $overdue = $dl < $now;
     $dateStr = $dl->format('d.m.Y H:i');
-    $color = $overdue ? '#ef4444' : ($isUrgent ? '#f97316' : '#60a5fa');
+    $color = $overdue ? '#FF4D5E' : ($isUrgent ? '#FF8A2A' : '#60a5fa');
     $bg    = $overdue ? 'rgba(239,68,68,.18)' : ($isUrgent ? 'rgba(249,115,22,.18)' : 'rgba(96,165,250,.12)');
     $icon  = $overdue ? '🔴' : ($isUrgent ? '⚡' : '📅');
     if ($status === 'ready') {
@@ -1664,91 +1664,98 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
     <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
     <link rel="stylesheet" href="../style.css">
     <style>
-        * { scrollbar-width: thin; scrollbar-color: #f97316 #111116; }
+        * { scrollbar-width: thin; scrollbar-color: #FF8A2A #171A22; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #111116; border-radius: 99px; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#fb923c,#f97316); border-radius: 99px; }
-        ::-webkit-scrollbar-thumb:hover { background: #fb923c; }
-        body { background: #08080b; color: #fff; font-family: Montserrat, Arial, sans-serif; }
+        ::-webkit-scrollbar-track { background: #171A22; border-radius: 99px; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#FF9C48,#FF8A2A); border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: #FF9C48; }
+        body { background: #0F1117; color: #fff; font-family: Montserrat, Arial, sans-serif; }
         .admin-shell { max-width: 1480px; margin: 0 auto; padding: 24px; }
         .admin-top { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 22px; }
         .admin-title h1 { font-size: 28px; line-height: 1.1; margin: 0 0 6px; }
-        .admin-title p { color: #8a8a96; margin: 0; }
+        .admin-title p { color: #9AA4B2; margin: 0; }
         .admin-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-        .admin-meta span { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #242432; background: #111116; color: #d8d8e8; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
+        .admin-meta span { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.08); background: #171A22; color: #d8d8e8; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
         .admin-meta span.ok   { border-color: rgba(34,197,94,.5);  background: rgba(34,197,94,.1);  color: #86efac; }
-        .admin-meta span.warn { border-color: rgba(249,115,22,.5); background: rgba(249,115,22,.1); color: #fdba74; }
-        .admin-link-top { color: #fff; text-decoration: none; border: 1px solid #242432; border-radius: 10px; padding: 11px 18px; background: #111116; font-size: 13px; font-weight: 700; transition: .2s; }
-        .admin-link-top:hover { border-color: #f97316; background: rgba(249,115,22,.1); }
+        .admin-meta span.warn { border-color: rgba(249,115,22,.5); background: rgba(249,115,22,.1); color: #FFB27A; }
+        .admin-link-top { color: #fff; text-decoration: none; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 11px 18px; background: #171A22; font-size: 13px; font-weight: 700; transition: .2s; }
+        .admin-link-top:hover { border-color: #FF8A2A; background: rgba(249,115,22,.1); }
         .notice { border: 1px solid rgba(249,115,22,.45); background: rgba(249,115,22,.10); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-weight: 700; }
         .notice.success { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.10); color: #86efac; }
-        .notice.error   { border-color: rgba(239,68,68,.45);  background: rgba(239,68,68,.10);  color: #fca5a5; }
+        .notice.error   { border-color: rgba(239,68,68,.45);  background: rgba(239,68,68,.10);  color: #FFB3BC; }
         .admin-board { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 18px; align-items: start; }
-        .admin-tabs { position: sticky; top: 18px; display: grid; gap: 9px; background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 12px; }
-        .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #d8d8e8; font-weight: 900; text-align: left; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
-        .admin-tab:hover { background: #171720; border-color: #2a2a38; }
-        .admin-tab.active { color: #fff; background: linear-gradient(135deg,#f97316,#ea580c); box-shadow: 0 12px 28px rgba(249,115,22,.28); border-color: transparent; }
+        .admin-tabs { position: sticky; top: 18px; display: grid; gap: 4px; background: #171A22; border: 1px solid rgba(255,255,255,.06); border-radius: 16px; padding: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.28); }
+        .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #9AA4B2; font-weight: 700; text-align: left; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 13px; transition: .16s ease; }
+        .admin-tab:hover { background: #1F2430; color: #fff; }
+        .admin-tab.active { color: #17110A; background: #FF8A2A; box-shadow: 0 6px 18px rgba(255,138,42,.28); border-color: transparent; font-weight: 900; }
         .admin-content { min-width: 0; }
         .stats-grid { display: grid; grid-template-columns: repeat(6, minmax(150px,1fr)); gap: 12px; margin-bottom: 18px; }
-        .stat-card { background: #111116; border: 1px solid #20202c; border-radius: 12px; padding: 16px; min-height: 92px; }
-        .stat-card span { color: #8a8a96; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+        .stat-card { background: #171A22; border: 1px solid rgba(255,255,255,.06); border-radius: 16px; padding: 18px; min-height: 92px; transition: box-shadow .18s ease; }
+        .stat-card:hover { box-shadow: 0 10px 32px rgba(0,0,0,.38); }
+        .stat-card span { color: #9AA4B2; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         .stat-card strong { display: block; font-size: 25px; margin-top: 10px; }
-        .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg,rgba(249,115,22,.18),#111116); }
-        .stat-card.warn strong { color: #f97316; }
+        .stat-card.accent { border-color: rgba(249,115,22,.6); background: linear-gradient(145deg,rgba(249,115,22,.18),#171A22); }
+        .stat-card.warn strong { color: #FF8A2A; }
         .admin-layout { display: grid; grid-template-columns: 380px minmax(0,1fr); gap: 18px; align-items: start; }
         .admin-layout.single-column { grid-template-columns: 1fr; }
-        .panel { background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 18px; margin-bottom: 18px; }
-        .panel h2 { font-size: 16px; margin-bottom: 14px; }
+        .panel { background: #171A22; border: 1px solid rgba(255,255,255,.06); border-radius: 16px; padding: 22px; margin-bottom: 20px; box-shadow: 0 4px 24px rgba(0,0,0,.28); transition: box-shadow .18s ease; }
+        .panel:hover { box-shadow: 0 10px 32px rgba(0,0,0,.38); }
+        .panel h2 { font-size: 16px; margin-bottom: 16px; }
         .avatar-preview-wrap { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
-        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #f97316; background: #0b0b10; flex-shrink: 0; }
-        .avatar-preview-info { color: #8a8a96; font-size: 12px; line-height: 1.6; }
+        .avatar-preview-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #FF8A2A; background: #0F1117; flex-shrink: 0; }
+        .avatar-preview-info { color: #9AA4B2; font-size: 12px; line-height: 1.6; }
         .avatar-preview-info strong { display: block; color: #d8d8e8; margin-bottom: 2px; font-size: 13px; }
         label { display: block; color: #d9d9e4; font-size: 12px; font-weight: 800; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
-        input:not([type="file"]):not([type="checkbox"]), select, textarea { width: 100%; background: #171720; color: #fff; border: 1px solid #2a2a38; border-radius: 9px; padding: 11px 12px; outline: none; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
-        input:not([type="file"]):not([type="checkbox"]):focus, select:focus, textarea:focus { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,.18), 0 0 14px rgba(249,115,22,.22); }
+        input:not([type="file"]):not([type="checkbox"]), select, textarea { width: 100%; min-height: 48px; background: #12141C; color: #fff; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 11px 14px; outline: none; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
+        input:not([type="file"]):not([type="checkbox"]):focus, select:focus, textarea:focus { border-color: #FF8A2A; box-shadow: 0 0 0 3px rgba(249,115,22,.18), 0 0 14px rgba(249,115,22,.22); }
         textarea { min-height: 64px; resize: vertical; }
         select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a96' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
         input[type="file"].styled-hidden { display: none; }
         .file-upload-wrap { display: flex; align-items: center; gap: 10px; width: 100%; }
-        .file-upload-btn { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; background: #1e1e2a; border: 1px solid #2a2a38; border-radius: 9px; padding: 9px 16px; color: #d8d8e8; font-size: 12px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; flex-shrink: 0; user-select: none; }
-        .file-upload-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
+        .file-upload-btn { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; background: #1e1e2a; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; padding: 9px 16px; color: #d8d8e8; font-size: 12px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; flex-shrink: 0; user-select: none; }
+        .file-upload-btn:hover { background: rgba(249,115,22,.15); border-color: #FF8A2A; color: #fff; }
         .file-upload-btn svg { flex-shrink: 0; }
-        .file-upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8a8a96; font-size: 12px; font-style: italic; }
+        .file-upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9AA4B2; font-size: 12px; font-style: italic; }
         .file-upload-name.has-file { color: #86efac; font-style: normal; font-weight: 700; }
         .mini-file-wrap { display: flex; flex-direction: column; gap: 6px; }
-        .mini-file-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: #1a1a24; border: 1px solid #2a2a38; border-radius: 7px; padding: 7px 12px; color: #c8c8d8; font-size: 11px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; user-select: none; }
-        .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #f97316; color: #fff; }
-        .mini-file-name { font-size: 10px; color: #8a8a96; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+        .mini-file-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: #1F2430; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; padding: 7px 12px; color: #C7CDD6; font-size: 11px; font-weight: 700; white-space: nowrap; transition: .2s; font-family: Montserrat,sans-serif; user-select: none; }
+        .mini-file-btn:hover { background: rgba(249,115,22,.15); border-color: #FF8A2A; color: #fff; }
+        .mini-file-name { font-size: 10px; color: #9AA4B2; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
         .mini-file-name.has-file { color: #86efac; font-style: normal; }
         .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
-        .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
-        .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
+        .tg-checkbox input { width:auto; margin:0; accent-color:#FF8A2A; }
+        .avatar-hint { color: #9AA4B2; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #FF8A2A; }
         .tab-hidden { display: none !important; }
+        @keyframes at-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .panel:not(.tab-hidden) { animation: at-fade-up .3s ease both; }
+        .admin-order-card:hover { transform: translateY(-1px) scale(1.02); }
+        .stat-card:hover, .review-card:hover { transform: scale(1.01); }
+        .review-card, .stat-card { transition: transform .18s ease, box-shadow .18s ease; }
         #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
         #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
         #admin-toast.success { background: #0f2b1a; border: 1px solid rgba(34,197,94,.5); color: #86efac; }
-        #admin-toast.error   { background: #2b0f0f; border: 1px solid rgba(239,68,68,.5);  color: #fca5a5; }
-        #admin-toast.loading { background: #1a1a24; border: 1px solid rgba(249,115,22,.5); color: #fdba74; }
-        .admin-table-wrap { overflow-x: auto; border: 1px solid #20202c; border-radius: 12px; }
+        #admin-toast.error   { background: #2b0f0f; border: 1px solid rgba(239,68,68,.5);  color: #FFB3BC; }
+        #admin-toast.loading { background: #1F2430; border: 1px solid rgba(249,115,22,.5); color: #FFB27A; }
+        .admin-table-wrap { overflow-x: auto; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; }
         table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        th, td { padding: 12px; border-bottom: 1px solid #20202c; text-align: left; vertical-align: middle; }
-        th { color: #8a8a96; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
-        td { color: #efeff7; font-size: 13px; }
+        th, td { padding: 12px; border-bottom: 1px solid rgba(255,255,255,.06); text-align: left; vertical-align: middle; }
+        th { color: #9AA4B2; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+        td { color: #E9ECF1; font-size: 13px; }
         tr:last-child td { border-bottom: 0; }
         tr:hover td { background: rgba(255,255,255,.015); }
         .thumb-pair { display: flex; align-items: center; gap: 8px; }
         .case-thumb-wrap { position: relative; display: inline-block; user-select: none; }
         .case-thumb-wrap::after { content: ''; position: absolute; inset: 0; z-index: 2; cursor: default; }
-        .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0b0b10; pointer-events: none; user-select: none; -webkit-user-drag: none; display: block; }
-        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #f97316; margin-left: -22px; background: #111116; pointer-events: none; user-select: none; -webkit-user-drag: none; }
-        .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0b0b10; border: 1px solid #272735; pointer-events: none; }
+        .case-thumb { width: 98px; height: 55px; object-fit: cover; border-radius: 8px; background: #0F1117; pointer-events: none; user-select: none; -webkit-user-drag: none; display: block; }
+        .case-ava { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; border: 2px solid #FF8A2A; margin-left: -22px; background: #171A22; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+        .price-thumb { width: 70px; height: 44px; object-fit: cover; border-radius: 8px; background: #0F1117; border: 1px solid #272735; pointer-events: none; }
         .status { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #191924; color: #d8d8e8; font-weight: 800; font-size: 12px; }
-        .status.pending     { background: rgba(249,115,22,.18); color: #fb923c; }
+        .status.pending     { background: rgba(249,115,22,.18); color: #FF9C48; }
         .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
-        .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
+        .status.urgent      { background: rgba(234,88,12,.18); color: #FF9C48; }
         .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
-        .status.declined    { background: rgba(239,68,68,.15); color: #fca5a5; }
+        .status.declined    { background: rgba(239,68,68,.15); color: #FFB3BC; }
         tr.order-row.status-ready td       { background: rgba(34,197,94,.08); }
         tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
@@ -1761,8 +1768,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             display: flex;
             align-items: center;
             gap: 16px;
-            background: #14141c;
-            border: 1px solid #23232f;
+            background: #171A22;
+            border: 1px solid rgba(255,255,255,.06);
             border-radius: 14px;
             padding: 14px 18px;
             cursor: pointer;
@@ -1771,7 +1778,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .admin-order-card:hover, .admin-order-card:focus-visible {
             border-color: rgba(249,115,22,.55);
             box-shadow: 0 0 0 1px rgba(249,115,22,.25), 0 8px 24px rgba(249,115,22,.10);
-            background: #17171f;
+            background: #171A22;
             transform: translateY(-1px);
             outline: none;
         }
@@ -1782,10 +1789,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
         .admin-order-card-main { flex: 1; min-width: 0; }
         .admin-order-card-client { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-        .admin-order-card-client span { color: #8a8a96; font-weight: 500; margin-left: 6px; }
+        .admin-order-card-client span { color: #9AA4B2; font-weight: 500; margin-left: 6px; }
         .admin-order-card-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .admin-order-card-price { text-align: right; font-size: 13px; font-weight: 800; color: #fff; flex-shrink: 0; }
-        .admin-order-card-price span { color: #8a8a96; font-weight: 500; }
+        .admin-order-card-price span { color: #9AA4B2; font-weight: 500; }
         .admin-order-card-accept { flex-shrink: 0; }
 
         /* Выпадающее меню "Принять" — те же 4 варианта, что и в Telegram-боте
@@ -1796,7 +1803,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         details.accept-menu summary::-webkit-details-marker { display: none; }
         details.accept-menu .accept-menu-popup {
             position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
-            background: #171720; border: 1px solid #2a2a38; border-radius: 10px;
+            background: #171A22; border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
             padding: 6px; display: flex; flex-direction: column; gap: 4px;
             min-width: 210px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
         }
@@ -1808,10 +1815,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         details.accept-menu .accept-menu-popup button:hover { background: #24242e; }
         details.accept-menu-full .accept-menu-popup { flex-direction: column; }
         details.accept-menu-full .accept-menu-popup button {
-            border: 1px solid #2a2a38; margin-bottom: 4px; text-align: center;
+            border: 1px solid rgba(255,255,255,.08); margin-bottom: 4px; text-align: center;
         }
         .admin-order-card-chevron { color: #4a4a58; font-size: 18px; flex-shrink: 0; transition: color .18s, transform .18s; }
-        .admin-order-card:hover .admin-order-card-chevron { color: #f97316; transform: translateX(3px); }
+        .admin-order-card:hover .admin-order-card-chevron { color: #FF8A2A; transform: translateX(3px); }
         @media (max-width: 640px) {
             .admin-order-card { flex-wrap: wrap; }
             .admin-order-card-price { order: 3; margin-left: 58px; }
@@ -1819,29 +1826,29 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr.order-row.status-urgent { outline: 2px solid rgba(239,68,68,.45); border-radius: 8px; }
         .deadline-badge-overdue { animation: pulse-red 1.5s ease-in-out infinite; }
         @keyframes pulse-red { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50%{ box-shadow: 0 0 0 4px rgba(239,68,68,.35); } }
-        .delete-link { color: #ff6b76; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
-        .delete-link:hover { background: rgba(255,107,118,.12); border-color: #ff6b76; }
+        .delete-link { color: #FF4D5E; text-decoration: none; font-weight: 800; font-size: 12px; padding: 6px 12px; border: 1px solid rgba(255,107,118,.25); border-radius: 7px; transition: .2s; display: inline-block; }
+        .delete-link:hover { background: rgba(255,107,118,.12); border-color: #FF4D5E; }
         .mini-media-form { display: grid; gap: 7px; min-width: 190px; }
-        .mini-media-form button { border: 0; border-radius: 8px; padding: 8px 12px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; transition: .2s; }
+        .mini-media-form button { border: 0; border-radius: 8px; padding: 8px 12px; background: linear-gradient(135deg,#FF9C48,#FF8A2A); color: #fff; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; transition: .2s; }
         .mini-media-form button:hover { opacity: .85; }
-        .btn-panel { width: 100%; margin-top: 14px; border: none; border-radius: 10px; padding: 13px 16px; background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; font-weight: 900; cursor: pointer; text-transform: uppercase; font-family: Montserrat,sans-serif; letter-spacing: 1px; font-size: 13px; box-shadow: 0 8px 24px rgba(249,115,22,.30); transition: .2s; position: relative; }
-        .btn-panel:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 28px rgba(249,115,22,.55), 0 12px 30px rgba(249,115,22,.25); }
+        .btn-panel { width: 100%; min-height: 48px; margin-top: 14px; border: none; border-radius: 12px; padding: 13px 16px; background: #FF8A2A; color: #17110A; font-weight: 900; cursor: pointer; text-transform: uppercase; font-family: Montserrat,sans-serif; letter-spacing: 1px; font-size: 13px; box-shadow: 0 8px 24px rgba(255,138,42,.30); transition: .18s ease; position: relative; }
+        .btn-panel:hover:not(:disabled) { background: #FF9C48; transform: translateY(-1px); box-shadow: 0 0 28px rgba(255,138,42,.45), 0 12px 30px rgba(255,138,42,.22); }
         .btn-panel:disabled { opacity: .6; cursor: not-allowed; transform: none; }
         .btn-panel .btn-spinner { display: none; }
         .btn-panel.loading .btn-text { display: none; }
         .btn-panel.loading .btn-spinner { display: inline-flex; align-items: center; gap: 8px; }
-        .review-card { background: #0b0b10; border: 1px solid #20202c; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+        .review-card { background: #0F1117; border: 1px solid rgba(255,255,255,.06); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
         .review-card.pending { border-color: rgba(249,115,22,.35); background: rgba(249,115,22,.04); }
         .review-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
         .review-header .name { font-weight: 800; color: #fff; }
-        .review-header .rating { font-size: 14px; font-weight: 700; color: #f97316; }
+        .review-header .rating { font-size: 14px; font-weight: 700; color: #FF8A2A; }
         .review-actions { display: flex; gap: 6px; }
         .review-btn { border: none; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 800; cursor: pointer; font-family: Montserrat,sans-serif; transition: .2s; }
         .review-btn.approve { background: rgba(34,197,94,.2); color: #86efac; border: 1px solid rgba(34,197,94,.35); }
         .review-btn.approve:hover { background: rgba(34,197,94,.35); }
-        .review-btn.reject { background: rgba(239,68,68,.2); color: #fca5a5; border: 1px solid rgba(239,68,68,.35); }
+        .review-btn.reject { background: rgba(239,68,68,.2); color: #FFB3BC; border: 1px solid rgba(239,68,68,.35); }
         .review-btn.reject:hover { background: rgba(239,68,68,.35); }
-        .cmd-row { display: grid; grid-template-columns: 100px 1fr 100px 60px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px; background: #0b0b10; border-radius: 8px; }
+        .cmd-row { display: grid; grid-template-columns: 100px 1fr 100px 60px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 8px; background: #0F1117; border-radius: 8px; }
         @media (max-width: 1100px) { .admin-board { grid-template-columns: 1fr; } .admin-tabs { position: static; grid-template-columns: repeat(2,1fr); } .stats-grid { grid-template-columns: repeat(2,1fr); } .admin-layout { grid-template-columns: 1fr; } }
         @media (max-width: 640px) { .admin-shell { padding: 16px; } .admin-top { align-items: flex-start; flex-direction: column; } .admin-tabs { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr; } .two-cols { grid-template-columns: 1fr; } }
     </style>
@@ -1881,11 +1888,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="portfolio"  onclick="activateAdminTab('portfolio')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 2l-4 5-4-5"/></svg> Портфолио</button>
             <button type="button" class="admin-tab"        data-tab="price"      onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
             <button type="button" class="admin-tab"        data-tab="orders"     onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Заказы</button>
-            <button type="button" class="admin-tab"        data-tab="reviews"    onclick="activateAdminTab('reviews')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Отзывы<?php if (!empty($pendingReviews)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= count($pendingReviews) ?></span><?php endif; ?></button>
+            <button type="button" class="admin-tab"        data-tab="reviews"    onclick="activateAdminTab('reviews')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Отзывы<?php if (!empty($pendingReviews)): ?> <span style="background:#FF8A2A;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= count($pendingReviews) ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
             <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
             <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
-            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
+            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#FF8A2A;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
             <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
             <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
@@ -1913,7 +1920,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             ?>
             <section class="stats-grid">
                 <?php if (!$daConnected): ?>
-                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
+                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#FF8A2A; text-decoration:none;">Авторизовать</a></span></div>
                     <div class="stat-card"><span>Донатов за месяц</span><strong>$0.00</strong></div>
                     <div class="stat-card"><span>Выведено за месяц</span><strong>$0.00</strong></div>
                     <div class="stat-card"><span>Комиссия</span><strong>$0.00</strong></div>
@@ -1928,24 +1935,24 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
             <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
             <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <span style="color:#8a8a96;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
-                <button type="button" onclick="document.getElementById('manualEarningModal').style.display='flex'" title="Добавить/убрать сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+                <span style="color:#9AA4B2;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
+                <button type="button" onclick="document.getElementById('manualEarningModal').style.display='flex'" title="Добавить/убрать сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#FFB27A;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
             </div>
             <section class="stats-grid" style="margin-bottom:0;">
                 <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
                     <span>💳 Донейшен</span>
                     <strong><?= money($payByMethod['donation']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['donation']/$usdRate,2,'.',',') ?></span>
+                    <span style="font-size:11px;color:#9AA4B2;">$<?= number_format($payByMethod['donation']/$usdRate,2,'.',',') ?></span>
                 </div>
                 <div class="stat-card" style="background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.3);">
                     <span>₿ Крипта</span>
                     <strong><?= money($payByMethod['crypto']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['crypto']/$usdRate,2,'.',',') ?></span>
+                    <span style="font-size:11px;color:#9AA4B2;">$<?= number_format($payByMethod['crypto']/$usdRate,2,'.',',') ?></span>
                 </div>
                 <div class="stat-card" style="background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);">
                     <span>🏦 Монобанк</span>
                     <strong><?= money($payByMethod['monobank']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">₴<?= number_format($payByMethod['monobank']/$uahRate,2,'.',',') ?></span>
+                    <span style="font-size:11px;color:#9AA4B2;">₴<?= number_format($payByMethod['monobank']/$uahRate,2,'.',',') ?></span>
                 </div>
             </section>
             <section class="stats-grid" style="margin-top:8px;">
@@ -1953,9 +1960,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <span>💰 Итого заработано (все способы)</span>
                     <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-top:4px;">
                         <strong style="font-size:22px;"><?= money($totalRubFromPaid) ?> ₽</strong>
-                        <span style="color:#f97316;font-size:16px;font-weight:800;">$<?= number_format($totalUsdFromPaid,2,'.',',') ?></span>
+                        <span style="color:#FF8A2A;font-size:16px;font-weight:800;">$<?= number_format($totalUsdFromPaid,2,'.',',') ?></span>
                         <span style="color:#60a5fa;font-size:16px;font-weight:800;">₴<?= number_format($totalUahFromPaid,2,'.',',') ?></span>
-                        <span style="font-size:11px;color:#555;margin-left:auto;">Курс: 1$ = <?= number_format($usdRate,2) ?>₽ · 1₴ = <?= number_format($uahRate,4) ?>₽</span>
+                        <span style="font-size:11px;color:#6B7280;margin-left:auto;">Курс: 1$ = <?= number_format($usdRate,2) ?>₽ · 1₴ = <?= number_format($uahRate,4) ?>₽</span>
                     </div>
                 </div>
             </section>
@@ -1970,12 +1977,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
                 <?php foreach ($recentManual as $me): ?>
                     <?php $meAmt = (float)$me['amount']; ?>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9a9aa8;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:7px 10px;">
-                        <span style="color:<?= $meAmt >= 0 ? '#4ade80' : '#f87171' ?>;font-weight:800;"><?= $meAmt >= 0 ? '+' : '' ?><?= number_format($meAmt,2,'.',',') ?> <?= htmlspecialchars($me['currency']) ?></span>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#9AA4B2;background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:7px 10px;">
+                        <span style="color:<?= $meAmt >= 0 ? '#4ade80' : '#FF6673' ?>;font-weight:800;"><?= $meAmt >= 0 ? '+' : '' ?><?= number_format($meAmt,2,'.',',') ?> <?= htmlspecialchars($me['currency']) ?></span>
                         <span><?= htmlspecialchars(['donation'=>'Донейшен','crypto'=>'Крипта','monobank'=>'Монобанк','other'=>'Другое'][$me['method']] ?? $me['method']) ?></span>
-                        <?php if (!empty($me['note'])): ?><span style="color:#666;">— <?= htmlspecialchars($me['note']) ?></span><?php endif; ?>
-                        <span style="margin-left:auto;color:#555;"><?= date('d.m H:i', strtotime($me['created_at'])) ?></span>
-                        <a href="?delete_manual_earning_id=<?= (int)$me['id'] ?>#earnings" onclick="return confirm('Удалить эту запись из статистики?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
+                        <?php if (!empty($me['note'])): ?><span style="color:#6B7280;">— <?= htmlspecialchars($me['note']) ?></span><?php endif; ?>
+                        <span style="margin-left:auto;color:#6B7280;"><?= date('d.m H:i', strtotime($me['created_at'])) ?></span>
+                        <a href="?delete_manual_earning_id=<?= (int)$me['id'] ?>#earnings" onclick="return confirm('Удалить эту запись из статистики?')" style="color:#FF4D5E;text-decoration:none;font-weight:800;">✕</a>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -1983,23 +1990,23 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
             <!-- Модалка ручного добавления суммы -->
             <div id="manualEarningModal" class="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9999;">
-                <form method="POST" style="background:#171720;border:1px solid #2a2a38;border-radius:14px;padding:22px;width:320px;display:flex;flex-direction:column;gap:12px;">
+                <form method="POST" style="background:#171A22;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:22px;width:320px;display:flex;flex-direction:column;gap:12px;">
                     <div style="display:flex;align-items:center;justify-content:space-between;">
                         <strong style="color:#fff;font-size:15px;">➕ Изменить сумму</strong>
-                        <button type="button" onclick="document.getElementById('manualEarningModal').style.display='none'" style="background:none;border:0;color:#888;font-size:18px;cursor:pointer;">×</button>
+                        <button type="button" onclick="document.getElementById('manualEarningModal').style.display='none'" style="background:none;border:0;color:#9AA4B2;font-size:18px;cursor:pointer;">×</button>
                     </div>
                     <div style="display:flex;gap:8px;">
                         <label style="flex:1;cursor:pointer;">
-                            <input type="radio" name="me_sign" value="add" checked style="display:none;" onchange="this.closest('form').querySelector('#meSignAdd').style.background='rgba(34,197,94,.18)';this.closest('form').querySelector('#meSignAdd').style.borderColor='#4ade80';this.closest('form').querySelector('#meSignSub').style.background='transparent';this.closest('form').querySelector('#meSignSub').style.borderColor='#2a2a38';">
+                            <input type="radio" name="me_sign" value="add" checked style="display:none;" onchange="this.closest('form').querySelector('#meSignAdd').style.background='rgba(34,197,94,.18)';this.closest('form').querySelector('#meSignAdd').style.borderColor='#4ade80';this.closest('form').querySelector('#meSignSub').style.background='transparent';this.closest('form').querySelector('#meSignSub').style.borderColor='rgba(255,255,255,.08)';">
                             <div id="meSignAdd" style="text-align:center;padding:8px;border-radius:8px;border:1px solid #4ade80;background:rgba(34,197,94,.18);color:#4ade80;font-weight:800;font-size:12px;">➕ Добавить</div>
                         </label>
                         <label style="flex:1;cursor:pointer;">
-                            <input type="radio" name="me_sign" value="subtract" style="display:none;" onchange="this.closest('form').querySelector('#meSignSub').style.background='rgba(239,68,68,.18)';this.closest('form').querySelector('#meSignSub').style.borderColor='#ef4444';this.closest('form').querySelector('#meSignAdd').style.background='transparent';this.closest('form').querySelector('#meSignAdd').style.borderColor='#2a2a38';">
-                            <div id="meSignSub" style="text-align:center;padding:8px;border-radius:8px;border:1px solid #2a2a38;color:#f87171;font-weight:800;font-size:12px;">➖ Убрать</div>
+                            <input type="radio" name="me_sign" value="subtract" style="display:none;" onchange="this.closest('form').querySelector('#meSignSub').style.background='rgba(239,68,68,.18)';this.closest('form').querySelector('#meSignSub').style.borderColor='#FF4D5E';this.closest('form').querySelector('#meSignAdd').style.background='transparent';this.closest('form').querySelector('#meSignAdd').style.borderColor='rgba(255,255,255,.08)';">
+                            <div id="meSignSub" style="text-align:center;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.08);color:#FF6673;font-weight:800;font-size:12px;">➖ Убрать</div>
                         </label>
                     </div>
-                    <label style="font-size:12px;color:#9a9aa8;">Способ
-                        <select name="me_method" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    <label style="font-size:12px;color:#9AA4B2;">Способ
+                        <select name="me_method" style="width:100%;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;">
                             <option value="donation">💳 Донейшен</option>
                             <option value="crypto">₿ Крипта</option>
                             <option value="monobank">🏦 Монобанк</option>
@@ -2007,21 +2014,21 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </select>
                     </label>
                     <div style="display:flex;gap:8px;">
-                        <label style="font-size:12px;color:#9a9aa8;flex:1;">Сумма
-                            <input type="text" name="me_amount" required placeholder="1000" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;box-sizing:border-box;">
+                        <label style="font-size:12px;color:#9AA4B2;flex:1;">Сумма
+                            <input type="text" name="me_amount" required placeholder="1000" style="width:100%;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;box-sizing:border-box;">
                         </label>
-                        <label style="font-size:12px;color:#9a9aa8;width:90px;">Валюта
-                            <select name="me_currency" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                        <label style="font-size:12px;color:#9AA4B2;width:90px;">Валюта
+                            <select name="me_currency" style="width:100%;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;">
                                 <option value="RUB">₽ RUB</option>
                                 <option value="USD">$ USD</option>
                                 <option value="UAH">₴ UAH</option>
                             </select>
                         </label>
                     </div>
-                    <label style="font-size:12px;color:#9a9aa8;">Заметка (необязательно)
-                        <input type="text" name="me_note" placeholder="Например: перевод мимо бота" style="width:100%;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;box-sizing:border-box;">
+                    <label style="font-size:12px;color:#9AA4B2;">Заметка (необязательно)
+                        <input type="text" name="me_note" placeholder="Например: перевод мимо бота" style="width:100%;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;box-sizing:border-box;">
                     </label>
-                    <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;">Сохранить</button>
+                    <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#FF9C48,#FF8A2A);color:#fff;font-weight:800;cursor:pointer;">Сохранить</button>
                 </form>
             </div>
 
@@ -2032,18 +2039,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                     <h2 style="margin:0;font-size:16px;">🎁 Промокоды</h2>
                 </div>
-                <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#14141c;border:1px solid #22222e;border-radius:10px;padding:12px;margin-bottom:12px;">
-                    <label style="font-size:11px;color:#9a9aa8;">Код
-                        <input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;text-transform:uppercase;width:160px;">
+                <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:12px;">
+                    <label style="font-size:11px;color:#9AA4B2;">Код
+                        <input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="display:block;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;text-transform:uppercase;width:160px;">
                     </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Скидка %  (необязательно)
-                        <input type="number" name="pc_discount" min="0" max="100" placeholder="10" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:110px;">
+                    <label style="font-size:11px;color:#9AA4B2;">Скидка %  (необязательно)
+                        <input type="number" name="pc_discount" min="0" max="100" placeholder="10" style="display:block;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;width:110px;">
                     </label>
-                    <label style="font-size:11px;color:#9a9aa8;flex:1;min-width:200px;">Бонус (текст, покажется клиенту)
-                        <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка" style="display:block;margin-top:4px;width:100%;box-sizing:border-box;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    <label style="font-size:11px;color:#9AA4B2;flex:1;min-width:200px;">Бонус (текст, покажется клиенту)
+                        <input type="text" name="pc_bonus" placeholder="Например: бесплатная доп. правка" style="display:block;margin-top:4px;width:100%;box-sizing:border-box;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;">
                     </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Срок действия
-                        <select name="pc_duration" id="pc_duration_select" onchange="document.getElementById('pc_custom_date_wrap').style.display = this.value==='custom' ? 'block' : 'none';" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    <label style="font-size:11px;color:#9AA4B2;">Срок действия
+                        <select name="pc_duration" id="pc_duration_select" onchange="document.getElementById('pc_custom_date_wrap').style.display = this.value==='custom' ? 'block' : 'none';" style="display:block;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;">
                             <option value="none">Без срока</option>
                             <option value="7">Неделя (7 дней)</option>
                             <option value="10">10 дней</option>
@@ -2054,15 +2061,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <option value="custom">Другая дата…</option>
                         </select>
                     </label>
-                    <label id="pc_custom_date_wrap" style="font-size:11px;color:#9a9aa8;display:none;">Дата окончания
-                        <input type="date" name="pc_custom_date" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;">
+                    <label id="pc_custom_date_wrap" style="font-size:11px;color:#9AA4B2;display:none;">Дата окончания
+                        <input type="date" name="pc_custom_date" style="display:block;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;">
                     </label>
-                    <label style="font-size:11px;color:#9a9aa8;">Лимит активаций (необязательно)
-                        <input type="number" name="pc_max_uses" min="1" placeholder="без лимита" style="display:block;margin-top:4px;background:#0f0f16;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;width:130px;">
+                    <label style="font-size:11px;color:#9AA4B2;">Лимит активаций (необязательно)
+                        <input type="number" name="pc_max_uses" min="1" placeholder="без лимита" style="display:block;margin-top:4px;background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;width:130px;">
                     </label>
-                    <button type="submit" name="add_promo" style="border:0;border-radius:8px;padding:9px 16px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;height:37px;">Сохранить</button>
+                    <button type="submit" name="add_promo" style="border:0;border-radius:8px;padding:9px 16px;background:linear-gradient(135deg,#FF9C48,#FF8A2A);color:#fff;font-weight:800;cursor:pointer;height:37px;">Сохранить</button>
                 </form>
-                <p style="font-size:11px;color:#555;margin:-4px 0 12px;">Каждый промокод одноразовый на человека: как только у клиента появится заказ с этим кодом в работе (не «ожидает» и не «отклонён») — повторно ввести тот же код он не сможет.</p>
+                <p style="font-size:11px;color:#6B7280;margin:-4px 0 12px;">Каждый промокод одноразовый на человека: как только у клиента появится заказ с этим кодом в работе (не «ожидает» и не «отклонён») — повторно ввести тот же код он не сможет.</p>
                 <?php
                     $promoList = [];
                     try { $promoList = $pdo->query("SELECT * FROM promo_codes ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
@@ -2074,22 +2081,22 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
                             $pcMaxed   = !empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses'];
                         ?>
-                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#14141c;border:1px solid #22222e;border-radius:8px;padding:9px 12px;flex-wrap:wrap;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
-                            <strong style="color:#fdba74;letter-spacing:.5px;"><?= htmlspecialchars($pc['code']) ?></strong>
+                        <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 12px;flex-wrap:wrap;<?= $pc['active'] ? '' : 'opacity:.45;' ?>">
+                            <strong style="color:#FFB27A;letter-spacing:.5px;"><?= htmlspecialchars($pc['code']) ?></strong>
                             <?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?><span style="color:#4ade80;">−<?= (int)$pc['discount_percent'] ?>%</span><?php endif; ?>
-                            <span style="color:#9a9aa8;"><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></span>
-                            <span style="color:<?= $pcMaxed ? '#f87171' : '#555' ?>;">использован: <?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : '' ?></span>
+                            <span style="color:#9AA4B2;"><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></span>
+                            <span style="color:<?= $pcMaxed ? '#FF6673' : '#6B7280' ?>;">использован: <?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : '' ?></span>
                             <?php if (!empty($pc['expires_at'])): ?>
-                                <span style="color:<?= $pcExpired ? '#f87171' : '#666' ?>;">до <?= date('d.m.Y', strtotime($pc['expires_at'])) ?><?= $pcExpired ? ' (истёк)' : '' ?></span>
+                                <span style="color:<?= $pcExpired ? '#FF6673' : '#6B7280' ?>;">до <?= date('d.m.Y', strtotime($pc['expires_at'])) ?><?= $pcExpired ? ' (истёк)' : '' ?></span>
                             <?php endif; ?>
-                            <span style="margin-left:auto;color:<?= $pc['active'] ? '#4ade80' : '#666' ?>;font-weight:800;"><?= $pc['active'] ? 'активен' : 'выключен' ?></span>
+                            <span style="margin-left:auto;color:<?= $pc['active'] ? '#4ade80' : '#6B7280' ?>;font-weight:800;"><?= $pc['active'] ? 'активен' : 'выключен' ?></span>
                             <a href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo" style="color:#60a5fa;text-decoration:none;font-weight:800;"><?= $pc['active'] ? 'Выключить' : 'Включить' ?></a>
-                            <a href="?delete_promo_id=<?= (int)$pc['id'] ?>#promo" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')" style="color:#ef4444;text-decoration:none;font-weight:800;">✕</a>
+                            <a href="?delete_promo_id=<?= (int)$pc['id'] ?>#promo" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')" style="color:#FF4D5E;text-decoration:none;font-weight:800;">✕</a>
                         </div>
                     <?php endforeach; ?>
                 </div>
                 <?php else: ?>
-                    <p style="color:#666;font-size:13px;">Промокодов пока нет.</p>
+                    <p style="color:#6B7280;font-size:13px;">Промокодов пока нет.</p>
                 <?php endif; ?>
             </div>
 
@@ -2103,7 +2110,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <div class="panel" data-panel="reviews">
                         <h2>⭐ Отзывы на проверку</h2>
                         <?php if (empty($pendingReviews)): ?>
-                            <div style="color:#555568;font-size:13px;">Все отзывы одобрены! 🎉</div>
+                            <div style="color:#6B7280;font-size:13px;">Все отзывы одобрены! 🎉</div>
                         <?php else: ?>
                             <?php foreach ($pendingReviews as $rv): ?>
                                 <div class="review-card pending">
@@ -2126,10 +2133,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <?php endforeach; ?>
                         <?php endif; ?>
 
-                        <hr style="border:none;border-top:1px solid #20202c;margin:14px 0;"/>
+                        <hr style="border:none;border-top:1px solid rgba(255,255,255,.06);margin:14px 0;"/>
                         <h2 style="margin-top:18px;">✅ Одобренные</h2>
                         <?php if (empty($approvedReviews)): ?>
-                            <div style="color:#555568;font-size:13px;">Нет одобренных отзывов.</div>
+                            <div style="color:#6B7280;font-size:13px;">Нет одобренных отзывов.</div>
                         <?php else: ?>
                             <?php foreach (array_slice($approvedReviews, 0, 5) as $rv): ?>
                                 <div class="review-card" style="background:rgba(34,197,94,.05);border-color:rgba(34,197,94,.25);">
@@ -2137,7 +2144,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <span class="name"><?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?></span>
                                         <span class="rating" style="color:#86efac;"><?= str_repeat('★', (int)$rv['rating']) ?></span>
                                     </div>
-                                    <div style="color:#c8c8d8;font-size:12px;line-height:1.5;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
+                                    <div style="color:#C7CDD6;font-size:12px;line-height:1.5;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
                                 </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -2156,14 +2163,14 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <option value="admin" <?= ($cmd['access_level'] ?? '') === 'admin' ? 'selected' : '' ?>>admin</option>
                                             <option value="user" <?= ($cmd['access_level'] ?? '') === 'user' ? 'selected' : '' ?>>user</option>
                                         </select>
-                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.closest('.cmd-row').style.opacity='.3'; this.closest('.cmd-row').querySelector('.del-chk').checked=true; this.closest('.cmd-row').style.pointerEvents='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#fca5a5;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
+                                        <button type="button" onclick="if(confirm('Удалить команду?')) { this.closest('.cmd-row').style.opacity='.3'; this.closest('.cmd-row').querySelector('.del-chk').checked=true; this.closest('.cmd-row').style.pointerEvents='none'; }" style="border:1px solid #dc2626;background:rgba(220,38,38,.15);color:#FFB3BC;cursor:pointer;border-radius:6px;font-weight:800;padding:4px;">✕</button>
                                         <input type="checkbox" class="del-chk" name="delete_commands[]" value="<?= (int)$cmd['id'] ?>" style="display:none;">
                                     </div>
                                 <?php endforeach; ?>
                             </div>
 
-                            <hr style="border:none;border-top:1px solid #20202c;margin:12px 0;"/>
-                            <h3 style="font-size:12px;color:#8a8a96;text-transform:uppercase;margin:12px 0 8px;">Добавить новую</h3>
+                            <hr style="border:none;border-top:1px solid rgba(255,255,255,.06);margin:12px 0;"/>
+                            <h3 style="font-size:12px;color:#9AA4B2;text-transform:uppercase;margin:12px 0 8px;">Добавить новую</h3>
                             <div style="display:grid;gap:6px;margin-bottom:12px;">
                                 <input type="text" name="new_command_name" placeholder="/command" style="margin:0;padding:8px 10px;">
                                 <textarea name="new_command_desc" rows="1" placeholder="Описание" style="margin:0;padding:8px 10px;"></textarea>
@@ -2179,7 +2186,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <form method="POST">
                             <label>Текст правил (HTML поддерживается)</label>
                             <textarea name="order_rules_text" rows="6" style="margin-bottom:12px;font-family:monospace;font-size:11px;"><?= htmlspecialchars($orderRulesText) ?></textarea>
-                            <div style="color:#8a8a96;font-size:11px;margin-bottom:12px;line-height:1.6;">💡 Эти правила будут отображаться при оформлении заказа. Поддерживаются HTML теги: &lt;b&gt;, &lt;i&gt;, &lt;br&gt;, &lt;a href=""&gt;</div>
+                            <div style="color:#9AA4B2;font-size:11px;margin-bottom:12px;line-height:1.6;">💡 Эти правила будут отображаться при оформлении заказа. Поддерживаются HTML теги: &lt;b&gt;, &lt;i&gt;, &lt;br&gt;, &lt;a href=""&gt;</div>
                             <button type="submit" name="save_order_rules" class="btn-panel" style="margin-top:8px;">💾 Сохранить правила</button>
                         </form>
                     </div>
@@ -2237,7 +2244,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </form>
                         <div style="margin-top:14px;display:grid;gap:8px;">
                             <?php foreach ($categories as $category): ?>
-                                <div style="display:flex;justify-content:space-between;gap:10px;color:#d8d8e8;font-size:12px;border-top:1px solid #242432;padding-top:8px;">
+                                <div style="display:flex;justify-content:space-between;gap:10px;color:#d8d8e8;font-size:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:8px;">
                                     <span><?= htmlspecialchars($category['title']) ?><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> · <?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?><?php endif; ?></span>
                                     <a class="delete-link" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">Удалить</a>
                                 </div>
@@ -2252,14 +2259,14 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <div style="margin-bottom:14px;padding:14px;border:1px solid rgba(249,115,22,.25);background:rgba(249,115,22,.08);border-radius:12px;">
                                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
                                     <strong>Новые заказы:</strong>
-                                    <span style="background:#f97316;color:#111827;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:800;"><?= count($pendingOrders) ?></span>
+                                    <span style="background:#FF8A2A;color:#111827;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:800;"><?= count($pendingOrders) ?></span>
                                 </div>
                                 <div style="margin-top:12px;display:grid;gap:10px;">
                                     <?php foreach ($pendingOrders as $pord): ?>
                                         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;background:#0f0f14;">
                                             <div style="min-width:0;overflow:hidden;">
                                                 <div style="font-size:13px;color:#f8f8fa;">Заказ #<?= (int)$pord['id'] ?> — <?= htmlspecialchars($pord['username'] ?: 'Клиент') ?></div>
-                                                <div style="color:#8a8a96;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
+                                                <div style="color:#9AA4B2;font-size:12px;"><?= htmlspecialchars($pord['telegram'] ?: '—') ?> · <?= date('d.m.Y H:i', strtotime($pord['created_at'])) ?></div>
                                             </div>
                                             <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                                                 <a href="<?= $_SERVER['PHP_SELF'] ?>?view_order=<?= (int)$pord['id'] ?>" class="btn-panel" style="background:#262640;padding:8px 12px;margin-top:0;">Открыть</a>
@@ -2280,7 +2287,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <?php endif; ?>
                         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
                             <form method="GET" style="display:flex;gap:8px;align-items:center;">
-                                <label style="color:#8a8a96;font-size:13px;text-transform:none;margin:0;">Статус:</label>
+                                <label style="color:#9AA4B2;font-size:13px;text-transform:none;margin:0;">Статус:</label>
                                 <select name="orders_status" onchange="this.form.submit()">
                                     <option value="">Все</option>
                                     <?php foreach ($statusLabels as $sk => $sv): ?>
@@ -2288,7 +2295,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <?php endforeach; ?>
                                 </select>
                             </form>
-                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
+                            <div style="margin-left:auto;color:#9AA4B2;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
                         </div>
                         <div class="admin-orders-cards">
                             <?php foreach ($recentOrders as $order): ?>
@@ -2311,7 +2318,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <span class="status status-<?= htmlspecialchars($order['status']) ?>"><?= htmlspecialchars($statusLabels[$order['status']]??$order['status']) ?></span>
                                             <?php if ($deadlineHtml): ?><?= $deadlineHtml ?><?php endif; ?>
                                             <?php if (!empty($order['cooperation'])): ?>
-                                                <span style="color:#fb923c;font-size:11px;padding:3px 8px;border:1px solid rgba(251,146,60,.25);border-radius:8px;">Сотрудничество</span>
+                                                <span style="color:#FF9C48;font-size:11px;padding:3px 8px;border:1px solid rgba(251,146,60,.25);border-radius:8px;">Сотрудничество</span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
@@ -2331,7 +2338,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 </div>
                             <?php endforeach; ?>
                             <?php if (empty($recentOrders)): ?>
-                                <div style="color:#8a8a96;padding:20px;text-align:center;">Заказов нет.</div>
+                                <div style="color:#9AA4B2;padding:20px;text-align:center;">Заказов нет.</div>
                             <?php endif; ?>
                         </div>
                         <?php if ($ordersTotalPages > 1): ?>
@@ -2346,7 +2353,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <!-- ════ ЛОГИ ════ -->
                     <section class="panel" data-panel="logs">
                         <h2>📝 Логи ошибок бота</h2>
-                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
+                        <p style="color:#9AA4B2;font-size:13px;margin:-4px 0 14px;">
                             Последние записи из <code>bot_debug.log</code> — сюда пишутся все сбои доставки
                             сообщений клиентам, ошибки БД и т.п. Полезно, когда что-то "не приходит" и
                             непонятно почему.
@@ -2361,20 +2368,20 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             }
                         ?>
                         <?php if (empty($logLines)): ?>
-                            <div style="color:#8a8a96;padding:20px;text-align:center;border:1px dashed #2a2a38;border-radius:12px;">
+                            <div style="color:#9AA4B2;padding:20px;text-align:center;border:1px dashed rgba(255,255,255,.08);border-radius:12px;">
                                 Логов пока нет (или файл ещё не создан — появится после первой ошибки).
                                 <br><span style="font-size:11px;">Диск на Render эфемерный — после рестарта сервера старые логи пропадают.</span>
                             </div>
                         <?php else: ?>
                             <form action="" method="POST" style="margin-bottom:10px;" onsubmit="return confirm('Очистить лог-файл?');">
-                                <button type="submit" name="clear_bot_log" value="1" class="btn-panel" style="background:#3a1a1a;width:auto;padding:8px 14px;margin-top:0;">🗑️ Очистить лог</button>
+                                <button type="submit" name="clear_bot_log" value="1" class="btn-panel" style="background:#2A151A;width:auto;padding:8px 14px;margin-top:0;">🗑️ Очистить лог</button>
                             </form>
-                            <div style="max-height:520px;overflow-y:auto;background:#0c0c12;border:1px solid #23232f;border-radius:12px;padding:14px;font-family:monospace;font-size:12px;line-height:1.7;">
+                            <div style="max-height:520px;overflow-y:auto;background:#0F1117;border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:14px;font-family:monospace;font-size:12px;line-height:1.7;">
                                 <?php foreach ($logLines as $line): ?>
                                     <?php
                                         $isError = (stripos($line, 'error') !== false || stripos($line, 'failed') !== false || stripos($line, 'no chat_id') !== false);
                                     ?>
-                                    <div style="color:<?= $isError ? '#f87171' : '#a0a0b0' ?>;white-space:pre-wrap;word-break:break-all;padding:3px 0;border-bottom:1px solid #17171f;"><?= htmlspecialchars($line) ?></div>
+                                    <div style="color:<?= $isError ? '#FF6673' : '#a0a0b0' ?>;white-space:pre-wrap;word-break:break-all;padding:3px 0;border-bottom:1px solid #171A22;"><?= htmlspecialchars($line) ?></div>
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
@@ -2383,7 +2390,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <!-- ════ ПРОМПТ ИИ-ПОМОЩНИКА ════ -->
                     <section class="panel" data-panel="ai-prompt">
                         <h2>🤖 Промпт ИИ-помощника</h2>
-                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
+                        <p style="color:#9AA4B2;font-size:13px;margin:-4px 0 14px;">
                             Инструкция, с которой ИИ-виджет на сайте общается с клиентами. Меняй цены,
                             акции, ссылки и правила здесь — без изменения кода. Если поле пустое,
                             используется встроенный текст по умолчанию.
@@ -2396,10 +2403,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             } catch (Throwable $e) {}
                         ?>
                         <form method="POST" action="">
-                            <textarea name="ai_system_prompt" rows="20" style="width:100%;box-sizing:border-box;background:#0c0c12;border:1px solid #23232f;border-radius:12px;padding:14px;color:#e0e0ec;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;margin-bottom:14px;" placeholder="Оставь пустым, чтобы использовать текст по умолчанию из кода…"><?= htmlspecialchars($currentAiPrompt) ?></textarea>
+                            <textarea name="ai_system_prompt" rows="20" style="width:100%;box-sizing:border-box;background:#0F1117;border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:14px;color:#e0e0ec;font-size:13px;line-height:1.6;font-family:inherit;resize:vertical;margin-bottom:14px;" placeholder="Оставь пустым, чтобы использовать текст по умолчанию из кода…"><?= htmlspecialchars($currentAiPrompt) ?></textarea>
                             <div style="display:flex;gap:10px;flex-wrap:wrap;">
                                 <button type="submit" name="save_ai_prompt" class="btn-panel" style="width:auto;padding:12px 22px;margin-top:0;">💾 Сохранить промпт</button>
-                                <button type="submit" name="reset_ai_prompt" class="btn-panel" style="width:auto;padding:12px 22px;margin-top:0;background:#3a1a1a;" onclick="return confirm('Сбросить промпт к встроенному тексту по умолчанию?');">↺ Сбросить к дефолту</button>
+                                <button type="submit" name="reset_ai_prompt" class="btn-panel" style="width:auto;padding:12px 22px;margin-top:0;background:#2A151A;" onclick="return confirm('Сбросить промпт к встроенному тексту по умолчанию?');">↺ Сбросить к дефолту</button>
                             </div>
                         </form>
                     </section>
@@ -2459,12 +2466,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <?php foreach ($services as $service): $id = (int)$service['id']; ?>
                                             <tr>
                                                 <td>
-                                                    <?php if (!empty($service['image'])): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div><?php else: ?><span style="color:#666674;font-size:11px;">Нет обложки</span><?php endif; ?>
+                                                    <?php if (!empty($service['image'])): ?><div class="case-thumb-wrap"><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="price-thumb" alt=""></div><?php else: ?><span style="color:#6B7280;font-size:11px;">Нет обложки</span><?php endif; ?>
                                                     <div style="margin-top:8px;"><input type="file" name="price_images[<?= $id ?>]" accept="image/*"></div>
                                                 </td>
                                                 <td>
                                                     <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
-                                                    <div style="color:#8a8a96;margin-top:6px;font-size:11px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
+                                                    <div style="color:#9AA4B2;margin-top:6px;font-size:11px;">key: <?= htmlspecialchars($service['category_key']??'') ?></div>
                                                 </td>
                                                 <td>
                                                     <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
@@ -2507,18 +2514,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </div>
                                             </td>
                                             <td>
-                                                <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>" style="width:100%;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:13px;">
+                                                <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>" style="width:100%;background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:13px;">
                                             </td>
                                             <td>
-                                                <select form="<?= $fid ?>" name="portfolio_category" style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;">
+                                                <select form="<?= $fid ?>" name="portfolio_category" style="background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;">
                                                     <?php foreach ($categories as $catOpt): ?>
                                                         <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
                                                     <?php endforeach; ?>
                                                 </select>
                                             </td>
                                             <td>
-                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>" style="width:90px;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₽<br>
-                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>" style="width:90px;margin-top:6px;background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₴
+                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>" style="width:90px;background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₽<br>
+                                                <input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>" style="width:90px;margin-top:6px;background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-family:Montserrat,sans-serif;font-size:12px;"> ₴
                                             </td>
                                             <td>
                                                 <div class="mini-media-form">
@@ -2539,25 +2546,25 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <div class="panel" data-panel="appeals">
                         <h2>📩 Обращения клиентов
                             <?php if ($openAppealsCount > 0): ?>
-                                <span style="background:#f97316;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
+                                <span style="background:#FF8A2A;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;margin-left:8px;"><?= $openAppealsCount ?> открытых</span>
                             <?php endif; ?>
                         </h2>
                         <?php if (empty($appeals)): ?>
-                            <p style="color:#8a8a96;">Обращений пока нет.</p>
+                            <p style="color:#9AA4B2;">Обращений пока нет.</p>
                         <?php else: ?>
                         <div style="display:grid;gap:14px;">
                         <?php foreach ($appeals as $ap): ?>
                             <?php $isOpen = $ap['status'] === 'open'; ?>
-                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.04)' : '#111116') ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.2)' : '#20202c') ?>;">
+                            <div style="border-radius:12px;padding:16px 18px;background:<?= $isOpen ? 'rgba(249,115,22,.06)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.04)' : '#171A22') ?>;border:1px solid <?= $isOpen ? 'rgba(249,115,22,.35)' : ($ap['status'] === 'closed' ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.06)') ?>;">
                                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-                                    <span style="font-size:12px;color:#8a8a96;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
-                                    <span style="font-size:12px;color:#8a8a96;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
+                                    <span style="font-size:12px;color:#9AA4B2;font-weight:800;">Обращение #<?= (int)$ap['id'] ?></span>
+                                    <span style="font-size:12px;color:#9AA4B2;">→ Заказ #<?= (int)$ap['order_id'] ?></span>
                                     <strong style="flex:1;font-size:14px;"><?= htmlspecialchars($ap['subject']) ?></strong>
-                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#fdba74;' : ($ap['status'] === 'closed' ? 'background:rgba(239,68,68,.15);color:#f87171;' : 'background:rgba(34,197,94,.15);color:#86efac;') ?>">
+                                    <span style="border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;<?= $isOpen ? 'background:rgba(249,115,22,.2);color:#FFB27A;' : ($ap['status'] === 'closed' ? 'background:rgba(239,68,68,.15);color:#FF6673;' : 'background:rgba(34,197,94,.15);color:#86efac;') ?>">
                                         <?= $isOpen ? '⏳ Ожидает ответа' : ($ap['status'] === 'closed' ? '🔒 Закрыто' : '✅ Отвечено') ?>
                                     </span>
-                                    <span style="color:#8a8a96;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
-                                    <span style="color:#666674;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
+                                    <span style="color:#9AA4B2;font-size:11px;font-weight:700;"><?= htmlspecialchars($ap['username']) ?></span>
+                                    <span style="color:#6B7280;font-size:11px;"><?= date('d.m.Y H:i', strtotime($ap['created_at'])) ?></span>
                                 </div>
                                 <?php
                                     $mstmt2 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
@@ -2572,18 +2579,18 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
                                             </div>
                                         <?php else: ?>
-                                            <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
+                                            <div style="background:#12141C;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;word-break:break-word;"><?= htmlspecialchars($m['message']) ?></div>
                                         <?php endif; ?>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <div style="background:#0e0e14;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
+                                    <div style="background:#12141C;border-radius:8px;padding:12px;font-size:13px;color:#d8d8e8;margin-bottom:12px;"><?= htmlspecialchars($ap['message'] ?? '') ?></div>
                                 <?php endif; ?>
                                 <form action="" method="POST" style="display:grid;gap:8px;<?= $ap['status'] === 'closed' ? 'opacity:.45;pointer-events:none;' : '' ?>">
                                     <input type="hidden" name="appeal_id" value="<?= (int)$ap['id'] ?>">
-                                    <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
+                                    <textarea name="reply_text" required rows="3" placeholder="Напиши ответ клиенту..." style="background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;outline:none;width:100%;box-sizing:border-box;resize:vertical;transition:.2s;"></textarea>
                                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                                        <button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button>
-                                        <button type="submit" name="close_appeal" onclick="return confirm('Закрыть обращение? Клиент сможет создать только новое.')" style="border:1px solid rgba(239,68,68,.4);border-radius:9px;padding:10px 18px;background:rgba(239,68,68,.1);color:#f87171;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">🔒 Закрыть</button>
+                                        <button type="submit" name="reply_appeal" style="border:none;border-radius:9px;padding:10px 20px;background:linear-gradient(135deg,#FF9C48,#FF8A2A);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">📤 Отправить ответ</button>
+                                        <button type="submit" name="close_appeal" onclick="return confirm('Закрыть обращение? Клиент сможет создать только новое.')" style="border:1px solid rgba(239,68,68,.4);border-radius:9px;padding:10px 18px;background:rgba(239,68,68,.1);color:#FF6673;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">🔒 Закрыть</button>
                                     </div>
                                 </form>
                             </div>
@@ -2621,15 +2628,15 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                                 <!-- Шапка заказа -->
                                 <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
-                                    <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#8a8a96;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:5px;">
+                                    <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#9AA4B2;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:5px;">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> Назад
                                     </a>
-                                    <span style="color:#2a2a38;">|</span>
-                                    <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#8a8a96;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
+                                    <span style="color:rgba(255,255,255,.08);">|</span>
+                                    <h2 style="margin:0;font-size:18px;font-weight:900;">Заказ #<?= (int)$viewOrder['id'] ?> <span style="color:#9AA4B2;font-weight:500;">— <?= htmlspecialchars($viewOrder['username'] ?? 'Клиент') ?></span></h2>
                                     <span class="status <?= htmlspecialchars($viewOrder['status']) ?>"><?= htmlspecialchars($statusLabels[$viewOrder['status']] ?? $viewOrder['status']) ?></span>
                                     <?php if ($dlBadge): echo $dlBadge; endif; ?>
                                     <?php if (!empty($viewOrder['cooperation'])): ?>
-                                        <span style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>
+                                        <span style="background:rgba(251,146,60,.15);color:#FF9C48;border:1px solid rgba(251,146,60,.3);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;">💼 Сотрудничество</span>
                                     <?php endif; ?>
                                 </div>
 
@@ -2640,29 +2647,29 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div style="display:grid;gap:14px;">
 
                                         <!-- Инфо о клиенте + ТЗ -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
+                                        <div style="background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;">
                                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Клиент</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['username'] ?? '—') ?></div>
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Клиент</div>
+                                                    <div style="font-size:14px;color:#E9ECF1;font-weight:700;"><?= htmlspecialchars($viewOrder['username'] ?? '—') ?></div>
                                                 </div>
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Telegram</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;">
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Telegram</div>
+                                                    <div style="font-size:14px;color:#E9ECF1;font-weight:700;">
                                                         <?php if ($cleanTg): ?>
                                                             <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="color:#60a5fa;text-decoration:none;">@<?= htmlspecialchars($cleanTg) ?></a>
                                                         <?php else: ?>—<?php endif; ?>
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
+                                                    <div style="font-size:14px;color:#E9ECF1;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
                                                 </div>
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Цена</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;">
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Цена</div>
+                                                    <div style="font-size:14px;color:#E9ECF1;font-weight:700;">
                                                         <?php if (!empty($viewOrder['promo_code']) && $readyCalcDiscountPct > 0): ?>
-                                                            <s style="color:#666;"><?= number_format($readyCalcBaseRub,0) ?>₽</s> → <span style="color:#4ade80;"><?= number_format($readyCalcBaseRub * (1 - $readyCalcDiscountPct/100),0) ?>₽</span>
+                                                            <s style="color:#6B7280;"><?= number_format($readyCalcBaseRub,0) ?>₽</s> → <span style="color:#4ade80;"><?= number_format($readyCalcBaseRub * (1 - $readyCalcDiscountPct/100),0) ?>₽</span>
                                                         <?php else: ?>
                                                             <?= number_format($readyCalcBaseRub,0) ?>₽
                                                         <?php endif; ?>
@@ -2670,34 +2677,34 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </div>
                                                 <?php if (!empty($viewOrder['promo_code'])): ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Промокод</div>
-                                                    <div style="font-size:14px;color:#fdba74;font-weight:700;">🎁 <?= htmlspecialchars($viewOrder['promo_code']) ?><?= $readyCalcDiscountPct > 0 ? ' (−' . (int)$readyCalcDiscountPct . '%)' : '' ?></div>
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Промокод</div>
+                                                    <div style="font-size:14px;color:#FFB27A;font-weight:700;">🎁 <?= htmlspecialchars($viewOrder['promo_code']) ?><?= $readyCalcDiscountPct > 0 ? ' (−' . (int)$readyCalcDiscountPct . '%)' : '' ?></div>
                                                 </div>
                                                 <?php endif; ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
+                                                    <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Дата</div>
+                                                    <div style="font-size:14px;color:#E9ECF1;font-weight:700;"><?= date('d.m.Y H:i', strtotime($viewOrder['created_at'])) ?></div>
                                                 </div>
                                             </div>
                                             <?php if (!empty($viewOrder['details'])): ?>
-                                                <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
+                                                <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Техническое задание</div>
                                                 <?php if (!empty($viewOrder['promo_code'])): ?>
-                                                <div style="font-size:12px;color:#fdba74;margin-bottom:8px;">🎁 Промокод "<?= htmlspecialchars($viewOrder['promo_code']) ?>" был применён к этому заказу<?= $readyCalcDiscountPct > 0 ? ' (скидка ' . (int)$readyCalcDiscountPct . '%)' : '' ?>.</div>
+                                                <div style="font-size:12px;color:#FFB27A;margin-bottom:8px;">🎁 Промокод "<?= htmlspecialchars($viewOrder['promo_code']) ?>" был применён к этому заказу<?= $readyCalcDiscountPct > 0 ? ' (скидка ' . (int)$readyCalcDiscountPct . '%)' : '' ?>.</div>
                                                 <?php endif; ?>
-                                                <div style="background:#0b0b10;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
+                                                <div style="background:#0F1117;border-radius:10px;padding:14px;font-size:13px;color:#d8d8e8;line-height:1.7;white-space:pre-wrap;word-break:break-word;"><?= htmlspecialchars($viewOrder['details']) ?></div>
                                             <?php endif; ?>
                                         </div>
 
                                         <!-- Файлы -->
                                         <?php if ($screenshotSrc !== '' || $paymentReceiptSrc !== '' || !empty($examples)): ?>
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
+                                        <div style="background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
                                             <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
                                                 <?php if ($paymentReceiptSrc !== ''): ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">💳 Чек оплаты</div>
+                                                    <div style="font-size:11px;color:#9AA4B2;margin-bottom:6px;">💳 Чек оплаты</div>
                                                     <?php if (str_ends_with(strtolower($paymentReceiptSrc), '.pdf')): ?>
-                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:12px 16px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
+                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank" style="display:flex;align-items:center;gap:8px;background:#0F1117;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 16px;color:#FFB27A;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
                                                     <?php else: ?>
                                                         <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank">
                                                             <img src="<?= htmlspecialchars($paymentReceiptSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
@@ -2707,7 +2714,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <?php endif; ?>
                                                 <?php if ($screenshotSrc !== ''): ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Чек оплаты (архив)</div>
+                                                    <div style="font-size:11px;color:#9AA4B2;margin-bottom:6px;">Чек оплаты (архив)</div>
                                                     <a href="<?= htmlspecialchars($screenshotSrc) ?>" target="_blank">
                                                         <img src="<?= htmlspecialchars($screenshotSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
                                                     </a>
@@ -2715,7 +2722,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 <?php endif; ?>
                                                 <?php if (!empty($examples)): ?>
                                                 <div style="flex:1;">
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">Референсы</div>
+                                                    <div style="font-size:11px;color:#9AA4B2;margin-bottom:6px;">Референсы</div>
                                                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                                                         <?php foreach ($examples as $ex): $exSrc = imgSrc($ex, '../uploads/orders/'); ?>
                                                             <?php if ($exSrc !== ''): ?>
@@ -2732,8 +2739,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <?php endif; ?>
 
                                         <!-- Переписка -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Переписка</div>
+                                        <div style="background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Переписка</div>
                                             <?php if (!empty($orderAppeals)): ?>
                                                 <?php foreach ($orderAppeals as $oap):
                                                     $mstmt3 = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
@@ -2741,7 +2748,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                     $msgs3 = $mstmt3->fetchAll(PDO::FETCH_ASSOC) ?: [];
                                                 ?>
                                                 <div style="margin-bottom:14px;">
-                                                    <div style="font-size:11px;color:#8a8a96;font-weight:700;margin-bottom:8px;"><?= htmlspecialchars($oap['subject'] ?: 'Обращение') ?></div>
+                                                    <div style="font-size:11px;color:#9AA4B2;font-weight:700;margin-bottom:8px;"><?= htmlspecialchars($oap['subject'] ?: 'Обращение') ?></div>
                                                     <?php foreach ($msgs3 as $m): ?>
                                                         <?php $isAdmin = ($m['author'] ?? '') === 'admin'; ?>
                                                         <div style="display:flex;gap:8px;margin-bottom:8px;<?= $isAdmin ? 'flex-direction:row-reverse;' : '' ?>">
@@ -2749,7 +2756,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                                 <?= $isAdmin ? '⚙' : '👤' ?>
                                                             </div>
                                                             <div style="background:<?= $isAdmin ? 'rgba(249,115,22,.06)' : 'rgba(96,165,250,.06)' ?>;border:1px solid <?= $isAdmin ? 'rgba(249,115,22,.15)' : 'rgba(96,165,250,.15)' ?>;border-radius:10px;padding:10px 12px;max-width:85%;">
-                                                                <div style="font-size:10px;color:#555568;margin-bottom:4px;"><?= $isAdmin ? 'Дизайнер' : 'Клиент' ?> · <?= date('d.m H:i', strtotime($m['created_at'])) ?></div>
+                                                                <div style="font-size:10px;color:#6B7280;margin-bottom:4px;"><?= $isAdmin ? 'Дизайнер' : 'Клиент' ?> · <?= date('d.m H:i', strtotime($m['created_at'])) ?></div>
                                                                 <div style="font-size:13px;color:#d8d8e8;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars($m['message'])) ?></div>
                                                             </div>
                                                         </div>
@@ -2757,14 +2764,14 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </div>
                                                 <?php endforeach; ?>
                                             <?php else: ?>
-                                                <div style="color:#555568;font-size:13px;">Переписки пока нет.</div>
+                                                <div style="color:#6B7280;font-size:13px;">Переписки пока нет.</div>
                                             <?php endif; ?>
 
                                             <!-- Форма нового сообщения -->
                                             <form action="" method="POST" style="margin-top:16px;display:grid;gap:8px;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <input type="text" name="msg_subject" placeholder="Тема" value="Уточнение по заказу #<?= (int)$viewOrder['id'] ?>" style="font-size:13px;margin:0;padding:10px 12px;">
-                                                <textarea name="msg_text" required rows="3" placeholder="Сообщение клиенту..." style="background:#171720;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;margin:0;"></textarea>
+                                                <textarea name="msg_text" required rows="3" placeholder="Сообщение клиенту..." style="background:#171A22;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;margin:0;"></textarea>
                                                 <button type="submit" name="send_order_message" class="btn-panel" style="margin-top:0;">📤 Отправить клиенту</button>
                                             </form>
                                         </div>
@@ -2775,12 +2782,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div style="display:grid;gap:12px;position:sticky;top:18px;">
 
                                         <!-- ✅ ИСПРАВЛЕННЫЙ Блок управления - полная ширина кнопок -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;flex:1;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
+                                        <div style="background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;flex:1;">
+                                            <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Управление</div>
                                             <form method="POST" style="display:grid;grid-template-columns:1fr;gap:8px;width:100%;margin:0;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <details class="accept-menu accept-menu-full">
-                                                    <summary style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;list-style:none;text-align:center;">🚀 Принять заказ ▾</summary>
+                                                    <summary style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#FF9C48,#FF8A2A);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;list-style:none;text-align:center;">🚀 Принять заказ ▾</summary>
                                                     <div class="accept-menu-popup" style="position:static;width:100%;box-sizing:border-box;margin-top:8px;">
                                                         <button type="submit" name="order_action" value="accept_normal">✅ Обычный (5 сут.)</button>
                                                         <button type="submit" name="order_action" value="accept_urgent">⚡️ Срочный (24ч, +50%)</button>
@@ -2790,16 +2797,16 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </details>
                                                 <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>, <?= (float)$readyCalcBaseRub ?>, <?= (float)$readyCalcBaseUan ?>, <?= (int)$readyCalcDiscountPct ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
-                                                    <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
+                                                    <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#FF6673;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
                                                     <button type="submit" name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚫 Бан</button>
                                                 </div>
-                                                <button type="submit" name="order_action" value="delete_order" onclick="return confirm('Удалить заказ #<?= (int)$viewOrder['id'] ?> НАВСЕГДА? Это действие нельзя отменить — заказ и все его сообщения будут стёрты из базы.')" style="margin-top:4px;border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(239,68,68,.1);color:#f87171;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;-webkit-appearance:none;appearance:none;">🗑 Удалить заказ</button>
+                                                <button type="submit" name="order_action" value="delete_order" onclick="return confirm('Удалить заказ #<?= (int)$viewOrder['id'] ?> НАВСЕГДА? Это действие нельзя отменить — заказ и все его сообщения будут стёрты из базы.')" style="margin-top:4px;border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(239,68,68,.1);color:#FF6673;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;-webkit-appearance:none;appearance:none;">🗑 Удалить заказ</button>
                                             </form>
                                         </div>
 
                                         <!-- Написать клиенту -->
-                                        <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
+                                        <div style="background:#171A22;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#6B7280;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
                                             <?php if ($cleanTg): ?>
                                                 <a href="https://t.me/<?= htmlspecialchars($cleanTg) ?>" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);color:#60a5fa;border-radius:10px;padding:10px;text-decoration:none;font-size:13px;font-weight:700;margin-bottom:10px;">
                                                     💬 Открыть чат в Telegram
@@ -2808,7 +2815,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <form method="POST" style="display:grid;gap:8px;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <input type="hidden" name="order_action" value="message_client">
-                                                <textarea name="message_text" rows="3" placeholder="Сообщение через бот..." style="background:#0b0b10;color:#fff;border:1px solid #2a2a38;border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;width:100%;box-sizing:border-box;margin:0;"></textarea>
+                                                <textarea name="message_text" rows="3" placeholder="Сообщение через бот..." style="background:#0F1117;color:#fff;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;font-family:Montserrat,sans-serif;font-size:13px;resize:vertical;width:100%;box-sizing:border-box;margin:0;"></textarea>
                                                 <button type="submit" style="border:none;border-radius:10px;padding:10px;background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.25);font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;">✉️ Отправить через бот</button>
                                             </form>
                                         </div>
@@ -2826,7 +2833,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <?php else: ?>
                                 <div class="panel" style="text-align:center;padding:40px;">
                                     <div style="font-size:32px;margin-bottom:12px;">📦</div>
-                                    <div style="color:#8a8a96;">Заказ не найден. <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#f97316;">Вернуться назад</a></div>
+                                    <div style="color:#9AA4B2;">Заказ не найден. <a href="<?= $_SERVER['PHP_SELF'] ?>" style="color:#FF8A2A;">Вернуться назад</a></div>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -2983,32 +2990,32 @@ document.addEventListener('DOMContentLoaded', () => {
         <form method="POST" id="ready-form">
             <input type="hidden" name="order_id" id="ready-order-id">
             <input type="hidden" name="order_action" value="status">
-            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
+            <label style="display:block;font-size:11px;font-weight:800;color:#9AA4B2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
-                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#fdba74;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
+                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#FFB27A;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="crypto" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-crypto" onclick="selectPayMethod2('crypto')" style="border:1px solid rgba(96,165,250,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#93c5fd;background:rgba(96,165,250,.08);cursor:pointer;transition:.15s;">₿<br>Крипта</div></label>
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="monobank" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-monobank" onclick="selectPayMethod2('monobank')" style="border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#86efac;background:rgba(34,197,94,.08);cursor:pointer;transition:.15s;">🏦<br>Монобанк</div></label>
             </div>
-            <div id="discount-calc" style="background:#0e0e15;border:1px solid #232330;border-radius:12px;padding:14px;margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🧮 Калькулятор скидки</div>
-                <div id="discount-base-line" style="font-size:12px;color:#9a9aa8;margin-bottom:10px;">Базовая цена (с учётом срочности): <strong id="discount-base-text" style="color:#fff;">—</strong></div>
+            <div id="discount-calc" style="background:#12141C;border:1px solid #232330;border-radius:12px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:800;color:#9AA4B2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🧮 Калькулятор скидки</div>
+                <div id="discount-base-line" style="font-size:12px;color:#9AA4B2;margin-bottom:10px;">Базовая цена (с учётом срочности): <strong id="discount-base-text" style="color:#fff;">—</strong></div>
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                    <input type="range" id="discount-slider" min="1" max="100" value="10" style="flex:1;accent-color:#f97316;">
-                    <span style="min-width:42px;text-align:right;font-weight:900;color:#fdba74;font-size:14px;"><span id="discount-pct-label">10</span>%</span>
+                    <input type="range" id="discount-slider" min="1" max="100" value="10" style="flex:1;accent-color:#FF8A2A;">
+                    <span style="min-width:42px;text-align:right;font-weight:900;color:#FFB27A;font-size:14px;"><span id="discount-pct-label">10</span>%</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <label style="font-size:11px;color:#888;white-space:nowrap;">Скидка, ₽:</label>
-                    <input type="number" id="discount-amount-input" step="0.01" min="0" style="flex:1;background:#0a0a10;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
+                    <label style="font-size:11px;color:#9AA4B2;white-space:nowrap;">Скидка, ₽:</label>
+                    <input type="number" id="discount-amount-input" step="0.01" min="0" style="flex:1;background:#12141C;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid #1e1e28;">
-                    <span style="font-size:12px;color:#9a9aa8;">Итого к оплате: <strong id="discount-final-text" style="color:#4ade80;font-size:15px;">—</strong></span>
-                    <button type="button" onclick="applyDiscountToAmount()" style="border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-weight:800;font-size:11px;border-radius:8px;padding:7px 10px;cursor:pointer;">Подставить в сумму</button>
+                    <span style="font-size:12px;color:#9AA4B2;">Итого к оплате: <strong id="discount-final-text" style="color:#4ade80;font-size:15px;">—</strong></span>
+                    <button type="button" onclick="applyDiscountToAmount()" style="border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#FFB27A;font-weight:800;font-size:11px;border-radius:8px;padding:7px 10px;cursor:pointer;">Подставить в сумму</button>
                 </div>
             </div>
-            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
+            <label style="display:block;font-size:11px;font-weight:800;color:#9AA4B2;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">
-                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Сумма..." style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;width:100%;box-sizing:border-box;">
-                <select name="paid_currency" id="ready-currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;width:100%;box-sizing:border-box;">
+                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Сумма..." style="background:#12141C;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;width:100%;box-sizing:border-box;">
+                <select name="paid_currency" id="ready-currency" style="background:#12141C;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;width:100%;box-sizing:border-box;">
                     <option value="RUB">₽ RUB</option>
                     <option value="USD">$ USD</option>
                     <option value="UAH">₴ UAH</option>
@@ -3016,7 +3023,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div style="display:flex;gap:10px;">
                 <button type="submit" style="flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;padding:12px;color:#fff;font-size:14px;font-weight:900;cursor:pointer;font-family:Montserrat,sans-serif;">✅ Подтвердить</button>
-                <button type="button" onclick="closeReadyModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 18px;color:#888;font-size:14px;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;">Отмена</button>
+                <button type="button" onclick="closeReadyModal()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 18px;color:#9AA4B2;font-size:14px;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;">Отмена</button>
             </div>
         </form>
     </div>
