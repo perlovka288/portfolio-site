@@ -305,9 +305,15 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
 
     $title        = trim($_POST['title'] ?? '');
     $category_key = $_POST['category_key'] ?? 'preview';
-    $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
-    $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
     $publish_tg   = !empty($_POST['publish_tg']);
+
+    // Цена больше не вводится вручную — подтягивается из услуги (прайса) этой категории.
+    $price_rub = 0; $price_uan = 0;
+    try {
+        $pStmt = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+        $pStmt->execute([$category_key]);
+        if ($pRow = $pStmt->fetch(PDO::FETCH_ASSOC)) { $price_rub = (int)$pRow['price_rub']; $price_uan = (int)$pRow['price_uan']; }
+    } catch (Throwable $e) {}
 
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
@@ -1204,9 +1210,15 @@ if (isset($_POST['save_ai_prompt']) || isset($_POST['reset_ai_prompt'])) {
 if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     $title        = trim($_POST['title'] ?? '');
     $category_key = $_POST['category_key'] ?? 'preview';
-    $price_rub    = !empty($_POST['price_rub']) ? (int)$_POST['price_rub'] : 0;
-    $price_uan    = !empty($_POST['price_uan']) ? (int)$_POST['price_uan'] : 0;
     $publish_tg   = !empty($_POST['publish_tg']);
+
+    // Цена больше не вводится вручную — подтягивается из услуги (прайса) этой категории.
+    $price_rub = 0; $price_uan = 0;
+    try {
+        $pStmt = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+        $pStmt->execute([$category_key]);
+        if ($pRow = $pStmt->fetch(PDO::FETCH_ASSOC)) { $price_rub = (int)$pRow['price_rub']; $price_uan = (int)$pRow['price_uan']; }
+    } catch (Throwable $e) {}
     $filename_main   = uploadImage('image', 'main', $uploadDir);
     $filename_avatar = uploadImage('avatar_image', 'ava', $uploadDir);
     if ($title === '') { $message = '❌ Укажи название проекта.'; }
@@ -1310,20 +1322,25 @@ if (isset($_POST['update_portfolio_media'])) {
         if ($newMain   !== '') $pdo->prepare("UPDATE portfolio SET image = ? WHERE id = ?")->execute([$newMain, $caseId]);
         if ($newAvatar !== '') $pdo->prepare("UPDATE portfolio SET avatar_image = ? WHERE id = ?")->execute([$newAvatar, $caseId]);
 
-        // Название, цена и категория кейса — раньше их вообще нельзя было
+        // Название и категория кейса — раньше их вообще нельзя было
         // поменять после публикации, только удалить и залить заново.
+        // Цена больше не редактируется вручную — при смене категории
+        // подтягивается заново из услуги (прайса) этой категории.
         $newTitle    = trim($_POST['portfolio_title'] ?? '');
         $newCategory = trim($_POST['portfolio_category'] ?? '');
-        $newPriceRub = isset($_POST['portfolio_price_rub']) ? (int)$_POST['portfolio_price_rub'] : null;
-        $newPriceUan = isset($_POST['portfolio_price_uan']) ? (int)$_POST['portfolio_price_uan'] : null;
         if ($newTitle !== '') {
             $pdo->prepare("UPDATE portfolio SET title = ? WHERE id = ?")->execute([$newTitle, $caseId]);
         }
         if ($newCategory !== '') {
             $pdo->prepare("UPDATE portfolio SET category_key = ? WHERE id = ?")->execute([$newCategory, $caseId]);
-        }
-        if ($newPriceRub !== null && $newPriceUan !== null) {
-            $pdo->prepare("UPDATE portfolio SET price_rub = ?, price_uan = ? WHERE id = ?")->execute([$newPriceRub, $newPriceUan, $caseId]);
+            try {
+                $pStmt = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+                $pStmt->execute([$newCategory]);
+                if ($pRow = $pStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $pdo->prepare("UPDATE portfolio SET price_rub = ?, price_uan = ? WHERE id = ?")
+                        ->execute([(int)$pRow['price_rub'], (int)$pRow['price_uan'], $caseId]);
+                }
+            } catch (Throwable $e) {}
         }
         $message = '✅ Кейс обновлён.';
     }
@@ -1392,8 +1409,34 @@ if (isset($_GET['delete_portfolio_category_id'])) {
     $message = '🗑️ Категория удалена.';
 }
 
+if (isset($_POST['update_portfolio_category'])) {
+    $catId       = (int)($_POST['cat_id'] ?? 0);
+    $catTitle    = trim($_POST['cat_title'] ?? '');
+    $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
+    $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
+    $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
+    if ($catId > 0 && $catTitle !== '') {
+        $pdo->prepare("UPDATE portfolio_categories SET title = ?, width_px = ?, height_px = ?, is_design = ? WHERE id = ?")
+            ->execute([$catTitle, $catWidth, $catHeight, $catIsDesign, $catId]);
+        $message = '✅ Категория обновлена.';
+    } else {
+        $message = '❌ Укажи название категории.';
+    }
+}
+
 // ===================== FETCH DATA =====================
 $services   = $pdo->query("SELECT * FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Цена портфолио теперь не вводится вручную, а подтягивается из услуги (прайса)
+// той же категории — карта category_key => [rub, uan, title] для форм и JS.
+$priceByCategory = [];
+foreach ($services as $svc) {
+    $priceByCategory[$svc['category_key']] = [
+        'rub'   => (int)($svc['price_rub'] ?? 0),
+        'uan'   => (int)($svc['price_uan'] ?? 0),
+        'title' => $svc['title'] ?? '',
+    ];
+}
 $categories = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $categoryMap = [];
 foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
@@ -1724,6 +1767,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .tg-checkbox { display:flex; gap:10px; align-items:center; color:#d8d8e8; font-size:13px; text-transform:none; letter-spacing:0; margin:4px 0 18px; }
         .tg-checkbox input { width:auto; margin:0; accent-color:#f97316; }
         .avatar-hint { color: #8a8a96; font-size: 12px; line-height: 1.5; margin-top: 8px; background: rgba(255,255,255,.03); border-radius: 7px; padding: 8px 10px; border-left: 2px solid #f97316; }
+        .price-readout { background: rgba(249,115,22,.07); border: 1px solid rgba(249,115,22,.25); border-radius: 9px; padding: 11px 13px; font-weight: 800; font-size: 14px; color: #fdba74; }
         .tab-hidden { display: none !important; }
         #admin-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9999; min-width: 280px; max-width: 420px; border-radius: 14px; padding: 16px 20px; font-weight: 700; font-size: 14px; font-family: Montserrat,sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,.5); opacity: 0; transform: translateY(20px); transition: opacity .3s, transform .3s; pointer-events: none; }
         #admin-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
@@ -1756,29 +1800,32 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         tr.order-row.status-pending td     { background: rgba(249,115,22,.04); }
 
         /* ── Карточки заказов в админке: весь прямоугольник — кликабельный ── */
-        .admin-orders-cards { display: flex; flex-direction: column; gap: 10px; }
+        .admin-orders-cards { display: flex; flex-direction: column; gap: 12px; }
         .admin-order-card {
             display: flex;
             align-items: center;
             gap: 16px;
-            background: #14141c;
-            border: 1px solid #23232f;
-            border-radius: 14px;
-            padding: 14px 18px;
+            background: linear-gradient(135deg,#15151d,#111116);
+            border: 1px solid rgba(255,255,255,.06);
+            border-left: 3px solid rgba(255,255,255,.1);
+            border-radius: 16px;
+            padding: 15px 18px;
             cursor: pointer;
-            transition: border-color .18s, box-shadow .18s, transform .12s, background .18s;
+            box-shadow: 0 0 18px rgba(0,0,0,.15);
+            transition: border-color .2s, box-shadow .2s, transform .15s, background .2s;
         }
         .admin-order-card:hover, .admin-order-card:focus-visible {
-            border-color: rgba(249,115,22,.55);
-            box-shadow: 0 0 0 1px rgba(249,115,22,.25), 0 8px 24px rgba(249,115,22,.10);
-            background: #17171f;
-            transform: translateY(-1px);
+            border-color: rgba(249,115,22,.5);
+            border-left-color: #f97316;
+            box-shadow: 0 0 0 1px rgba(249,115,22,.2), 0 10px 28px rgba(249,115,22,.14);
+            background: linear-gradient(135deg,#181820,#131318);
+            transform: translateY(-2px) scale(1.005);
             outline: none;
         }
-        .admin-order-card.status-urgent { border-color: rgba(239,68,68,.35); }
-        .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.3), 0 8px 24px rgba(239,68,68,.12); }
-        .admin-order-card.status-ready { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.06); }
-        .admin-order-card.status-ready:hover { border-color: rgba(34,197,94,.65); box-shadow: 0 0 0 1px rgba(34,197,94,.3), 0 8px 24px rgba(34,197,94,.12); background: rgba(34,197,94,.09); }
+        .admin-order-card.status-urgent { border-left-color: rgba(239,68,68,.6); }
+        .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.5); border-left-color: #ef4444; box-shadow: 0 0 0 1px rgba(239,68,68,.25), 0 10px 28px rgba(239,68,68,.15); }
+        .admin-order-card.status-ready { border-left-color: rgba(34,197,94,.6); background: linear-gradient(135deg,rgba(34,197,94,.08),#111116); }
+        .admin-order-card.status-ready:hover { border-color: rgba(34,197,94,.5); border-left-color: #22c55e; box-shadow: 0 0 0 1px rgba(34,197,94,.25), 0 10px 28px rgba(34,197,94,.15); background: linear-gradient(135deg,rgba(34,197,94,.12),#141a16); }
         .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
         .admin-order-card-main { flex: 1; min-width: 0; }
         .admin-order-card-client { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
@@ -1862,7 +1909,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .create-card .btn-panel { max-width: 420px; margin-left: auto; margin-right: auto; display: block; }
 
         .grid-wrap { max-width: 1160px; margin: 34px auto 0; }
-        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px; align-items: start; justify-items: stretch; }
+        .card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 20px; align-items: start; }
+        @media (max-width: 900px) { .card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        @media (max-width: 560px) { .card-grid { grid-template-columns: 1fr; } }
 
         .item-card { position: relative; background: #181A23; border: 1px solid rgba(255,255,255,.05); border-radius: 17px; overflow: hidden; cursor: pointer; box-shadow: 0 0 25px rgba(255,136,0,.08); transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
         .item-card:hover { transform: scale(1.03); box-shadow: 0 0 42px rgba(255,136,0,.22), 0 14px 32px rgba(0,0,0,.45); border-color: rgba(249,115,22,.35); }
@@ -1956,73 +2005,73 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         </nav>
 
         <div class="admin-content">
-            <section class="stats-grid">
-                <div class="stat-card accent"><span>Заработано</span><strong><?= money($revenue['rub']??0) ?> ₽</strong><span><?= money($revenue['uan']??0) ?> ₴</span></div>
-                <div class="stat-card"><span>В активе</span><strong><?= money($activeValue['rub']??0) ?> ₽</strong><span><?= money($activeValue['uan']??0) ?> ₴</span></div>
-                <div class="stat-card"><span>Всего заказов</span><strong><?= (int)($orderStats['total']??0) ?></strong></div>
-                <div class="stat-card"><span>Новые</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
-                <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
-                <div class="stat-card"><span>В процессе</span><strong><?= (int)($orderStats['in_progress']??0) ?></strong></div>
-                <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
-            </section>
+            <div class="section-block" id="overview-stats-block">
+                <div class="section-heading"><span class="neon-ico">📊</span> Обзор</div>
 
-            <?php
-            // ── БЛОК DonationAlerts (API) ──
-            // Спрятан по просьбе: основной статистикой теперь считается
-            // ручной блок ниже (Донейшен/Крипта/Монобанк, вводится при
-            // нажатии "Готово"). Код оставлен нетронутым внутри if(false) —
-            // если понадобится снова включить API-статистику, просто
-            // поменяй false на true.
-            if (false):
-            ?>
-            <section class="stats-grid">
-                <?php if (!$daConnected): ?>
-                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
-                    <div class="stat-card"><span>Донатов за месяц</span><strong>$0.00</strong></div>
-                    <div class="stat-card"><span>Выведено за месяц</span><strong>$0.00</strong></div>
-                    <div class="stat-card"><span>Комиссия</span><strong>$0.00</strong></div>
-                <?php else: ?>
-                    <div class="stat-card accent"><span>DonationAlerts</span><strong>Подключено</strong><span>Токен сохранён</span></div>
-                    <div class="stat-card"><span>Донатов за месяц</span><strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong></div>
-                    <div class="stat-card"><span>Выведено за месяц</span><strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong></div>
-                    <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
+                <div class="card-grid" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px;">
+                    <div class="stat-card"><span>Всего заказов</span><strong><?= (int)($orderStats['total']??0) ?></strong></div>
+                    <div class="stat-card"><span>Новые</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
+                    <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
+                    <div class="stat-card"><span>В процессе</span><strong><?= (int)($orderStats['in_progress']??0) ?></strong></div>
+                    <div class="stat-card"><span>Готово</span><strong><?= (int)($orderStats['ready']??0) ?></strong></div>
+                </div>
+
+                <div class="two-cols" style="gap:12px;margin-bottom:20px;">
+                    <div class="stat-card accent"><span><span class="ico">📦</span> Заработано по заказам</span><strong><?= money($revenue['rub']??0) ?> ₽</strong><span><?= money($revenue['uan']??0) ?> ₴</span></div>
+                    <div class="stat-card"><span><span class="ico">⏳</span> В активе (не оплачено)</span><strong><?= money($activeValue['rub']??0) ?> ₽</strong><span><?= money($activeValue['uan']??0) ?> ₴</span></div>
+                </div>
+
+                <?php
+                // ── БЛОК DonationAlerts (API) ──
+                // Спрятан по просьбе: основной статистикой теперь считается
+                // ручной блок ниже (Донейшен/Крипта/Монобанк, вводится при
+                // нажатии "Готово"). Код оставлен нетронутым внутри if(false) —
+                // если понадобится снова включить API-статистику, просто
+                // поменяй false на true.
+                if (false):
+                ?>
+                <section class="stats-grid">
+                    <?php if (!$daConnected): ?>
+                        <div class="stat-card accent"><span>DonationAlerts</span><strong>Не подключено</strong><span><a href="<?= htmlspecialchars(daGetAuthorizeUrl()) ?>" style="color:#f97316; text-decoration:none;">Авторизовать</a></span></div>
+                        <div class="stat-card"><span>Донатов за месяц</span><strong>$0.00</strong></div>
+                        <div class="stat-card"><span>Выведено за месяц</span><strong>$0.00</strong></div>
+                        <div class="stat-card"><span>Комиссия</span><strong>$0.00</strong></div>
+                    <?php else: ?>
+                        <div class="stat-card accent"><span>DonationAlerts</span><strong>Подключено</strong><span>Токен сохранён</span></div>
+                        <div class="stat-card"><span>Донатов за месяц</span><strong>$<?= number_format($daDonationTotalUsd, 2, '.', '') ?></strong></div>
+                        <div class="stat-card"><span>Выведено за месяц</span><strong>$<?= number_format($daPayoutStats['gross'], 2, '.', '') ?></strong></div>
+                        <div class="stat-card"><span>Чистыми</span><strong>$<?= number_format($daPayoutStats['net'], 2, '.', '') ?></strong></div>
+                    <?php endif; ?>
+                </section>
                 <?php endif; ?>
-            </section>
-            <?php endif; ?>
 
-            <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
-            <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <span style="color:#8a8a96;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
-                <button type="button" onclick="document.getElementById('manualEarningModal').style.display='flex'" title="Добавить/убрать сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
-            </div>
-            <section class="stats-grid" style="margin-bottom:0;">
-                <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
-                    <span>💳 Донейшен</span>
-                    <strong><?= money($payByMethod['donation']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['donation']/$usdRate,2,'.',',') ?></span>
+                <!-- ── ФАКТИЧЕСКИЕ ПОСТУПЛЕНИЯ (ручной ввод при "Готово") — реальные деньги на руках, могут отличаться от "заработано по заказам" (скидки/промокоды/доп.способы) ── -->
+                <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                    <div class="section-heading" style="margin:0;font-size:14px;"><span class="ico">💵</span> Фактические поступления</div>
+                    <button type="button" onclick="document.getElementById('manualEarningModal').style.display='flex'" title="Добавить/убрать сумму вручную" style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-size:16px;font-weight:900;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
                 </div>
-                <div class="stat-card" style="background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.3);">
-                    <span>₿ Крипта</span>
-                    <strong><?= money($payByMethod['crypto']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['crypto']/$usdRate,2,'.',',') ?></span>
-                </div>
-                <div class="stat-card" style="background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);">
-                    <span>🏦 Монобанк</span>
-                    <strong><?= money($payByMethod['monobank']) ?> ₽</strong>
-                    <span style="font-size:11px;color:#888;">₴<?= number_format($payByMethod['monobank']/$uahRate,2,'.',',') ?></span>
-                </div>
-            </section>
-            <section class="stats-grid" style="margin-top:8px;">
-                <div class="stat-card accent" style="grid-column:span 3;">
-                    <span>💰 Итого заработано (все способы)</span>
-                    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                        <strong style="font-size:22px;"><?= money($totalRubFromPaid) ?> ₽</strong>
-                        <span style="color:#f97316;font-size:16px;font-weight:800;">$<?= number_format($totalUsdFromPaid,2,'.',',') ?></span>
-                        <span style="color:#60a5fa;font-size:16px;font-weight:800;">₴<?= number_format($totalUahFromPaid,2,'.',',') ?></span>
-                        <span style="font-size:11px;color:#555;margin-left:auto;">Курс: 1$ = <?= number_format($usdRate,2) ?>₽ · 1₴ = <?= number_format($uahRate,4) ?>₽</span>
+                <div class="card-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">
+                    <div class="stat-card" style="background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);">
+                        <span><span class="ico">💳</span> Донейшен</span>
+                        <strong><?= money($payByMethod['donation']) ?> ₽</strong>
+                        <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['donation']/$usdRate,2,'.',',') ?></span>
+                    </div>
+                    <div class="stat-card" style="background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.3);">
+                        <span><span class="ico">₿</span> Крипта</span>
+                        <strong><?= money($payByMethod['crypto']) ?> ₽</strong>
+                        <span style="font-size:11px;color:#888;">$<?= number_format($payByMethod['crypto']/$usdRate,2,'.',',') ?></span>
+                    </div>
+                    <div class="stat-card" style="background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);">
+                        <span><span class="ico">🏦</span> Монобанк</span>
+                        <strong><?= money($payByMethod['monobank']) ?> ₽</strong>
+                        <span style="font-size:11px;color:#888;">₴<?= number_format($payByMethod['monobank']/$uahRate,2,'.',',') ?></span>
+                    </div>
+                    <div class="stat-card accent">
+                        <span><span class="ico">💰</span> Итого</span>
+                        <strong><?= money($totalRubFromPaid) ?> ₽</strong>
+                        <span style="font-size:11px;"><span style="color:#f97316;">$<?= number_format($totalUsdFromPaid,2,'.',',') ?></span> · <span style="color:#60a5fa;">₴<?= number_format($totalUahFromPaid,2,'.',',') ?></span></span>
                     </div>
                 </div>
-            </section>
 
             <?php
                 // Последние ручные начисления — чтобы было видно, что и когда
@@ -2044,6 +2093,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
+            </div>
 
             <!-- Модалка ручного добавления суммы -->
             <div id="manualEarningModal" class="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:9999;">
@@ -2156,11 +2206,22 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             </div>
                             <div class="edit-drawer" id="<?= $pcDrawerId ?>" onclick="event.stopPropagation()">
                                 <div class="edit-drawer-head"><h3><span class="ico">🎟</span> <?= htmlspecialchars($pc['code']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-                                <div class="drawer-meta-row"><span>Скидка</span><b><?= (int)($pc['discount_percent'] ?? 0) > 0 ? '−' . (int)$pc['discount_percent'] . '%' : '—' ?></b></div>
-                                <div class="drawer-meta-row"><span>Бонус</span><b><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></b></div>
                                 <div class="drawer-meta-row"><span>Использован</span><b style="color:<?= $pcMaxed ? '#f87171' : '#d8d8e8' ?>;"><?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : ' / без лимита' ?></b></div>
-                                <div class="drawer-meta-row"><span>Срок действия</span><b style="color:<?= $pcExpired ? '#f87171' : '#d8d8e8' ?>;"><?= !empty($pc['expires_at']) ? date('d.m.Y', strtotime($pc['expires_at'])) . ($pcExpired ? ' (истёк)' : '') : 'бессрочно' ?></b></div>
                                 <div class="drawer-meta-row"><span>Статус</span><b style="color:<?= $pc['active'] ? '#4ade80' : '#8a8a96' ?>;"><?= $pc['active'] ? 'Активен' : 'Выключен' ?></b></div>
+                                <form method="POST" style="margin-top:14px;">
+                                    <input type="hidden" name="pc_code" value="<?= htmlspecialchars($pc['code']) ?>">
+                                    <input type="hidden" name="pc_duration" value="custom">
+                                    <div class="two-cols">
+                                        <div><label><span class="ico">％</span> Скидка %</label><input type="number" name="pc_discount" min="0" max="100" value="<?= (int)($pc['discount_percent'] ?? 0) ?>"></div>
+                                        <div><label><span class="ico">🔢</span> Лимит активаций</label><input type="number" name="pc_max_uses" min="1" value="<?= (int)($pc['max_uses'] ?? 0) ?: '' ?>" placeholder="без лимита"></div>
+                                    </div>
+                                    <label><span class="ico">🎁</span> Бонус</label>
+                                    <input type="text" name="pc_bonus" value="<?= htmlspecialchars($pc['bonus_text'] ?? '') ?>" placeholder="Например: бесплатная доп. правка">
+                                    <label><span class="ico">📅</span> Дата окончания (пусто — бессрочно)</label>
+                                    <input type="date" name="pc_custom_date" value="<?= !empty($pc['expires_at']) ? date('Y-m-d', strtotime($pc['expires_at'])) : '' ?>">
+                                    <?php if ($pcExpired): ?><div class="avatar-hint">⚠️ Срок действия истёк <?= date('d.m.Y', strtotime($pc['expires_at'])) ?> — обнови дату, чтобы снова заработал.</div><?php endif; ?>
+                                    <button type="submit" name="add_promo" class="btn-panel">💾 Сохранить изменения</button>
+                                </form>
                                 <a class="drawer-toggle" href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo"><?= $pc['active'] ? '⏸ Выключить' : '▶️ Включить' ?></a>
                                 <a class="drawer-danger" href="?delete_promo_id=<?= (int)$pc['id'] ?>" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')">🗑 Удалить промокод</a>
                             </div>
@@ -2275,9 +2336,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div><label><span class="ico">📝</span> Название проекта</label><input type="text" name="title" required placeholder="Например: сет Naruto"></div>
                                     <div>
                                         <label><span class="ico">🖼</span> Категория графики</label>
-                                        <select name="category_key" id="category_select" onchange="toggleAvatarField()">
-                                            <?php foreach ($categories as $category): ?>
-                                                <option value="<?= htmlspecialchars($category['category_key']) ?>">
+                                        <select name="category_key" id="category_select" onchange="toggleAvatarField(); syncCategoryPrice(this);">
+                                            <?php foreach ($categories as $category): $cp = $priceByCategory[$category['category_key']] ?? null; ?>
+                                                <option value="<?= htmlspecialchars($category['category_key']) ?>" data-rub="<?= $cp['rub'] ?? 0 ?>" data-uan="<?= $cp['uan'] ?? 0 ?>">
                                                     <?= htmlspecialchars($category['title']) ?>
                                                     <?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?> (<?= (int)$category['width_px'] ?>x<?= (int)$category['height_px'] ?>)<?php endif; ?>
                                                 </option>
@@ -2286,10 +2347,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     </div>
                                 </div>
                                 <hr class="divider">
-                                <div class="two-cols">
-                                    <div><label><span class="ico">💰</span> Цена в рублях</label><input type="number" name="price_rub" value="0" min="0"></div>
-                                    <div><label><span class="ico">💵</span> Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
-                                </div>
+                                <label><span class="ico">💰</span> Цена (берётся из услуги этой категории)</label>
+                                <div class="price-readout" id="add_price_readout">— укажите категорию —</div>
                                 <hr class="divider">
                                 <label><span class="ico">🖼</span> Главное изображение / шапка</label>
                                 <input type="file" name="image" accept="image/*" required>
@@ -2348,10 +2407,19 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         </div>
                                     </div>
                                     <div class="edit-drawer" id="<?= $catDrawerId ?>" onclick="event.stopPropagation()">
-                                        <div class="edit-drawer-head"><h3><span class="ico">📂</span> <?= htmlspecialchars($category['title']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-                                        <div class="drawer-meta-row"><span>Ключ</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
-                                        <div class="drawer-meta-row"><span>Размер рамки</span><b><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?> px<?php else: ?>не задан<?php endif; ?></b></div>
-                                        <div class="drawer-meta-row"><span>Оформление с аватаркой</span><b><?= !empty($category['is_design']) ? 'Да' : 'Нет' ?></b></div>
+                                        <div class="edit-drawer-head"><h3><span class="ico">📂</span> Редактирование</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+                                        <form method="POST">
+                                            <input type="hidden" name="cat_id" value="<?= (int)$category['id'] ?>">
+                                            <label><span class="ico">📝</span> Название категории</label>
+                                            <input type="text" name="cat_title" required value="<?= htmlspecialchars($category['title']) ?>">
+                                            <div class="drawer-meta-row"><span>Ключ (не меняется)</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
+                                            <div class="two-cols" style="margin-top:12px;">
+                                                <div><label><span class="ico">↔️</span> Ширина, px</label><input type="number" name="cat_width" min="0" value="<?= (int)$category['width_px'] ?>"></div>
+                                                <div><label><span class="ico">↕️</span> Высота, px</label><input type="number" name="cat_height" min="0" value="<?= (int)$category['height_px'] ?>"></div>
+                                            </div>
+                                            <label class="tg-checkbox" style="margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" <?= !empty($category['is_design']) ? 'checked' : '' ?>> <span class="ico">👤</span> Это оформление с аватаркой</label>
+                                            <button type="submit" name="update_portfolio_category" class="btn-panel">💾 Сохранить изменения</button>
+                                        </form>
                                         <a class="drawer-danger" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
                                     </div>
                                 <?php endforeach; ?>
@@ -2364,7 +2432,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                     <!-- ════ ЗАКАЗЫ ════ -->
                     <section class="panel" data-panel="orders">
-                        <h2><span class="ico">🧾</span> Заказы</h2>
+                        <div class="section-heading"><span class="neon-ico">🧾</span> Заказы</div>
                         <?php if (!empty($pendingOrders)): ?>
                             <div style="margin-bottom:14px;padding:14px;border:1px solid rgba(249,115,22,.25);background:rgba(249,115,22,.08);border-radius:12px;">
                                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
@@ -2395,17 +2463,17 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 </div>
                             </div>
                         <?php endif; ?>
-                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                            <form method="GET" style="display:flex;gap:8px;align-items:center;">
-                                <label style="color:#8a8a96;font-size:13px;text-transform:none;margin:0;">Статус:</label>
-                                <select name="orders_status" onchange="this.form.submit()">
+                        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+                            <form method="GET" style="display:flex;gap:10px;align-items:center;">
+                                <label style="color:#8a8a96;font-size:12.5px;text-transform:none;margin:0;font-weight:700;"><span class="ico">🔍</span> Статус:</label>
+                                <select name="orders_status" onchange="this.form.submit()" style="width:auto;min-width:160px;">
                                     <option value="">Все</option>
                                     <?php foreach ($statusLabels as $sk => $sv): ?>
                                         <option value="<?= htmlspecialchars($sk) ?>" <?= $orders_status === $sk ? 'selected' : '' ?>><?= htmlspecialchars($sv) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </form>
-                            <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
+                            <div style="margin-left:auto;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25);border-radius:999px;padding:6px 14px;color:#fdba74;font-size:12.5px;font-weight:800;">Всего: <?= $ordersTotal ?></div>
                         </div>
                         <div class="admin-orders-cards">
                             <?php foreach ($recentOrders as $order): ?>
@@ -2658,15 +2726,13 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         <label><span class="ico">📝</span> Название</label>
                                         <input type="text" form="<?= $fid ?>" name="portfolio_title" value="<?= htmlspecialchars($work['title']??'') ?>">
                                         <label><span class="ico">🖼</span> Категория</label>
-                                        <select form="<?= $fid ?>" name="portfolio_category">
-                                            <?php foreach ($categories as $catOpt): ?>
-                                                <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
+                                        <select form="<?= $fid ?>" name="portfolio_category" onchange="syncCategoryPrice(this)">
+                                            <?php foreach ($categories as $catOpt): $cop = $priceByCategory[$catOpt['category_key']] ?? null; ?>
+                                                <option value="<?= htmlspecialchars($catOpt['category_key']) ?>" data-rub="<?= $cop['rub'] ?? 0 ?>" data-uan="<?= $cop['uan'] ?? 0 ?>" <?= ($catOpt['category_key'] === $cat) ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabels[$catOpt['category_key']] ?? $catOpt['category_key']) ?></option>
                                             <?php endforeach; ?>
                                         </select>
-                                        <div class="two-cols">
-                                            <div><label><span class="ico">💰</span> Цена ₽</label><input type="number" form="<?= $fid ?>" name="portfolio_price_rub" value="<?= (int)($work['price_rub']??0) ?>"></div>
-                                            <div><label><span class="ico">💵</span> Цена ₴</label><input type="number" form="<?= $fid ?>" name="portfolio_price_uan" value="<?= (int)($work['price_uan']??0) ?>"></div>
-                                        </div>
+                                        <label><span class="ico">💰</span> Цена (из услуги категории)</label>
+                                        <div class="price-readout"><span class="ico">💰</span> <?= money($work['price_rub']??0) ?> ₽ / <?= money($work['price_uan']??0) ?> ₴</div>
                                         <hr class="divider">
                                         <label><span class="ico">🖼</span> Заменить главное изображение</label>
                                         <input type="file" form="<?= $fid ?>" name="portfolio_image" accept="image/*">
@@ -3024,6 +3090,27 @@ function toggleAvatarField() {
     block.style.display = designCategories.includes(category) ? 'block' : 'none';
 }
 
+// Цена больше не вводится руками — подтягивается из услуги (прайса) выбранной категории.
+// selectEl — сам <select>, ищем ближайший .price-readout рядом с ним (в форме создания или в Drawer редактирования).
+function syncCategoryPrice(selectEl) {
+    const opt  = selectEl.options[selectEl.selectedIndex];
+    if (!opt) return;
+    const rub  = opt.getAttribute('data-rub') || '0';
+    const uan  = opt.getAttribute('data-uan') || '0';
+    const host = selectEl.closest('.create-card') || selectEl.closest('.edit-drawer') || document;
+    const out  = host.querySelector('.price-readout');
+    if (!out) return;
+    if (rub === '0' && uan === '0') {
+        out.textContent = '⚠️ Для этой категории пока нет услуги в прайсе — цена будет 0';
+    } else {
+        out.textContent = '💰 ' + rub + ' ₽ / ' + uan + ' ₴';
+    }
+}
+document.addEventListener('DOMContentLoaded', function () {
+    const addSel = document.getElementById('category_select');
+    if (addSel) syncCategoryPrice(addSel);
+});
+
 function openDrawer(id) {
     document.querySelectorAll('.edit-drawer.open').forEach(d => d.classList.remove('open'));
     const d = document.getElementById(id);
@@ -3043,12 +3130,9 @@ function activateAdminTab(tab) {
     if (ordPanel) ordPanel.style.display = 'none';
 
     document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    // ИСПРАВЛЕНО: раньше был querySelector (только 1-й блок статистики),
-    // из-за чего 2 других .stats-grid (по способам оплаты + итого) не
-    // скрывались на других вкладках и путали разметку.
-    const stats  = document.querySelectorAll('.stats-grid');
+    const statsBlock = document.getElementById('overview-stats-block');
     const layout = document.querySelector('.admin-layout');
-    stats.forEach(s => s.classList.add('tab-hidden'));
+    if (statsBlock) statsBlock.classList.add('tab-hidden');
     if (layout) layout.classList.add('single-column');
     document.querySelectorAll('.panel').forEach(p => p.classList.add('tab-hidden'));
 
@@ -3056,10 +3140,10 @@ function activateAdminTab(tab) {
         document.querySelectorAll(`.panel[data-panel="${n}"]`).forEach(el => el.classList.remove('tab-hidden'));
     });
 
-    if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
+    if (tab === 'overview')    { if (statsBlock) statsBlock.classList.remove('tab-hidden'); show('orders'); }
     else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); }
     else if (tab === 'price')     { show('price-add','price-manager'); }
-    else if (tab === 'orders')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
+    else if (tab === 'orders')    { if (statsBlock) statsBlock.classList.remove('tab-hidden'); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
     else if (tab === 'promo')     { show('promo'); }
     else if (tab === 'reviews')   { show('reviews'); }
