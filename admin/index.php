@@ -2112,6 +2112,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         [data-panel="portfolio-list"] .card-grid { grid-template-columns: repeat(3, 1fr) !important; }
         @media (max-width: 900px) { [data-panel="portfolio-list"] .card-grid { grid-template-columns: repeat(2, 1fr) !important; } }
         @media (max-width: 560px) { [data-panel="portfolio-list"] .card-grid { grid-template-columns: 1fr !important; } }
+        .portfolio-case-formlink { display: none !important; }
 
         .item-card { position: relative; background: #181A23; border: 1px solid rgba(255,255,255,.05); border-radius: 17px; overflow: hidden; cursor: pointer; box-shadow: 0 0 25px rgba(255,136,0,.08); transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
         .item-card:hover { transform: scale(1.03); box-shadow: 0 0 42px rgba(255,136,0,.22), 0 14px 32px rgba(0,0,0,.45); border-color: rgba(249,115,22,.35); }
@@ -2931,7 +2932,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                                     <!-- Форма кейса объявлена пустой здесь; поля лежат в Drawer ниже
                                          и связаны через атрибут form="<?= $fid ?>" -->
-                                    <form id="<?= $fid ?>" action="" method="POST" enctype="multipart/form-data"></form>
+                                    <form id="<?= $fid ?>" class="portfolio-case-formlink" action="" method="POST" enctype="multipart/form-data"></form>
                                     <input type="hidden" form="<?= $fid ?>" name="portfolio_id" value="<?= (int)$work['id'] ?>">
                                     <div class="edit-drawer" id="<?= $drawerId ?>" onclick="event.stopPropagation()">
                                         <div class="edit-drawer-head"><h3><span class="ico">✏️</span> Редактирование</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
