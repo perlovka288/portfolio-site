@@ -20,16 +20,98 @@ try {
     // ignore
 }
 
+// ══════════════════════════════════════════════════════════════════
+// НАСТРОЙКИ / КЛЮЧИ (site_settings) — единая таблица "ключ → значение",
+// которую теперь можно редактировать прямо из вкладки "🔑 Ключи и API"
+// без захода в переменные окружения на Render. Если в таблице пусто —
+// используется getenv()/дефолт как раньше (обратная совместимость).
+// ══════════════════════════════════════════════════════════════════
+function ensureSiteSettingsTable(PDO $pdo): void
+{
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    } catch (Throwable $e) {}
+}
+function getSetting(PDO $pdo, string $key, string $default = ''): string
+{
+    static $cache = [];
+    if (array_key_exists($key, $cache)) return $cache[$key];
+    $val = $default;
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && trim((string)$row['value']) !== '') $val = $row['value'];
+    } catch (Throwable $e) {}
+    $cache[$key] = $val;
+    return $val;
+}
+function setSetting(PDO $pdo, string $key, string $value): void
+{
+    try {
+        $pdo->prepare("INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW())
+                       ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()")
+            ->execute([$key, $value]);
+    } catch (Throwable $e) {}
+}
+ensureSiteSettingsTable($pdo);
+
+// Список ключей, которые редактируются во вкладке "Ключи и API".
+// group "core"  — реально используются в этом файле (ImgBB, бот, чаты, сайт).
+// group "other" — читаются другими файлами проекта (bot.php, ai_widget.php и т.п.)
+// напрямую через getenv(), поэтому запись отсюда — записная книжка и подставится
+// туда, только если в тех файлах тоже вызвать getSetting().
+$API_KEY_FIELDS = [
+    'core' => [
+        ['key' => 'BOT_TOKEN',              'label' => '🤖 Токен Telegram-бота',                 'secret' => true],
+        ['key' => 'PORTFOLIO_CHANNEL_CHAT', 'label' => '📣 Канал портфолио (chat_id/@username)', 'secret' => false],
+        ['key' => 'PRIVATE_CHAT_ID',        'label' => '🔒 Приватный чат для PSD-паков',         'secret' => false],
+        ['key' => 'SITE_URL',               'label' => '🌐 Публичный URL сайта',                 'secret' => false],
+        ['key' => 'IMGBB_API_KEY',          'label' => '🖼 ImgBB — ключ №1',                     'secret' => true],
+        ['key' => 'IMGBB_API_KEY2',         'label' => '🖼 ImgBB — ключ №2 (резерв)',            'secret' => true],
+        ['key' => 'IMGBB_API_KEY3',         'label' => '🖼 ImgBB — ключ №3 (резерв)',            'secret' => true],
+        ['key' => 'ADMIN_EMAIL',            'label' => '📧 Email администратора',                'secret' => false],
+        ['key' => 'ADMIN_TELEGRAM_ID',      'label' => '🆔 Telegram ID администратора',          'secret' => false],
+    ],
+    'other' => [
+        ['key' => 'GEMINI_API_KEY',            'label' => '✨ Gemini API ключ (ИИ-помощник)', 'secret' => true],
+        ['key' => 'GEMINI_MODEL',              'label' => '✨ Gemini модель',                 'secret' => false],
+        ['key' => 'CLOUDINARY_CLOUD_NAME',     'label' => '☁️ Cloudinary — cloud name',       'secret' => false],
+        ['key' => 'CLOUDINARY_API_KEY',        'label' => '☁️ Cloudinary — API key',          'secret' => true],
+        ['key' => 'CLOUDINARY_API_SECRET',     'label' => '☁️ Cloudinary — API secret',       'secret' => true],
+        ['key' => 'GDRIVE_FOLDER_ID',          'label' => '📁 Google Drive — ID папки',       'secret' => false],
+        ['key' => 'PAYMENT_REQUISITES_RUB',    'label' => '💳 Реквизиты для оплаты ₽',        'secret' => false],
+        ['key' => 'PAYMENT_REQUISITES_UAH',    'label' => '💳 Реквизиты для оплаты ₴',        'secret' => false],
+        ['key' => 'PAYMENT_REQUISITES_CRYPTO', 'label' => '₿ Реквизиты для оплаты (крипта)',  'secret' => false],
+        ['key' => 'PAYMENT_REQUISITES_MONO',   'label' => '🏦 Реквизиты Монобанк',            'secret' => false],
+        ['key' => 'YT_API_KEY',                'label' => '▶️ YouTube API ключ',              'secret' => true],
+        ['key' => 'TURNSTILE_SITE_KEY',        'label' => '🛡 Turnstile — site key',          'secret' => false],
+        ['key' => 'TURNSTILE_SECRET_KEY',      'label' => '🛡 Turnstile — secret key',        'secret' => true],
+    ],
+];
+
+// ── Сохранение ключей (AJAX) ──────────────────────────────────────
+if (isset($_POST['save_api_keys']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    foreach (array_merge($API_KEY_FIELDS['core'], $API_KEY_FIELDS['other']) as $f) {
+        if (array_key_exists($f['key'], $_POST)) {
+            setSetting($pdo, $f['key'], trim((string)$_POST[$f['key']]));
+        }
+    }
+    echo json_encode(['ok' => true, 'msg' => '✅ Ключи сохранены и уже применяются.']);
+    exit;
+}
+
 $message = '';
 $uploadDir = '../uploads/';
-define('TELEGRAM_BOT_TOKEN', getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg');
-define('PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim');
+define('TELEGRAM_BOT_TOKEN', getSetting($pdo, 'BOT_TOKEN', getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg'));
+define('PORTFOLIO_CHANNEL_CHAT', getSetting($pdo, 'PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim'));
 if (!defined('PRIVATE_PACK_CHAT_ID')) {
-    define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
+    define('PRIVATE_PACK_CHAT_ID', getSetting($pdo, 'PRIVATE_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
 }
-define('PUBLIC_SITE_URL', rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/');
-define('ADMIN_EMAIL', 'jeffkostlim@gmail.com');
-define('ADMIN_TELEGRAM_ID', '1710365896');
+define('PUBLIC_SITE_URL', rtrim(getSetting($pdo, 'SITE_URL', getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/'), '/') . '/');
+define('ADMIN_EMAIL', getSetting($pdo, 'ADMIN_EMAIL', 'jeffkostlim@gmail.com'));
+define('ADMIN_TELEGRAM_ID', getSetting($pdo, 'ADMIN_TELEGRAM_ID', '1710365896'));
 $telegramLastError = '';
 
 // ══════════════════════════════════════════════════════════════════
@@ -280,12 +362,23 @@ if (isset($_POST['add_promo'])) {
         }
     }
 
+    $pcNewId = 0;
     if ($pcCode !== '') {
         try {
-            $pdo->prepare("INSERT INTO promo_codes (code, discount_percent, bonus_text, max_uses, expires_at, active) VALUES (?,?,?,?,?,TRUE)
-                ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, bonus_text = EXCLUDED.bonus_text, max_uses = EXCLUDED.max_uses, expires_at = EXCLUDED.expires_at, active = TRUE")
-                ->execute([$pcCode, $pcPct !== '' ? (int)$pcPct : null, $pcBonus, $pcMaxUses !== '' ? (int)$pcMaxUses : null, $pcExpiresAt]);
+            $ins = $pdo->prepare("INSERT INTO promo_codes (code, discount_percent, bonus_text, max_uses, expires_at, active) VALUES (?,?,?,?,?,TRUE)
+                ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, bonus_text = EXCLUDED.bonus_text, max_uses = EXCLUDED.max_uses, expires_at = EXCLUDED.expires_at, active = TRUE
+                RETURNING id");
+            $ins->execute([$pcCode, $pcPct !== '' ? (int)$pcPct : null, $pcBonus, $pcMaxUses !== '' ? (int)$pcMaxUses : null, $pcExpiresAt]);
+            $pcNewId = (int)$ins->fetchColumn();
         } catch (Throwable $e) {}
+    }
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($pcCode === '' || $pcNewId <= 0) { echo json_encode(['ok' => false, 'msg' => '❌ Укажи код промокода.']); exit; }
+        $row = $pdo->prepare("SELECT * FROM promo_codes WHERE id = ? LIMIT 1"); $row->execute([$pcNewId]);
+        $promo = $row->fetch(PDO::FETCH_ASSOC);
+        echo json_encode(['ok' => true, 'msg' => '✅ Промокод создан.', 'html' => renderPromoCardHtml($promo)]);
+        exit;
     }
     header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '#promo'); exit;
 }
@@ -1091,8 +1184,13 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
 function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 {
+    global $pdo;
     if (!is_file($tmpPath)) { error_log("ImgBB: file not found ($tmpPath)"); return ''; }
-    $keys = array_filter([getenv('IMGBB_API_KEY') ?: '', getenv('IMGBB_API_KEY2') ?: '', getenv('IMGBB_API_KEY3') ?: '']);
+    $keys = array_filter([
+        getSetting($pdo, 'IMGBB_API_KEY', getenv('IMGBB_API_KEY') ?: ''),
+        getSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
+        getSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
+    ]);
     if (empty($keys)) { error_log("ImgBB: no API keys set"); return ''; }
     $b64 = base64_encode(file_get_contents($tmpPath));
     foreach ($keys as $index => $apiKey) {
@@ -1164,6 +1262,102 @@ function imgSrc(string $val, string $baseUrl = '../uploads/'): string
         return $siteRoot . '/' . $cleanBase . $val;
     }
     return $baseUrl . $val;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Рендер карточка+drawer для категории / услуги / промокода — используются
+// и при обычной отрисовке страницы, и как ответ AJAX-обработчиков ниже,
+// чтобы новый элемент появлялся в сетке МГНОВЕННО, без перезагрузки.
+// ══════════════════════════════════════════════════════════════════
+function renderCategoryCardHtml(array $category): string
+{
+    ob_start(); ?>
+    <div class="item-card" onclick="openDrawer('drawer-cat-<?= (int)$category['id'] ?>')">
+        <div class="item-card-media"><div class="no-media">📂</div></div>
+        <div class="item-card-body">
+            <div class="item-card-title"><?= htmlspecialchars($category['title']) ?></div>
+            <div class="item-card-sub">🔑 <?= htmlspecialchars($category['category_key']) ?></div>
+            <div class="item-card-foot">
+                <span class="item-card-price"><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?><?php else: ?>— px —<?php endif; ?></span>
+                <?php if (!empty($category['is_design'])): ?><span class="item-card-badge">👤 С аватаркой</span><?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <div class="edit-drawer" id="drawer-cat-<?= (int)$category['id'] ?>" onclick="event.stopPropagation()">
+        <div class="edit-drawer-head"><h3><span class="ico">📂</span> <?= htmlspecialchars($category['title']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+        <div class="drawer-meta-row"><span>Ключ</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
+        <div class="drawer-meta-row"><span>Размер рамки</span><b><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?> px<?php else: ?>не задан<?php endif; ?></b></div>
+        <div class="drawer-meta-row"><span>Оформление с аватаркой</span><b><?= !empty($category['is_design']) ? 'Да' : 'Нет' ?></b></div>
+        <a class="drawer-danger" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
+    </div>
+    <?php return (string)ob_get_clean();
+}
+
+function renderServiceCardHtml(array $service): string
+{
+    $id = (int)$service['id'];
+    ob_start(); ?>
+    <div class="item-card" onclick="openDrawer('drawer-price-<?= $id ?>')">
+        <div class="item-card-media">
+            <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" alt=""><?php else: ?><div class="no-media">🎨</div><?php endif; ?>
+        </div>
+        <div class="item-card-body">
+            <div class="item-card-title"><?= htmlspecialchars($service['title']??'') ?></div>
+            <div class="item-card-sub">🔑 <?= htmlspecialchars($service['category_key']??'') ?></div>
+            <div class="item-card-foot">
+                <span class="item-card-price"><span class="ico">💰</span><?= money($service['price_rub']??0) ?> ₽ / <?= money($service['price_uan']??0) ?> ₴</span>
+            </div>
+        </div>
+    </div>
+    <div class="edit-drawer" id="drawer-price-<?= $id ?>" onclick="event.stopPropagation()">
+        <div class="edit-drawer-head"><h3><span class="ico">✏️</span> Редактирование услуги</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+        <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="drawer-preview" alt=""><?php endif; ?>
+        <label><span class="ico">📝</span> Название услуги</label>
+        <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
+        <label><span class="ico">📄</span> Описание</label>
+        <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
+        <label><span class="ico">⚡</span> Фичи</label>
+        <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Через | например: PSD-файл|2 правки">
+        <div class="two-cols">
+            <div><label><span class="ico">💰</span> Цена ₽</label><input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>"></div>
+            <div><label><span class="ico">💵</span> Цена ₴</label><input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>"></div>
+        </div>
+        <hr class="divider">
+        <label><span class="ico">🖼</span> Заменить обложку</label>
+        <input type="file" name="price_images[<?= $id ?>]" accept="image/*">
+        <div class="avatar-hint">Кнопка ниже сохраняет изменения по всем услугам сразу.</div>
+        <button type="submit" name="save_all_prices" class="btn-panel" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 8px 24px rgba(34,197,94,.3);">💾 Сохранить прайс</button>
+        <a class="drawer-danger" href="?delete_price_id=<?= $id ?>" onclick="return confirm('Удалить услугу?')">🗑 Удалить услугу</a>
+    </div>
+    <?php return (string)ob_get_clean();
+}
+
+function renderPromoCardHtml(array $pc): string
+{
+    $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
+    ob_start(); ?>
+    <div class="item-card" onclick="openDrawer('drawer-promo-<?= (int)$pc['id'] ?>')" style="<?= $pc['active'] ? '' : 'opacity:.5;' ?>">
+        <div class="item-card-media"><div class="no-media">🎟</div></div>
+        <div class="item-card-body">
+            <div class="item-card-title"><?= htmlspecialchars($pc['code']) ?></div>
+            <div class="item-card-sub"><?= htmlspecialchars($pc['bonus_text'] ?: 'без бонуса') ?></div>
+            <div class="item-card-foot">
+                <span class="item-card-price"><?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?>−<?= (int)$pc['discount_percent'] ?>%<?php else: ?>—<?php endif; ?></span>
+                <span class="item-card-badge <?= $pc['active'] ? '' : 'off' ?>"><?= $pc['active'] ? '🟢 Активен' : '⚪ Выключен' ?></span>
+            </div>
+        </div>
+    </div>
+    <div class="edit-drawer" id="drawer-promo-<?= (int)$pc['id'] ?>" onclick="event.stopPropagation()">
+        <div class="edit-drawer-head"><h3><span class="ico">🎟</span> <?= htmlspecialchars($pc['code']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+        <div class="drawer-meta-row"><span>Скидка</span><b><?= (int)($pc['discount_percent'] ?? 0) > 0 ? '−' . (int)$pc['discount_percent'] . '%' : '—' ?></b></div>
+        <div class="drawer-meta-row"><span>Бонус</span><b><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></b></div>
+        <div class="drawer-meta-row"><span>Использован</span><b style="color:<?= (!empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses']) ? '#f87171' : '#d8d8e8' ?>;"><?= (int)($pc['uses_count'] ?? 0) ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : ' / без лимита' ?></b></div>
+        <div class="drawer-meta-row"><span>Срок действия</span><b style="color:<?= $pcExpired ? '#f87171' : '#d8d8e8' ?>;"><?= !empty($pc['expires_at']) ? date('d.m.Y', strtotime($pc['expires_at'])) . ($pcExpired ? ' (истёк)' : '') : 'бессрочно' ?></b></div>
+        <div class="drawer-meta-row"><span>Статус</span><b style="color:<?= $pc['active'] ? '#4ade80' : '#8a8a96' ?>;"><?= $pc['active'] ? 'Активен' : 'Выключен' ?></b></div>
+        <a class="drawer-toggle" href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo"><?= $pc['active'] ? '⏸ Выключить' : '▶️ Включить' ?></a>
+        <a class="drawer-danger" href="?delete_promo_id=<?= (int)$pc['id'] ?>" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')">🗑 Удалить промокод</a>
+    </div>
+    <?php return (string)ob_get_clean();
 }
 
 // ===================== UPLOAD SITE AVATAR =====================
@@ -1347,6 +1541,10 @@ if (isset($_POST['save_all_prices'])) {
 
 if (isset($_POST['add_price_service'])) {
     $title        = trim($_POST['service_title'] ?? '');
+    // Теперь ключ услуги выбирается из выпадающего списка категорий портфолио
+    // (select "service_key" на фронте), а не вводится вручную — так услуга
+    // и категория портфолио гарантированно совпадают по ключу, и цена из
+    // прайса автоматически подтягивается при выборе категории в портфолио.
     $category_key = trim($_POST['service_key'] ?? '');
     $description  = trim($_POST['service_description'] ?? '');
     $features     = trim($_POST['service_features'] ?? '');
@@ -1355,11 +1553,27 @@ if (isset($_POST['add_price_service'])) {
     $image        = uploadImage('service_image', 'price', $uploadDir);
     if ($category_key === '') $category_key = 'service_' . time();
     $category_key = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $category_key));
+    $newServiceId = 0;
     if ($title === '') { $message = '❌ Укажи название услуги.'; }
     else {
-        $stmt = $pdo->prepare("INSERT INTO prices (category_key,title,description,price_rub,price_uan,features,image) VALUES (?,?,?,?,?,?,?)");
-        try { $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]); $message = '✅ Новая услуга добавлена в прайс.'; }
+        $stmt = $pdo->prepare("INSERT INTO prices (category_key,title,description,price_rub,price_uan,features,image) VALUES (?,?,?,?,?,?,?) RETURNING id");
+        try {
+            $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]);
+            $newServiceId = (int)$stmt->fetchColumn();
+            $message = '✅ Новая услуга добавлена в прайс.';
+        }
         catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
+    }
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($newServiceId <= 0) { echo json_encode(['ok' => false, 'msg' => $message]); exit; }
+        $row = $pdo->prepare("SELECT * FROM prices WHERE id = ? LIMIT 1"); $row->execute([$newServiceId]);
+        $svc = $row->fetch(PDO::FETCH_ASSOC);
+        echo json_encode([
+            'ok' => true, 'msg' => $message, 'html' => renderServiceCardHtml($svc),
+            'category_key' => $svc['category_key'], 'price_rub' => (int)$svc['price_rub'], 'price_uan' => (int)$svc['price_uan'],
+        ]);
+        exit;
     }
 }
 
@@ -1375,15 +1589,43 @@ if (isset($_POST['add_portfolio_category'])) {
     $catWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 1920;
     $catHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 1080;
     $catIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
+    $catPriceRub = !empty($_POST['cat_price_rub']) ? (int)$_POST['cat_price_rub'] : 0;
+    $catPriceUan = !empty($_POST['cat_price_uan']) ? (int)$_POST['cat_price_uan'] : 0;
     if ($catKey === '') $catKey = 'cat_' . time();
     $catKey = strtolower(preg_replace('/[^a-z0-9_]/i', '_', $catKey));
+    $newCatId = 0;
     if ($catTitle === '') { $message = '❌ Укажи название категории.'; }
     else {
         try {
-            $pdo->prepare("INSERT INTO portfolio_categories (category_key,title,width_px,height_px,is_design,sort_order) VALUES (?,?,?,?,?,100)")
-                ->execute([$catKey, $catTitle, $catWidth, $catHeight, $catIsDesign]);
-            $message = '✅ Категория добавлена.';
+            $insCat = $pdo->prepare("INSERT INTO portfolio_categories (category_key,title,width_px,height_px,is_design,sort_order) VALUES (?,?,?,?,?,100) RETURNING id");
+            $insCat->execute([$catKey, $catTitle, $catWidth, $catHeight, $catIsDesign]);
+            $newCatId = (int)$insCat->fetchColumn();
+            // Автоматически заводим связанную услугу в прайсе с тем же ключом —
+            // категория и услуга теперь всегда связаны 1-к-1 по category_key,
+            // и цену для этой категории можно сразу редактировать во вкладке "Прайс".
+            $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, ?, ?)
+                           ON CONFLICT (category_key) DO NOTHING")
+                ->execute([$catKey, $catTitle, $catPriceRub, $catPriceUan]);
+            $message = '✅ Категория добавлена, связанная услуга создана в прайсе.';
         } catch (PDOException $e) { $message = '❌ Такая категория уже существует.'; }
+    }
+    if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($newCatId <= 0) { echo json_encode(['ok' => false, 'msg' => $message]); exit; }
+        $row = $pdo->prepare("SELECT * FROM portfolio_categories WHERE id = ? LIMIT 1"); $row->execute([$newCatId]);
+        $cat = $row->fetch(PDO::FETCH_ASSOC);
+        $priceRow = $pdo->prepare("SELECT * FROM prices WHERE category_key = ? LIMIT 1"); $priceRow->execute([$catKey]);
+        $svc = $priceRow->fetch(PDO::FETCH_ASSOC);
+        $sizeLabel = ((int)$cat['width_px']>0 && (int)$cat['height_px']>0) ? " ({$cat['width_px']}x{$cat['height_px']})" : '';
+        echo json_encode([
+            'ok' => true, 'msg' => $message,
+            'html' => renderCategoryCardHtml($cat),
+            'category_key' => $cat['category_key'],
+            'category_label' => $cat['title'] . $sizeLabel,
+            'is_design' => (bool)$cat['is_design'],
+            'service_html' => $svc ? renderServiceCardHtml($svc) : null,
+        ]);
+        exit;
     }
 }
 
@@ -1651,7 +1893,11 @@ if (isset($_POST['send_order_message'])) {
 
 $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
-$imgbbKeys         = array_filter([getenv('IMGBB_API_KEY')?: '', getenv('IMGBB_API_KEY2')?: '', getenv('IMGBB_API_KEY3')?: '']);
+$imgbbKeys         = array_filter([
+    getSetting($pdo, 'IMGBB_API_KEY', getenv('IMGBB_API_KEY') ?: ''),
+    getSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
+    getSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
+]);
 $imgbbKeyCount     = count($imgbbKeys);
 $imgbbKeySet       = $imgbbKeyCount > 0;
 ?>
@@ -1863,6 +2109,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
         .grid-wrap { max-width: 1160px; margin: 34px auto 0; }
         .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px; align-items: start; justify-items: stretch; }
+        [data-panel="portfolio-list"] .card-grid { grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 900px) { [data-panel="portfolio-list"] .card-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 560px) { [data-panel="portfolio-list"] .card-grid { grid-template-columns: 1fr; } }
 
         .item-card { position: relative; background: #181A23; border: 1px solid rgba(255,255,255,.05); border-radius: 17px; overflow: hidden; cursor: pointer; box-shadow: 0 0 25px rgba(255,136,0,.08); transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
         .item-card:hover { transform: scale(1.03); box-shadow: 0 0 42px rgba(255,136,0,.22), 0 14px 32px rgba(0,0,0,.45); border-color: rgba(249,115,22,.35); }
@@ -1919,9 +2168,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <h1>⚙️ Админ-панель Kostlim Design</h1>
             <p>Портфолио, прайс, заказы и деньги в одном месте.</p>
             <div class="admin-meta">
-                <span>Kostlim</span>
-                <span><?= htmlspecialchars(ADMIN_EMAIL) ?></span>
-                <span>TG ID: <?= htmlspecialchars(ADMIN_TELEGRAM_ID) ?></span>
                 <?php if ($imgbbKeySet): ?>
                     <span class="ok">✅ ImgBB: <?= $imgbbKeyCount ?> <?= $imgbbKeyCount === 1 ? 'ключ' : ($imgbbKeyCount < 5 ? 'ключа' : 'ключей') ?></span>
                 <?php else: ?>
@@ -1929,7 +2175,14 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                 <?php endif; ?>
             </div>
         </div>
-        <a href="../index.php" class="admin-link-top">← На сайт</a>
+        <div style="display:flex;gap:10px;align-items:center;">
+            <a href="profile.php" class="admin-link-top" style="display:flex;align-items:center;gap:7px;">
+                <?php $headerAvatarSrc = imgSrc($currentAvatarFile ?? '', '../uploads/'); ?>
+                <img src="<?= htmlspecialchars($headerAvatarSrc ?: 'https://i.imgur.com/w9NThbA.png') ?>" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
+                👤 Мой профиль
+            </a>
+            <a href="../index.php" class="admin-link-top">← На сайт</a>
+        </div>
     </div>
 
     <?php if ($message !== ''): ?>
@@ -1953,6 +2206,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
             <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
             <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
+            <button type="button" class="admin-tab"        data-tab="keys"       onclick="activateAdminTab('keys')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> Ключи и API</button>
         </nav>
 
         <div class="admin-content">
@@ -2098,7 +2352,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <h2><span class="ico">🎟</span> Создать промокод</h2>
                         <p>Каждый промокод одноразовый на человека: повторно ввести код, уже занятый в заказе, клиент не сможет</p>
                     </div>
-                    <form method="POST">
+                    <form id="promo-form" method="POST">
                         <div class="two-cols">
                             <div><label><span class="ico">🔤</span> Код</label><input type="text" name="pc_code" required placeholder="NEWYEAR2027" style="text-transform:uppercase;"></div>
                             <div><label>％ Скидка (необязательно)</label><input type="number" name="pc_discount" min="0" max="100" placeholder="10"></div>
@@ -2126,7 +2380,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             <label><span class="ico">📅</span> Дата окончания</label>
                             <input type="date" name="pc_custom_date">
                         </div>
-                        <button type="submit" name="add_promo" class="btn-panel">🟠 Создать промокод</button>
+                        <button type="submit" name="add_promo" class="btn-panel" id="promo-submit-btn">🟠 Создать промокод</button>
                     </form>
                 </div>
 
@@ -2135,40 +2389,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     try { $promoList = $pdo->query("SELECT * FROM promo_codes ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
                 ?>
                 <div class="grid-wrap">
-                    <?php if ($promoList): ?>
-                    <div class="card-grid">
-                        <?php foreach ($promoList as $pc): ?>
-                            <?php
-                                $pcExpired = !empty($pc['expires_at']) && strtotime($pc['expires_at']) < time();
-                                $pcMaxed   = !empty($pc['max_uses']) && (int)$pc['uses_count'] >= (int)$pc['max_uses'];
-                                $pcDrawerId = 'drawer-promo-' . (int)$pc['id'];
-                            ?>
-                            <div class="item-card" onclick="openDrawer('<?= $pcDrawerId ?>')" style="<?= $pc['active'] ? '' : 'opacity:.5;' ?>">
-                                <div class="item-card-media"><div class="no-media">🎟</div></div>
-                                <div class="item-card-body">
-                                    <div class="item-card-title"><?= htmlspecialchars($pc['code']) ?></div>
-                                    <div class="item-card-sub"><?= htmlspecialchars($pc['bonus_text'] ?: 'без бонуса') ?></div>
-                                    <div class="item-card-foot">
-                                        <span class="item-card-price"><?php if ((int)($pc['discount_percent'] ?? 0) > 0): ?>−<?= (int)$pc['discount_percent'] ?>%<?php else: ?>—<?php endif; ?></span>
-                                        <span class="item-card-badge <?= $pc['active'] ? '' : 'off' ?>"><?= $pc['active'] ? '🟢 Активен' : '⚪ Выключен' ?></span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="edit-drawer" id="<?= $pcDrawerId ?>" onclick="event.stopPropagation()">
-                                <div class="edit-drawer-head"><h3><span class="ico">🎟</span> <?= htmlspecialchars($pc['code']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-                                <div class="drawer-meta-row"><span>Скидка</span><b><?= (int)($pc['discount_percent'] ?? 0) > 0 ? '−' . (int)$pc['discount_percent'] . '%' : '—' ?></b></div>
-                                <div class="drawer-meta-row"><span>Бонус</span><b><?= htmlspecialchars($pc['bonus_text'] ?: '—') ?></b></div>
-                                <div class="drawer-meta-row"><span>Использован</span><b style="color:<?= $pcMaxed ? '#f87171' : '#d8d8e8' ?>;"><?= (int)$pc['uses_count'] ?><?= $pc['max_uses'] ? ' / ' . (int)$pc['max_uses'] : ' / без лимита' ?></b></div>
-                                <div class="drawer-meta-row"><span>Срок действия</span><b style="color:<?= $pcExpired ? '#f87171' : '#d8d8e8' ?>;"><?= !empty($pc['expires_at']) ? date('d.m.Y', strtotime($pc['expires_at'])) . ($pcExpired ? ' (истёк)' : '') : 'бессрочно' ?></b></div>
-                                <div class="drawer-meta-row"><span>Статус</span><b style="color:<?= $pc['active'] ? '#4ade80' : '#8a8a96' ?>;"><?= $pc['active'] ? 'Активен' : 'Выключен' ?></b></div>
-                                <a class="drawer-toggle" href="?toggle_promo_id=<?= (int)$pc['id'] ?>#promo"><?= $pc['active'] ? '⏸ Выключить' : '▶️ Включить' ?></a>
-                                <a class="drawer-danger" href="?delete_promo_id=<?= (int)$pc['id'] ?>" onclick="return confirm('Удалить промокод <?= htmlspecialchars($pc['code']) ?>?')">🗑 Удалить промокод</a>
-                            </div>
-                        <?php endforeach; ?>
+                    <div class="card-grid" id="promo-grid">
+                        <?php foreach ($promoList as $pc): echo renderPromoCardHtml($pc); ?><?php endforeach; ?>
                     </div>
-                    <?php else: ?>
-                        <p class="empty-hint">Промокодов пока нет — создайте первый выше 👆</p>
-                    <?php endif; ?>
+                    <p class="empty-hint" id="promo-empty-hint" style="<?= $promoList ? 'display:none;' : '' ?>">Промокодов пока нет — создайте первый выше 👆</p>
                 </div>
             </div>
 
@@ -2275,7 +2499,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div><label><span class="ico">📝</span> Название проекта</label><input type="text" name="title" required placeholder="Например: сет Naruto"></div>
                                     <div>
                                         <label><span class="ico">🖼</span> Категория графики</label>
-                                        <select name="category_key" id="category_select" onchange="toggleAvatarField()">
+                                        <select name="category_key" id="category_select" onchange="toggleAvatarField(); applyCategoryPrice();">
                                             <?php foreach ($categories as $category): ?>
                                                 <option value="<?= htmlspecialchars($category['category_key']) ?>">
                                                     <?= htmlspecialchars($category['title']) ?>
@@ -2287,9 +2511,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 </div>
                                 <hr class="divider">
                                 <div class="two-cols">
-                                    <div><label><span class="ico">💰</span> Цена в рублях</label><input type="number" name="price_rub" value="0" min="0"></div>
-                                    <div><label><span class="ico">💵</span> Цена в гривнах</label><input type="number" name="price_uan" value="0" min="0"></div>
+                                    <div><label><span class="ico">💰</span> Цена в рублях</label><input type="number" name="price_rub" id="portfolio_price_rub" value="0" min="0"></div>
+                                    <div><label><span class="ico">💵</span> Цена в гривнах</label><input type="number" name="price_uan" id="portfolio_price_uan" value="0" min="0"></div>
                                 </div>
+                                <div class="avatar-hint">Цена подтягивается из услуги в прайсе, привязанной к этой категории (её можно поменять здесь вручную только для этого кейса).</div>
                                 <hr class="divider">
                                 <label><span class="ico">🖼</span> Главное изображение / шапка</label>
                                 <input type="file" name="image" accept="image/*" required>
@@ -2315,25 +2540,28 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <h2><span class="ico">📂</span> Создать категорию</h2>
                                 <p>Категории используются в портфолио и прайсе для группировки работ</p>
                             </div>
-                            <form action="" method="POST">
+                            <form id="category-form" action="" method="POST">
                                 <div class="two-cols">
                                     <div><label><span class="ico">📝</span> Название категории</label><input type="text" name="cat_title" required placeholder="Например: Пост VK"></div>
                                     <div><label><span class="ico">🔑</span> Ключ категории</label><input type="text" name="cat_key" placeholder="vk_post"></div>
                                 </div>
-                                <div class="avatar-hint">Ключ — латиницей, без пробелов.</div>
+                                <div class="avatar-hint">Ключ — латиницей, без пробелов. Вместе с категорией сразу создаётся связанная услуга в прайсе с тем же ключом.</div>
                                 <hr class="divider">
                                 <div class="two-cols">
                                     <div><label><span class="ico">↔️</span> Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
                                     <div><label><span class="ico">↕️</span> Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
                                 </div>
+                                <div class="two-cols">
+                                    <div><label><span class="ico">💰</span> Цена ₽ (для прайса)</label><input type="number" name="cat_price_rub" min="0" value="0"></div>
+                                    <div><label><span class="ico">💵</span> Цена ₴ (для прайса)</label><input type="number" name="cat_price_uan" min="0" value="0"></div>
+                                </div>
                                 <label class="tg-checkbox" style="margin-top:16px;"><input type="checkbox" name="cat_is_design" value="1"> 👤 Это оформление с аватаркой</label>
-                                <button type="submit" name="add_portfolio_category" class="btn-panel">🟠 Добавить категорию</button>
+                                <button type="submit" name="add_portfolio_category" class="btn-panel" id="category-submit-btn">🟠 Добавить категорию</button>
                             </form>
                         </div>
 
                         <div class="grid-wrap">
-                            <?php if ($categories): ?>
-                            <div class="card-grid">
+                            <div class="card-grid" id="categories-grid">
                                 <?php foreach ($categories as $category): ?>
                                     <?php $catDrawerId = 'drawer-cat-' . (int)$category['id']; ?>
                                     <div class="item-card" onclick="openDrawer('<?= $catDrawerId ?>')">
@@ -2356,9 +2584,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     </div>
                                 <?php endforeach; ?>
                             </div>
-                            <?php else: ?>
-                                <p class="empty-hint">Категорий пока нет — добавьте первую выше 👆</p>
-                            <?php endif; ?>
+                            <p class="empty-hint" id="categories-empty-hint" style="<?= $categories ? 'display:none;' : '' ?>">Категорий пока нет — добавьте первую выше 👆</p>
                         </div>
                     </section>
 
@@ -2521,6 +2747,55 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </form>
                     </section>
 
+                    <!-- ════ КЛЮЧИ И API ════ -->
+                    <section class="panel" data-panel="keys">
+                        <h2><span class="ico">🔑</span> Ключи и API</h2>
+                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
+                            Все чувствительные значения — токен бота, ImgBB, Gemini, Cloudinary, реквизиты
+                            оплаты и т.п. — теперь редактируются прямо тут, без переменных окружения на Render.
+                            Сохраняется мгновенно, без перезагрузки страницы.
+                        </p>
+                        <form id="api-keys-form" onsubmit="return false;">
+                            <div class="section-heading" style="font-size:14px;"><span class="neon-ico">⚙️</span> Используются в этом файле сразу</div>
+                            <div style="display:grid;gap:12px;margin-bottom:26px;">
+                                <?php foreach ($API_KEY_FIELDS['core'] as $f): $cur = getSetting($pdo, $f['key'], ''); ?>
+                                    <div>
+                                        <label style="display:flex;align-items:center;justify-content:space-between;">
+                                            <span><?= htmlspecialchars($f['label']) ?></span>
+                                            <span style="color:#4a4a58;font-size:10px;font-weight:600;text-transform:none;">env: <?= htmlspecialchars($f['key']) ?></span>
+                                        </label>
+                                        <div class="file-upload-wrap" style="gap:6px;">
+                                            <input type="<?= $f['secret'] ? 'password' : 'text' ?>" name="<?= htmlspecialchars($f['key']) ?>" id="key-<?= htmlspecialchars($f['key']) ?>" value="<?= htmlspecialchars($cur) ?>" placeholder="не задано — используется значение по умолчанию" style="margin:0;">
+                                            <?php if ($f['secret']): ?>
+                                            <button type="button" onclick="const i=document.getElementById('key-<?= htmlspecialchars($f['key']) ?>'); i.type = i.type==='password'?'text':'password';" class="mini-file-btn" style="flex-shrink:0;">👁</button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <div class="section-heading" style="font-size:14px;"><span class="neon-ico">📓</span> Записная книжка (используются в других файлах проекта)</div>
+                            <div class="avatar-hint" style="margin-bottom:14px;">Эти значения читают bot.php, ai_widget.php, donationalerts.php и т.д. напрямую из переменных окружения — сохранённое здесь пока служит удобным хранилищем и подставится туда автоматически только после того, как в тех файлах тоже будет вызван <code>getSetting()</code> вместо <code>getenv()</code>. Спроси меня, если хочешь, чтобы я довёл это до конца.</div>
+                            <div style="display:grid;gap:12px;margin-bottom:20px;">
+                                <?php foreach ($API_KEY_FIELDS['other'] as $f): $cur = getSetting($pdo, $f['key'], ''); ?>
+                                    <div>
+                                        <label style="display:flex;align-items:center;justify-content:space-between;">
+                                            <span><?= htmlspecialchars($f['label']) ?></span>
+                                            <span style="color:#4a4a58;font-size:10px;font-weight:600;text-transform:none;">env: <?= htmlspecialchars($f['key']) ?></span>
+                                        </label>
+                                        <div class="file-upload-wrap" style="gap:6px;">
+                                            <input type="<?= $f['secret'] ? 'password' : 'text' ?>" name="<?= htmlspecialchars($f['key']) ?>" id="key-<?= htmlspecialchars($f['key']) ?>" value="<?= htmlspecialchars($cur) ?>" placeholder="не задано" style="margin:0;">
+                                            <?php if ($f['secret']): ?>
+                                            <button type="button" onclick="const i=document.getElementById('key-<?= htmlspecialchars($f['key']) ?>'); i.type = i.type==='password'?'text':'password';" class="mini-file-btn" style="flex-shrink:0;">👁</button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <button type="button" onclick="saveApiKeys()" class="btn-panel" id="keys-submit-btn" style="max-width:320px;">💾 Сохранить все ключи</button>
+                        </form>
+                    </section>
+
                     <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
                     <section class="panel section-block" data-panel="price-add">
                         <div class="create-card">
@@ -2528,10 +2803,19 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <h2><span class="ico">🎨</span> Добавить услугу</h2>
                                 <p>Новая позиция появится в прайс-листе и на сайте</p>
                             </div>
-                            <form action="" method="POST" enctype="multipart/form-data">
+                            <form id="service-form" action="" method="POST" enctype="multipart/form-data">
                                 <div class="two-cols">
                                     <div><label><span class="ico">📝</span> Название услуги</label><input type="text" name="service_title" required placeholder="Например: Баннер для постов"></div>
-                                    <div><label><span class="ico">🔑</span> Ключ услуги</label><input type="text" name="service_key" placeholder="post_banner"></div>
+                                    <div>
+                                        <label><span class="ico">🔑</span> Категория (ключ услуги)</label>
+                                        <select name="service_key" id="service_key_select">
+                                            <option value="">— выбери категорию портфолио —</option>
+                                            <?php foreach ($categories as $categoryOpt): ?>
+                                                <option value="<?= htmlspecialchars($categoryOpt['category_key']) ?>"><?= htmlspecialchars($categoryLabels[$categoryOpt['category_key']] ?? $categoryOpt['category_key']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <div class="avatar-hint">Услуга привязывается к категории портфолио по этому ключу — цена, указанная тут, потом сама подставляется при добавлении работ этой категории.</div>
+                                    </div>
                                 </div>
                                 <hr class="divider">
                                 <div class="two-cols">
@@ -2545,7 +2829,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
                                 <label><span class="ico">🖼</span> Обложка услуги</label>
                                 <input type="file" name="service_image" accept="image/*">
-                                <button type="submit" name="add_price_service" class="btn-panel">🟠 Добавить услугу</button>
+                                <button type="submit" name="add_price_service" class="btn-panel" id="service-submit-btn">🟠 Добавить услугу</button>
                             </form>
                         </div>
                     </section>
@@ -2576,9 +2860,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <div class="panel section-block" data-panel="price-manager">
                         <div class="section-heading"><span class="neon-ico">💲</span> Все услуги</div>
                         <div class="grid-wrap">
-                            <form action="" method="POST" enctype="multipart/form-data">
-                                <?php if ($services): ?>
-                                <div class="card-grid">
+                            <form action="" method="POST" enctype="multipart/form-data" id="services-form">
+                                <div class="card-grid" id="services-grid">
                                     <?php foreach ($services as $service): $id = (int)$service['id']; $drawerId = 'drawer-price-' . $id; ?>
                                         <div class="item-card" onclick="openDrawer('<?= $drawerId ?>')">
                                             <div class="item-card-media">
@@ -2614,9 +2897,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
-                                <?php else: ?>
-                                    <p class="empty-hint">Услуг пока нет — добавьте первую выше 👆</p>
-                                <?php endif; ?>
+                                <p class="empty-hint" id="services-empty-hint" style="<?= $services ? 'display:none;' : '' ?>">Услуг пока нет — добавьте первую выше 👆</p>
                             </form>
                         </div>
                     </div>
@@ -3024,6 +3305,111 @@ function toggleAvatarField() {
     block.style.display = designCategories.includes(category) ? 'block' : 'none';
 }
 
+// ── Карта "категория → цена из связанной услуги в прайсе" ──────────
+// Используется, чтобы при добавлении работы в портфолио цена сама
+// подставлялась из услуги, привязанной к выбранной категории.
+let categoryPriceMap = <?= json_encode(array_reduce($services, function ($acc, $s) {
+    $acc[$s['category_key']] = ['rub' => (int)$s['price_rub'], 'uan' => (int)$s['price_uan']];
+    return $acc;
+}, []), JSON_UNESCAPED_UNICODE) ?>;
+
+function applyCategoryPrice() {
+    const category = document.getElementById('category_select').value;
+    const p = categoryPriceMap[category];
+    if (p) {
+        document.getElementById('portfolio_price_rub').value = p.rub;
+        document.getElementById('portfolio_price_uan').value = p.uan;
+    }
+}
+
+// ── Универсальный AJAX-сабмит формы: без перезагрузки страницы ─────
+async function submitFormAjax(form, submitName, onSuccess) {
+    const btn = form.querySelector(`[name="${submitName}"]`) || form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    const fd = new FormData(form);
+    fd.append(submitName, '1');
+    try {
+        const resp = await fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
+        const data = await resp.json();
+        showToast(data.msg || (data.ok ? '✅ Готово' : '❌ Ошибка'), data.ok ? 'success' : 'error', 6000);
+        if (data.ok && typeof onSuccess === 'function') onSuccess(data);
+        if (data.ok) form.reset();
+    } catch (err) {
+        showToast('❌ Ошибка соединения. Попробуй ещё раз.', 'error', 6000);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ── Категория портфолио: создание без перезагрузки ──────────────────
+const categoryForm = document.getElementById('category-form');
+if (categoryForm) {
+    categoryForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitFormAjax(this, 'add_portfolio_category', function(data) {
+            document.getElementById('categories-empty-hint').style.display = 'none';
+            document.getElementById('categories-grid').insertAdjacentHTML('afterbegin', data.html);
+            // Новая категория появляется в выпадающих списках сразу же —
+            // и в форме "Добавить в портфолио", и в форме услуги прайса.
+            const opt1 = new Option(data.category_label, data.category_key);
+            document.getElementById('category_select').add(opt1, 0);
+            const opt2 = new Option(data.category_label, data.category_key);
+            document.getElementById('service_key_select').add(opt2);
+            categoryPriceMap[data.category_key] = { rub: 0, uan: 0 };
+            if (data.service_html) {
+                document.getElementById('services-empty-hint').style.display = 'none';
+                document.getElementById('services-grid').insertAdjacentHTML('afterbegin', data.service_html);
+            }
+            if (typeof initFileInputs === 'function') initFileInputs();
+        });
+    });
+}
+
+// ── Услуга прайса: создание без перезагрузки ─────────────────────────
+const serviceForm = document.getElementById('service-form');
+if (serviceForm) {
+    serviceForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitFormAjax(this, 'add_price_service', function(data) {
+            document.getElementById('services-empty-hint').style.display = 'none';
+            document.getElementById('services-grid').insertAdjacentHTML('afterbegin', data.html);
+            if (data.category_key) categoryPriceMap[data.category_key] = { rub: data.price_rub, uan: data.price_uan };
+            if (typeof initFileInputs === 'function') initFileInputs();
+        });
+    });
+}
+
+// ── Промокод: создание без перезагрузки ──────────────────────────────
+const promoForm = document.getElementById('promo-form');
+if (promoForm) {
+    promoForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitFormAjax(this, 'add_promo', function(data) {
+            document.getElementById('promo-empty-hint').style.display = 'none';
+            document.getElementById('promo-grid').insertAdjacentHTML('afterbegin', data.html);
+        });
+    });
+}
+
+// ── Ключи и API: сохранение без перезагрузки ─────────────────────────
+async function saveApiKeys() {
+    const form = document.getElementById('api-keys-form');
+    const btn  = document.getElementById('keys-submit-btn');
+    btn.disabled = true;
+    const fd = new FormData(form);
+    fd.append('save_api_keys', '1');
+    try {
+        const resp = await fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
+        const data = await resp.json();
+        showToast(data.msg, data.ok ? 'success' : 'error', 6000);
+    } catch (err) {
+        showToast('❌ Ошибка соединения.', 'error', 6000);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+
 function openDrawer(id) {
     document.querySelectorAll('.edit-drawer.open').forEach(d => d.classList.remove('open'));
     const d = document.getElementById(id);
@@ -3069,7 +3455,9 @@ function activateAdminTab(tab) {
     else if (tab === 'avatar')    { show('avatar'); }
     else if (tab === 'logs')      { show('logs'); }
     else if (tab === 'ai-prompt') { show('ai-prompt'); }
+    else if (tab === 'keys')      { show('keys'); }
     if (typeof closeDrawers === 'function') closeDrawers();
+    try { localStorage.setItem('admin_active_tab', tab); } catch (e) {}
 }
 
 function initFileInputs() {
@@ -3131,7 +3519,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const layoutOrd = document.querySelector('.admin-layout');
         if (layoutOrd) layoutOrd.classList.add('single-column');
     } else {
-        activateAdminTab('overview');
+        let savedTab = 'overview';
+        try { savedTab = localStorage.getItem('admin_active_tab') || 'overview'; } catch (e) {}
+        const knownTabs = ['overview','portfolio','price','orders','categories','promo','reviews','commands','rules','appeals','avatar','logs','ai-prompt','keys'];
+        if (!knownTabs.includes(savedTab)) savedTab = 'overview';
+        activateAdminTab(savedTab);
     }
     initFileInputs();
     initAntiTheft();
@@ -3284,4 +3676,3 @@ document.addEventListener('click', function(e) {
 </script>
 </body>
 </html>
-
