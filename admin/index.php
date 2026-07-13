@@ -1271,8 +1271,17 @@ function imgSrc(string $val, string $baseUrl = '../uploads/'): string
 // ══════════════════════════════════════════════════════════════════
 function renderCategoryCardHtml(array $category): string
 {
+    global $pdo;
+    $linkedPrice = ['price_rub' => 0, 'price_uan' => 0];
+    try {
+        $lp = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
+        $lp->execute([$category['category_key']]);
+        $row = $lp->fetch(PDO::FETCH_ASSOC);
+        if ($row) $linkedPrice = $row;
+    } catch (Throwable $e) {}
+    $catId = (int)$category['id'];
     ob_start(); ?>
-    <div class="item-card" onclick="openDrawer('drawer-cat-<?= (int)$category['id'] ?>')">
+    <div class="item-card" onclick="openDrawer('drawer-cat-<?= $catId ?>')">
         <div class="item-card-media"><div class="no-media">📂</div></div>
         <div class="item-card-body">
             <div class="item-card-title"><?= htmlspecialchars($category['title']) ?></div>
@@ -1283,19 +1292,37 @@ function renderCategoryCardHtml(array $category): string
             </div>
         </div>
     </div>
-    <div class="edit-drawer" id="drawer-cat-<?= (int)$category['id'] ?>" onclick="event.stopPropagation()">
-        <div class="edit-drawer-head"><h3><span class="ico">📂</span> <?= htmlspecialchars($category['title']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-        <div class="drawer-meta-row"><span>Ключ</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
-        <div class="drawer-meta-row"><span>Размер рамки</span><b><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?> px<?php else: ?>не задан<?php endif; ?></b></div>
-        <div class="drawer-meta-row"><span>Оформление с аватаркой</span><b><?= !empty($category['is_design']) ? 'Да' : 'Нет' ?></b></div>
-        <a class="drawer-danger" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
+    <div class="edit-drawer" id="drawer-cat-<?= $catId ?>" onclick="event.stopPropagation()">
+        <div class="edit-drawer-head"><h3><span class="ico">📂</span> Редактирование категории</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
+        <form method="POST">
+            <input type="hidden" name="cat_id" value="<?= $catId ?>">
+            <label><span class="ico">📝</span> Название категории</label>
+            <input type="text" name="cat_title" value="<?= htmlspecialchars($category['title']) ?>">
+            <div class="drawer-meta-row" style="border:none;padding-top:2px;"><span>Ключ (не меняется)</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
+            <div class="two-cols">
+                <div><label><span class="ico">↔️</span> Ширина, px</label><input type="number" name="cat_width" value="<?= (int)$category['width_px'] ?>"></div>
+                <div><label><span class="ico">↕️</span> Высота, px</label><input type="number" name="cat_height" value="<?= (int)$category['height_px'] ?>"></div>
+            </div>
+            <label class="tg-checkbox" style="margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" <?= !empty($category['is_design']) ? 'checked' : '' ?>> 👤 Это оформление с аватаркой</label>
+            <hr class="divider">
+            <div class="two-cols">
+                <div><label><span class="ico">💰</span> Цена ₽ (из прайса)</label><input type="number" name="cat_price_rub" value="<?= (int)$linkedPrice['price_rub'] ?>"></div>
+                <div><label><span class="ico">💵</span> Цена ₴ (из прайса)</label><input type="number" name="cat_price_uan" value="<?= (int)$linkedPrice['price_uan'] ?>"></div>
+            </div>
+            <div class="avatar-hint">Цена сохраняется в связанную услугу прайса с тем же ключом — правится сразу в обоих местах.</div>
+            <button type="submit" name="update_portfolio_category" class="btn-panel">💾 Сохранить категорию</button>
+        </form>
+        <a class="drawer-danger" href="?delete_portfolio_category_id=<?= $catId ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
     </div>
     <?php return (string)ob_get_clean();
 }
 
 function renderServiceCardHtml(array $service): string
 {
+    global $pdo;
     $id = (int)$service['id'];
+    $allCats = [];
+    try { $allCats = $pdo->query("SELECT category_key, title, width_px, height_px FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
     ob_start(); ?>
     <div class="item-card" onclick="openDrawer('drawer-price-<?= $id ?>')">
         <div class="item-card-media">
@@ -1314,6 +1341,13 @@ function renderServiceCardHtml(array $service): string
         <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="drawer-preview" alt=""><?php endif; ?>
         <label><span class="ico">📝</span> Название услуги</label>
         <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
+        <label><span class="ico">🔑</span> Категория портфолио</label>
+        <select name="prices[<?= $id ?>][category_key]">
+            <?php foreach ($allCats as $c): $lbl = $c['title'] . (((int)$c['width_px']>0 && (int)$c['height_px']>0) ? " ({$c['width_px']}x{$c['height_px']})" : ''); ?>
+                <option value="<?= htmlspecialchars($c['category_key']) ?>" <?= $c['category_key'] === ($service['category_key'] ?? '') ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <div class="avatar-hint">Меняешь категорию — эта услуга (и её цена) привяжется к другой категории портфолио.</div>
         <label><span class="ico">📄</span> Описание</label>
         <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
         <label><span class="ico">⚡</span> Фичи</label>
@@ -1528,12 +1562,13 @@ if (isset($_POST['save_all_prices'])) {
     foreach (($_POST['prices'] ?? []) as $id => $data) {
         $id = (int)$id;
         $newImage = uploadNestedImage('price_images', $id, 'price', $uploadDir);
+        $newCatKey = trim((string)($data['category_key'] ?? ''));
         if ($newImage !== '') {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=? WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newImage, $id]);
+            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
+            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newImage, $newCatKey, $id]);
         } else {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=? WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $id]);
+            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
+            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newCatKey, $id]);
         }
     }
     $message = '💾 Прайс-лист обновлен.';
@@ -1583,6 +1618,41 @@ if (isset($_GET['delete_price_id'])) {
 }
 
 // ===================== CATEGORIES =====================
+// Редактирование существующей категории — правим и саму категорию, и
+// связанную по ключу услугу в прайсе (цена), одной формой из drawer'а.
+if (isset($_POST['update_portfolio_category'])) {
+    $catId = (int)($_POST['cat_id'] ?? 0);
+    if ($catId > 0) {
+        try {
+            $rowStmt = $pdo->prepare("SELECT category_key FROM portfolio_categories WHERE id = ? LIMIT 1");
+            $rowStmt->execute([$catId]);
+            $catKeyExisting = (string)($rowStmt->fetchColumn() ?: '');
+            if ($catKeyExisting !== '') {
+                $newTitle    = trim($_POST['cat_title'] ?? '');
+                $newWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
+                $newHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
+                $newIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
+                $newPriceRub = isset($_POST['cat_price_rub']) ? (int)$_POST['cat_price_rub'] : 0;
+                $newPriceUan = isset($_POST['cat_price_uan']) ? (int)$_POST['cat_price_uan'] : 0;
+                if ($newTitle !== '') {
+                    $pdo->prepare("UPDATE portfolio_categories SET title=?, width_px=?, height_px=?, is_design=? WHERE id=?")
+                        ->execute([$newTitle, $newWidth, $newHeight, $newIsDesign, $catId]);
+                    // Синхронизируем связанную услугу прайса по тому же ключу;
+                    // если её вдруг ещё нет — создаём (на случай старых категорий).
+                    $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, ?, ?)
+                                   ON CONFLICT (category_key) DO UPDATE SET price_rub = EXCLUDED.price_rub, price_uan = EXCLUDED.price_uan")
+                        ->execute([$catKeyExisting, $newTitle, $newPriceRub, $newPriceUan]);
+                    $message = '✅ Категория обновлена.';
+                } else {
+                    $message = '❌ Укажи название категории.';
+                }
+            }
+        } catch (Throwable $e) {
+            $message = '❌ Не удалось сохранить категорию: ' . $e->getMessage();
+        }
+    }
+}
+
 if (isset($_POST['add_portfolio_category'])) {
     $catTitle    = trim($_POST['cat_title'] ?? '');
     $catKey      = trim($_POST['cat_key'] ?? '');
