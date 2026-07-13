@@ -1307,11 +1307,8 @@ function renderCategoryCardHtml(array $category): string
             </div>
             <label class="tg-checkbox" style="margin-top:14px;"><input type="checkbox" name="cat_is_design" value="1" <?= !empty($category['is_design']) ? 'checked' : '' ?>> 👤 Это оформление с аватаркой</label>
             <hr class="divider">
-            <div class="two-cols">
-                <div><label><span class="ico">💰</span> Цена ₽ (из прайса)</label><input type="number" name="cat_price_rub" value="<?= (int)$linkedPrice['price_rub'] ?>"></div>
-                <div><label><span class="ico">💵</span> Цена ₴ (из прайса)</label><input type="number" name="cat_price_uan" value="<?= (int)$linkedPrice['price_uan'] ?>"></div>
-            </div>
-            <div class="avatar-hint">Цена сохраняется в связанную услугу прайса с тем же ключом — правится сразу в обоих местах.</div>
+            <div class="drawer-meta-row"><span>Цена (из прайса)</span><b><?= (int)$linkedPrice['price_rub'] ?> ₽ / <?= (int)$linkedPrice['price_uan'] ?> ₴</b></div>
+            <div class="avatar-hint">Цену меняешь во вкладке «Прайс» — там она хранится и оттуда подтягивается сюда и в портфолио.</div>
             <button type="submit" name="update_portfolio_category" class="btn-panel">💾 Сохранить категорию</button>
         </form>
         <a class="drawer-danger" href="?delete_portfolio_category_id=<?= $catId ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
@@ -1655,8 +1652,6 @@ if (isset($_POST['update_portfolio_category'])) {
                 $newWidth    = !empty($_POST['cat_width']) ? (int)$_POST['cat_width'] : 0;
                 $newHeight   = !empty($_POST['cat_height']) ? (int)$_POST['cat_height'] : 0;
                 $newIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
-                $newPriceRub = isset($_POST['cat_price_rub']) ? (int)$_POST['cat_price_rub'] : 0;
-                $newPriceUan = isset($_POST['cat_price_uan']) ? (int)$_POST['cat_price_uan'] : 0;
                 $newKeyRaw   = trim((string)($_POST['cat_key'] ?? ''));
                 $newKey      = $newKeyRaw !== '' ? strtolower(preg_replace('/[^a-z0-9_]/i', '_', $newKeyRaw)) : $catKeyExisting;
 
@@ -1686,11 +1681,13 @@ if (isset($_POST['update_portfolio_category'])) {
                                 ->execute([$newTitle, $newWidth, $newHeight, $newIsDesign, $catId]);
                             $message = '✅ Категория обновлена.';
                         }
-                        // Синхронизируем связанную услугу прайса по (возможно новому) ключу;
-                        // если её вдруг ещё нет — создаём (на случай старых категорий).
-                        $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, ?, ?)
-                                       ON CONFLICT (category_key) DO UPDATE SET price_rub = EXCLUDED.price_rub, price_uan = EXCLUDED.price_uan")
-                            ->execute([$catKeyExisting, $newTitle, $newPriceRub, $newPriceUan]);
+                        // Убеждаемся, что связанная услуга в прайсе существует
+                        // (на случай старых категорий без пары) — но саму цену
+                        // здесь НЕ трогаем: цена живёт только в прайсе и правится
+                        // только там, категория её лишь отображает.
+                        $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, 0, 0)
+                                       ON CONFLICT (category_key) DO NOTHING")
+                            ->execute([$catKeyExisting, $newTitle]);
                         $pdo->commit();
                     } catch (Throwable $e) {
                         $pdo->rollBack();
@@ -2688,15 +2685,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <div><label><span class="ico">📝</span> Название категории</label><input type="text" name="cat_title" required placeholder="Например: Пост VK"></div>
                                     <div><label><span class="ico">🔑</span> Ключ категории</label><input type="text" name="cat_key" placeholder="vk_post"></div>
                                 </div>
-                                <div class="avatar-hint">Ключ — латиницей, без пробелов. Вместе с категорией сразу создаётся связанная услуга в прайсе с тем же ключом.</div>
+                                <div class="avatar-hint">Ключ — латиницей, без пробелов. Вместе с категорией сразу создаётся связанная услуга в прайсе с тем же ключом (цену 0₽/0₴ потом поменяешь во вкладке «Прайс»).</div>
                                 <hr class="divider">
                                 <div class="two-cols">
                                     <div><label><span class="ico">↔️</span> Ширина рамки, px</label><input type="number" name="cat_width" min="0" placeholder="1920"></div>
                                     <div><label><span class="ico">↕️</span> Высота рамки, px</label><input type="number" name="cat_height" min="0" placeholder="1080"></div>
-                                </div>
-                                <div class="two-cols">
-                                    <div><label><span class="ico">💰</span> Цена ₽ (для прайса)</label><input type="number" name="cat_price_rub" min="0" value="0"></div>
-                                    <div><label><span class="ico">💵</span> Цена ₴ (для прайса)</label><input type="number" name="cat_price_uan" min="0" value="0"></div>
                                 </div>
                                 <label class="tg-checkbox" style="margin-top:16px;"><input type="checkbox" name="cat_is_design" value="1"> 👤 Это оформление с аватаркой</label>
                                 <button type="submit" name="add_portfolio_category" class="btn-panel" id="category-submit-btn">🟠 Добавить категорию</button>
