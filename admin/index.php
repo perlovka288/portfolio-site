@@ -1931,6 +1931,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .notice.error   { border-color: rgba(239,68,68,.45);  background: rgba(239,68,68,.10);  color: #fca5a5; }
         .admin-board { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 18px; align-items: start; }
         .admin-tabs { position: sticky; top: 18px; display: grid; gap: 9px; background: #111116; border: 1px solid #20202c; border-radius: 14px; padding: 12px; }
+        .admin-tab-group-label { font-size: 10.5px; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; color: #4a4a58; padding: 10px 8px 2px; grid-column: 1 / -1; }
         .admin-tab { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; border-radius: 10px; padding: 12px 13px; background: transparent; color: #d8d8e8; font-weight: 900; text-align: left; cursor: pointer; font-family: Montserrat,sans-serif; font-size: 13px; transition: .2s; }
         .admin-tab:hover { background: #171720; border-color: #2a2a38; }
         .admin-tab.active { color: #fff; background: linear-gradient(135deg,#f97316,#ea580c); box-shadow: 0 12px 28px rgba(249,115,22,.28); border-color: transparent; }
@@ -2100,6 +2101,13 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .section-heading .neon-ico { font-size: 18px; filter: drop-shadow(0 0 8px rgba(249,115,22,.55)); }
 
         .create-card { max-width: 960px; margin: 0 auto 6px; background: linear-gradient(180deg,#14141c,#111116); border: 1px solid rgba(255,255,255,.06); border-radius: 20px; padding: 28px 30px 26px; box-shadow: 0 0 30px rgba(249,115,22,.08), 0 20px 50px rgba(0,0,0,.35); }
+        .create-card.collapsed { display: none; }
+        .create-toggle-btn { max-width: 960px; margin: 0 auto 22px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed rgba(249,115,22,.4); border-radius: 16px; padding: 16px; background: rgba(249,115,22,.05); color: #fdba74; font-weight: 900; font-size: 13.5px; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; font-family: Montserrat,sans-serif; transition: .18s; }
+        .create-toggle-btn:hover { background: rgba(249,115,22,.12); border-color: #f97316; color: #fff; }
+        .create-toggle-btn.is-hidden { display: none; }
+        .create-card-close { position: absolute; top: 0; right: 0; background: transparent; border: 1px solid #2a2a38; color: #8a8a96; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1; transition: .18s; }
+        .create-card-close:hover { color: #fff; border-color: #f97316; background: rgba(249,115,22,.12); }
+        .create-card-head { position: relative; }
         .create-card-head { text-align: center; margin-bottom: 20px; }
         .create-card-head h2 { font-size: 19px; margin: 0 0 6px; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .create-card-head p { color: #8a8a96; font-size: 12.5px; margin: 0; }
@@ -2195,19 +2203,26 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
     <div class="admin-board">
         <nav class="admin-tabs" aria-label="Разделы">
             <button type="button" class="admin-tab active" data-tab="overview"   onclick="activateAdminTab('overview')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Обзор</button>
+
+            <div class="admin-tab-group-label">Контент и цены</div>
             <button type="button" class="admin-tab"        data-tab="portfolio"  onclick="activateAdminTab('portfolio')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 2l-4 5-4-5"/></svg> Портфолио</button>
+            <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
             <button type="button" class="admin-tab"        data-tab="price"      onclick="activateAdminTab('price')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Прайс</button>
+            <button type="button" class="admin-tab"        data-tab="promo"      onclick="activateAdminTab('promo')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 22a2 2 0 0 1-2.83 0l-6.17-6.17a2 2 0 0 1 0-2.83L11.59 3.41A2 2 0 0 1 13 2.83L20.59 13.41z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg> Промокоды</button>
+
+            <div class="admin-tab-group-label">Клиенты</div>
             <button type="button" class="admin-tab"        data-tab="orders"     onclick="activateAdminTab('orders')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Заказы</button>
+            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
             <button type="button" class="admin-tab"        data-tab="reviews"    onclick="activateAdminTab('reviews')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Отзывы<?php if (!empty($pendingReviews)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= count($pendingReviews) ?></span><?php endif; ?></button>
+
+            <div class="admin-tab-group-label">Бот и сайт</div>
             <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
             <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
-            <button type="button" class="admin-tab"        data-tab="categories" onclick="activateAdminTab('categories')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Категории</button>
-            <button type="button" class="admin-tab"        data-tab="promo"      onclick="activateAdminTab('promo')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 22a2 2 0 0 1-2.83 0l-6.17-6.17a2 2 0 0 1 0-2.83L11.59 3.41A2 2 0 0 1 13 2.83L20.59 13.41z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg> Промокоды</button>
-            <button type="button" class="admin-tab"        data-tab="appeals"    onclick="activateAdminTab('appeals')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Обращения<?php if (!empty($openAppealsCount)): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $openAppealsCount ?></span><?php endif; ?></button>
-            <button type="button" class="admin-tab"        data-tab="avatar"     onclick="activateAdminTab('avatar')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Аватарка</button>
-            <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
             <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
+
+            <div class="admin-tab-group-label">Система</div>
             <button type="button" class="admin-tab"        data-tab="keys"       onclick="activateAdminTab('keys')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> Ключи и API</button>
+            <button type="button" class="admin-tab"        data-tab="logs"       onclick="activateAdminTab('logs')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Логи</button>
         </nav>
 
         <div class="admin-content">
@@ -2348,9 +2363,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                  ПРОМОКОДЫ — отдельная вкладка, тот же паттерн: форма → карточки → drawer
             ════════════════════════════════════════════════════════════ -->
             <div class="panel tab-hidden section-block" data-panel="promo">
-                <div class="create-card">
+                <button type="button" class="create-toggle-btn" id="promo-create-toggle-btn" onclick="toggleCreatePanel('promo-create-card', this)">➕ Создать промокод</button>
+                <div class="create-card collapsed" id="promo-create-card">
                     <div class="create-card-head">
                         <h2><span class="ico">🎟</span> Создать промокод</h2>
+                        <button type="button" class="create-card-close" onclick="hideCreatePanel('promo-create-card','promo-create-toggle-btn')">✕</button>
                         <p>Каждый промокод одноразовый на человека: повторно ввести код, уже занятый в заказе, клиент не сможет</p>
                     </div>
                     <form id="promo-form" method="POST">
@@ -2490,9 +2507,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                     <!-- ════ ПОРТФОЛИО: ДОБАВЛЕНИЕ ════ -->
                     <section class="panel section-block" data-panel="portfolio-add">
-                        <div class="create-card">
+                        <button type="button" class="create-toggle-btn" id="portfolio-create-toggle-btn" onclick="toggleCreatePanel('portfolio-create-card', this)">➕ Добавить в портфолио</button>
+                        <div class="create-card collapsed" id="portfolio-create-card">
                             <div class="create-card-head">
                                 <h2><span class="ico">✨</span> Добавить в портфолио</h2>
+                                <button type="button" class="create-card-close" onclick="hideCreatePanel('portfolio-create-card','portfolio-create-toggle-btn')">✕</button>
                                 <p>Загрузи новую работу — она появится в кейсах и на сайте</p>
                             </div>
                             <form id="portfolio-form" enctype="multipart/form-data">
@@ -2536,9 +2555,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                     <!-- ════ КАТЕГОРИИ ════ -->
                     <section class="panel section-block" data-panel="categories">
-                        <div class="create-card">
+                        <button type="button" class="create-toggle-btn" id="categories-create-toggle-btn" onclick="toggleCreatePanel('categories-create-card', this)">➕ Создать категорию</button>
+                        <div class="create-card collapsed" id="categories-create-card">
                             <div class="create-card-head">
                                 <h2><span class="ico">📂</span> Создать категорию</h2>
+                                <button type="button" class="create-card-close" onclick="hideCreatePanel('categories-create-card','categories-create-toggle-btn')">✕</button>
                                 <p>Категории используются в портфолио и прайсе для группировки работ</p>
                             </div>
                             <form id="category-form" action="" method="POST">
@@ -2799,9 +2820,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                     <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
                     <section class="panel section-block" data-panel="price-add">
-                        <div class="create-card">
+                        <button type="button" class="create-toggle-btn" id="price-create-toggle-btn" onclick="toggleCreatePanel('price-create-card', this)">➕ Добавить услугу</button>
+                        <div class="create-card collapsed" id="price-create-card">
                             <div class="create-card-head">
                                 <h2><span class="ico">🎨</span> Добавить услугу</h2>
+                                <button type="button" class="create-card-close" onclick="hideCreatePanel('price-create-card','price-create-toggle-btn')">✕</button>
                                 <p>Новая позиция появится в прайс-листе и на сайте</p>
                             </div>
                             <form id="service-form" action="" method="POST" enctype="multipart/form-data">
@@ -2835,25 +2858,6 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         </div>
                     </section>
 
-                    <!-- ════ АВАТАРКА САЙТА ════ -->
-                    <section class="panel" data-panel="avatar">
-                        <h2><span class="ico">🖼️</span> Аватарка сайта</h2>
-                        <div class="avatar-preview-wrap">
-                            <?php $avatarSrc = imgSrc($currentAvatarFile, '../uploads/'); ?>
-                            <img src="<?= htmlspecialchars($avatarSrc ?: 'https://i.imgur.com/w9NThbA.png') ?>" class="avatar-preview-img" alt="Аватарка" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
-                            <div class="avatar-preview-info">
-                                <strong>Текущая аватарка</strong>
-                                <?= htmlspecialchars($currentAvatarFile ?: 'не задана') ?><br>
-                                Водяной знак на постах в Telegram.
-                            </div>
-                        </div>
-                        <form action="" method="POST" enctype="multipart/form-data">
-                            <label>Новая аватарка сайта</label>
-                            <input type="file" name="site_avatar" accept="image/*" required>
-                            <div class="avatar-hint">Форматы: jpg, png, webp, gif. Рекомендуется 512×512.</div>
-                            <button type="submit" name="upload_site_avatar" class="btn-panel">Загрузить аватарку</button>
-                        </form>
-                    </section>
                 </aside>
 
                 <section>
@@ -3276,6 +3280,23 @@ function showToast(msg, type = 'success', duration = 5000) {
     t._timer = setTimeout(() => { t.classList.remove('show'); }, duration);
 }
 
+// ── Показ/скрытие форм "Создать ..." по кнопке — чтобы не мозолили глаза ──
+function toggleCreatePanel(cardId, btn) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    card.classList.remove('collapsed');
+    if (btn) btn.classList.add('is-hidden');
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const firstInput = card.querySelector('input:not([type=hidden]), select, textarea');
+    if (firstInput) setTimeout(() => firstInput.focus(), 300);
+}
+function hideCreatePanel(cardId, btnId) {
+    const card = document.getElementById(cardId);
+    const btn  = document.getElementById(btnId);
+    if (card) card.classList.add('collapsed');
+    if (btn) btn.classList.remove('is-hidden');
+}
+
 document.getElementById('portfolio-form').addEventListener('submit', async function(e) {
     e.preventDefault();
     const btn  = document.getElementById('portfolio-submit-btn');
@@ -3290,7 +3311,11 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
         const resp = await fetch('', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
         const data = await resp.json();
         showToast(data.msg, data.ok ? 'success' : 'error', 7000);
-        if (data.ok) { form.reset(); document.querySelectorAll('.file-upload-name, .mini-file-name').forEach(el => { el.textContent = 'Файл не выбран'; el.classList.remove('has-file'); }); }
+        if (data.ok) {
+            form.reset();
+            document.querySelectorAll('.file-upload-name, .mini-file-name').forEach(el => { el.textContent = 'Файл не выбран'; el.classList.remove('has-file'); });
+            hideCreatePanel('portfolio-create-card', 'portfolio-create-toggle-btn');
+        }
     } catch (err) {
         showToast('❌ Ошибка соединения. Попробуй ещё раз.', 'error', 7000);
     } finally {
@@ -3362,6 +3387,7 @@ if (categoryForm) {
                 document.getElementById('services-grid').insertAdjacentHTML('afterbegin', data.service_html);
             }
             if (typeof initFileInputs === 'function') initFileInputs();
+            hideCreatePanel('categories-create-card', 'categories-create-toggle-btn');
         });
     });
 }
@@ -3376,6 +3402,7 @@ if (serviceForm) {
             document.getElementById('services-grid').insertAdjacentHTML('afterbegin', data.html);
             if (data.category_key) categoryPriceMap[data.category_key] = { rub: data.price_rub, uan: data.price_uan };
             if (typeof initFileInputs === 'function') initFileInputs();
+            hideCreatePanel('price-create-card', 'price-create-toggle-btn');
         });
     });
 }
@@ -3388,6 +3415,7 @@ if (promoForm) {
         submitFormAjax(this, 'add_promo', function(data) {
             document.getElementById('promo-empty-hint').style.display = 'none';
             document.getElementById('promo-grid').insertAdjacentHTML('afterbegin', data.html);
+            hideCreatePanel('promo-create-card', 'promo-create-toggle-btn');
         });
     });
 }
@@ -3453,7 +3481,6 @@ function activateAdminTab(tab) {
     else if (tab === 'commands')  { show('commands'); }
     else if (tab === 'rules')     { show('rules'); }
     else if (tab === 'appeals')   { show('appeals'); }
-    else if (tab === 'avatar')    { show('avatar'); }
     else if (tab === 'logs')      { show('logs'); }
     else if (tab === 'ai-prompt') { show('ai-prompt'); }
     else if (tab === 'keys')      { show('keys'); }
@@ -3522,7 +3549,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         let savedTab = 'overview';
         try { savedTab = localStorage.getItem('admin_active_tab') || 'overview'; } catch (e) {}
-        const knownTabs = ['overview','portfolio','price','orders','categories','promo','reviews','commands','rules','appeals','avatar','logs','ai-prompt','keys'];
+        const knownTabs = ['overview','portfolio','price','orders','categories','promo','reviews','commands','rules','appeals','logs','ai-prompt','keys'];
         if (!knownTabs.includes(savedTab)) savedTab = 'overview';
         activateAdminTab(savedTab);
     }
