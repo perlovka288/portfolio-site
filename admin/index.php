@@ -2654,27 +2654,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
                         <div class="grid-wrap">
                             <div class="card-grid" id="categories-grid">
-                                <?php foreach ($categories as $category): ?>
-                                    <?php $catDrawerId = 'drawer-cat-' . (int)$category['id']; ?>
-                                    <div class="item-card" onclick="openDrawer('<?= $catDrawerId ?>')">
-                                        <div class="item-card-media"><div class="no-media">📂</div></div>
-                                        <div class="item-card-body">
-                                            <div class="item-card-title"><?= htmlspecialchars($category['title']) ?></div>
-                                            <div class="item-card-sub">🔑 <?= htmlspecialchars($category['category_key']) ?></div>
-                                            <div class="item-card-foot">
-                                                <span class="item-card-price"><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?><?php else: ?>— px —<?php endif; ?></span>
-                                                <?php if (!empty($category['is_design'])): ?><span class="item-card-badge">👤 С аватаркой</span><?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="edit-drawer" id="<?= $catDrawerId ?>" onclick="event.stopPropagation()">
-                                        <div class="edit-drawer-head"><h3><span class="ico">📂</span> <?= htmlspecialchars($category['title']) ?></h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-                                        <div class="drawer-meta-row"><span>Ключ</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
-                                        <div class="drawer-meta-row"><span>Размер рамки</span><b><?php if ((int)$category['width_px']>0 && (int)$category['height_px']>0): ?><?= (int)$category['width_px'] ?>×<?= (int)$category['height_px'] ?> px<?php else: ?>не задан<?php endif; ?></b></div>
-                                        <div class="drawer-meta-row"><span>Оформление с аватаркой</span><b><?= !empty($category['is_design']) ? 'Да' : 'Нет' ?></b></div>
-                                        <a class="drawer-danger" href="?delete_portfolio_category_id=<?= (int)$category['id'] ?>" onclick="return confirm('Удалить категорию?')">🗑 Удалить категорию</a>
-                                    </div>
-                                <?php endforeach; ?>
+                                <?php foreach ($categories as $category): echo renderCategoryCardHtml($category); ?><?php endforeach; ?>
                             </div>
                             <p class="empty-hint" id="categories-empty-hint" style="<?= $categories ? 'display:none;' : '' ?>">Категорий пока нет — добавьте первую выше 👆</p>
                         </div>
@@ -2937,40 +2917,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                         <div class="grid-wrap">
                             <form action="" method="POST" enctype="multipart/form-data" id="services-form">
                                 <div class="card-grid" id="services-grid">
-                                    <?php foreach ($services as $service): $id = (int)$service['id']; $drawerId = 'drawer-price-' . $id; ?>
-                                        <div class="item-card" onclick="openDrawer('<?= $drawerId ?>')">
-                                            <div class="item-card-media">
-                                                <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" alt=""><?php else: ?><div class="no-media">🎨</div><?php endif; ?>
-                                            </div>
-                                            <div class="item-card-body">
-                                                <div class="item-card-title"><?= htmlspecialchars($service['title']??'') ?></div>
-                                                <div class="item-card-sub">🔑 <?= htmlspecialchars($service['category_key']??'') ?></div>
-                                                <div class="item-card-foot">
-                                                    <span class="item-card-price"><span class="ico">💰</span><?= money($service['price_rub']??0) ?> ₽ / <?= money($service['price_uan']??0) ?> ₴</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="edit-drawer" id="<?= $drawerId ?>" onclick="event.stopPropagation()">
-                                            <div class="edit-drawer-head"><h3><span class="ico">✏️</span> Редактирование услуги</h3><button type="button" class="edit-drawer-close" onclick="closeDrawers()">✕</button></div>
-                                            <?php if (!empty($service['image'])): ?><img src="<?= htmlspecialchars(imgSrc($service['image']??'')) ?>" class="drawer-preview" alt=""><?php endif; ?>
-                                            <label><span class="ico">📝</span> Название услуги</label>
-                                            <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
-                                            <label><span class="ico">📄</span> Описание</label>
-                                            <textarea name="prices[<?= $id ?>][description]"><?= htmlspecialchars($service['description']??'') ?></textarea>
-                                            <label><span class="ico">⚡</span> Фичи</label>
-                                            <input type="text" name="prices[<?= $id ?>][features]" value="<?= htmlspecialchars($service['features']??'') ?>" placeholder="Через | например: PSD-файл|2 правки">
-                                            <div class="two-cols">
-                                                <div><label><span class="ico">💰</span> Цена ₽</label><input type="number" name="prices[<?= $id ?>][price_rub]" value="<?= htmlspecialchars($service['price_rub']??'0') ?>"></div>
-                                                <div><label><span class="ico">💵</span> Цена ₴</label><input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>"></div>
-                                            </div>
-                                            <hr class="divider">
-                                            <label><span class="ico">🖼</span> Заменить обложку</label>
-                                            <input type="file" name="price_images[<?= $id ?>]" accept="image/*">
-                                            <div class="avatar-hint">Кнопка ниже сохраняет изменения по всем услугам сразу.</div>
-                                            <button type="submit" name="save_all_prices" class="btn-panel" style="background:linear-gradient(135deg,#4ade80,#22c55e);box-shadow:0 8px 24px rgba(34,197,94,.3);">💾 Сохранить прайс</button>
-                                            <a class="drawer-danger" href="?delete_price_id=<?= $id ?>" onclick="return confirm('Удалить услугу?')">🗑 Удалить услугу</a>
-                                        </div>
-                                    <?php endforeach; ?>
+                                    <?php foreach ($services as $service): echo renderServiceCardHtml($service); ?><?php endforeach; ?>
                                 </div>
                                 <p class="empty-hint" id="services-empty-hint" style="<?= $services ? 'display:none;' : '' ?>">Услуг пока нет — добавьте первую выше 👆</p>
                             </form>
