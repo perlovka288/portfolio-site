@@ -1298,7 +1298,9 @@ function renderCategoryCardHtml(array $category): string
             <input type="hidden" name="cat_id" value="<?= $catId ?>">
             <label><span class="ico">📝</span> Название категории</label>
             <input type="text" name="cat_title" value="<?= htmlspecialchars($category['title']) ?>">
-            <div class="drawer-meta-row" style="border:none;padding-top:2px;"><span>Ключ (не меняется)</span><b><?= htmlspecialchars($category['category_key']) ?></b></div>
+            <label><span class="ico">🔑</span> Ключ категории</label>
+            <input type="text" name="cat_key" value="<?= htmlspecialchars($category['category_key']) ?>" style="text-transform:lowercase;">
+            <div class="avatar-hint">⚠️ Ключ используется для связи с прайсом и уже загруженными работами. При смене всё автоматически перепривяжется на новый ключ — но если где-то во внешнем коде (например, в боте) ключ жёстко прописан текстом, там его придётся поправить руками.</div>
             <div class="two-cols">
                 <div><label><span class="ico">↔️</span> Ширина, px</label><input type="number" name="cat_width" value="<?= (int)$category['width_px'] ?>"></div>
                 <div><label><span class="ico">↕️</span> Высота, px</label><input type="number" name="cat_height" value="<?= (int)$category['height_px'] ?>"></div>
@@ -1343,8 +1345,19 @@ function renderServiceCardHtml(array $service): string
         <input type="text" name="prices[<?= $id ?>][title]" value="<?= htmlspecialchars($service['title']??'') ?>">
         <label><span class="ico">🔑</span> Категория портфолио</label>
         <select name="prices[<?= $id ?>][category_key]">
+            <?php
+                $svcCatKey = (string)($service['category_key'] ?? '');
+                $catKeysList = array_column($allCats, 'category_key');
+                if ($svcCatKey !== '' && !in_array($svcCatKey, $catKeysList, true)) {
+                    // У услуги ключ, которого нет среди текущих категорий (сирота
+                    // или категория была удалена) — обязательно даём реальный
+                    // пункт с этим значением, иначе браузер по умолчанию
+                    // выберет первую категорию в списке и её тихо перезапишет.
+                    echo '<option value="' . htmlspecialchars($svcCatKey) . '" selected>⚠️ ' . htmlspecialchars($svcCatKey) . ' (нет такой категории)</option>';
+                }
+            ?>
             <?php foreach ($allCats as $c): $lbl = $c['title'] . (((int)$c['width_px']>0 && (int)$c['height_px']>0) ? " ({$c['width_px']}x{$c['height_px']})" : ''); ?>
-                <option value="<?= htmlspecialchars($c['category_key']) ?>" <?= $c['category_key'] === ($service['category_key'] ?? '') ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                <option value="<?= htmlspecialchars($c['category_key']) ?>" <?= $c['category_key'] === $svcCatKey ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
             <?php endforeach; ?>
         </select>
         <div class="avatar-hint">Меняешь категорию — эта услуга (и её цена) привяжется к другой категории портфолио.</div>
@@ -1559,19 +1572,29 @@ if (isset($_POST['update_portfolio_media'])) {
 
 // ===================== PRICES =====================
 if (isset($_POST['save_all_prices'])) {
+    $priceSaveErrors = [];
     foreach (($_POST['prices'] ?? []) as $id => $data) {
         $id = (int)$id;
         $newImage = uploadNestedImage('price_images', $id, 'price', $uploadDir);
         $newCatKey = trim((string)($data['category_key'] ?? ''));
-        if ($newImage !== '') {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newImage, $newCatKey, $id]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
-            $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newCatKey, $id]);
+        try {
+            if ($newImage !== '') {
+                $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,image=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
+                $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newImage, $newCatKey, $id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE prices SET title=?,description=?,features=?,price_uan=?,price_rub=?,category_key=COALESCE(NULLIF(?,''),category_key) WHERE id=?");
+                $stmt->execute([$data['title']??'', $data['description']??'', $data['features']??'', $data['price_uan']??0, $data['price_rub']??0, $newCatKey, $id]);
+            }
+        } catch (Throwable $e) {
+            // Например, попытка присвоить ключ категории, который уже занят
+            // другой услугой — не роняем всю форму, просто пропускаем эту
+            // строку и сообщаем, что именно не сохранилось.
+            $priceSaveErrors[] = "#{$id}: " . $e->getMessage();
         }
     }
-    $message = '💾 Прайс-лист обновлен.';
+    $message = empty($priceSaveErrors)
+        ? '💾 Прайс-лист обновлен.'
+        : '⚠️ Прайс обновлён частично. Не сохранено: ' . implode('; ', $priceSaveErrors);
 }
 
 if (isset($_POST['add_price_service'])) {
@@ -1634,17 +1657,45 @@ if (isset($_POST['update_portfolio_category'])) {
                 $newIsDesign = !empty($_POST['cat_is_design']) ? 1 : 0;
                 $newPriceRub = isset($_POST['cat_price_rub']) ? (int)$_POST['cat_price_rub'] : 0;
                 $newPriceUan = isset($_POST['cat_price_uan']) ? (int)$_POST['cat_price_uan'] : 0;
-                if ($newTitle !== '') {
-                    $pdo->prepare("UPDATE portfolio_categories SET title=?, width_px=?, height_px=?, is_design=? WHERE id=?")
-                        ->execute([$newTitle, $newWidth, $newHeight, $newIsDesign, $catId]);
-                    // Синхронизируем связанную услугу прайса по тому же ключу;
-                    // если её вдруг ещё нет — создаём (на случай старых категорий).
-                    $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, ?, ?)
-                                   ON CONFLICT (category_key) DO UPDATE SET price_rub = EXCLUDED.price_rub, price_uan = EXCLUDED.price_uan")
-                        ->execute([$catKeyExisting, $newTitle, $newPriceRub, $newPriceUan]);
-                    $message = '✅ Категория обновлена.';
-                } else {
+                $newKeyRaw   = trim((string)($_POST['cat_key'] ?? ''));
+                $newKey      = $newKeyRaw !== '' ? strtolower(preg_replace('/[^a-z0-9_]/i', '_', $newKeyRaw)) : $catKeyExisting;
+
+                if ($newTitle === '') {
                     $message = '❌ Укажи название категории.';
+                } else {
+                    $pdo->beginTransaction();
+                    try {
+                        if ($newKey !== $catKeyExisting) {
+                            // Переименование ключа — переносим ВСЕ связи разом:
+                            // саму категорию, связанную услугу прайса и все
+                            // существующие работы портфолио с этим ключом.
+                            // Иначе старые работы и услуга "отвязались" бы молча.
+                            $dupCheck = $pdo->prepare("SELECT COUNT(*) FROM portfolio_categories WHERE category_key = ? AND id != ?");
+                            $dupCheck->execute([$newKey, $catId]);
+                            if ((int)$dupCheck->fetchColumn() > 0) {
+                                throw new Exception('Категория с ключом "' . $newKey . '" уже существует.');
+                            }
+                            $pdo->prepare("UPDATE portfolio_categories SET category_key=?, title=?, width_px=?, height_px=?, is_design=? WHERE id=?")
+                                ->execute([$newKey, $newTitle, $newWidth, $newHeight, $newIsDesign, $catId]);
+                            $pdo->prepare("UPDATE prices SET category_key=? WHERE category_key=?")->execute([$newKey, $catKeyExisting]);
+                            $pdo->prepare("UPDATE portfolio SET category_key=? WHERE category_key=?")->execute([$newKey, $catKeyExisting]);
+                            $catKeyExisting = $newKey;
+                            $message = '✅ Категория обновлена, ключ переименован в "' . $newKey . '" — все связанные работы и услуга перенесены автоматически.';
+                        } else {
+                            $pdo->prepare("UPDATE portfolio_categories SET title=?, width_px=?, height_px=?, is_design=? WHERE id=?")
+                                ->execute([$newTitle, $newWidth, $newHeight, $newIsDesign, $catId]);
+                            $message = '✅ Категория обновлена.';
+                        }
+                        // Синхронизируем связанную услугу прайса по (возможно новому) ключу;
+                        // если её вдруг ещё нет — создаём (на случай старых категорий).
+                        $pdo->prepare("INSERT INTO prices (category_key, title, price_rub, price_uan) VALUES (?, ?, ?, ?)
+                                       ON CONFLICT (category_key) DO UPDATE SET price_rub = EXCLUDED.price_rub, price_uan = EXCLUDED.price_uan")
+                            ->execute([$catKeyExisting, $newTitle, $newPriceRub, $newPriceUan]);
+                        $pdo->commit();
+                    } catch (Throwable $e) {
+                        $pdo->rollBack();
+                        $message = '❌ Не удалось сохранить категорию: ' . $e->getMessage();
+                    }
                 }
             }
         } catch (Throwable $e) {
