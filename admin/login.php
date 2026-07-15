@@ -2,10 +2,10 @@
 session_start();
 require_once '../config/db.php';
 
-const ADMIN_USERNAME = 'Kostlim';
-const ADMIN_EMAIL = 'jeffkostlim@gmail.com';
-const ADMIN_PASSWORD = '60667543';
-const ADMIN_TELEGRAM_ID = '1710365896';
+define('ADMIN_USERNAME', getenv('ADMIN_USERNAME') ?: '');
+define('ADMIN_EMAIL', getenv('ADMIN_EMAIL') ?: '');
+define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD') ?: '');
+define('ADMIN_TELEGRAM_ID', getenv('ADMIN_TELEGRAM_ID') ?: '');
 
 $error = '';
 
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     Логин администратора
                 </label>
-                <input type="text" name="username" value="Kostlim" placeholder="Kostlim" required>
+                <input type="text" name="username" placeholder="Логин" required>
             </div>
 
             <div class="field">
@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
                     Email адрес
                 </label>
-                <input type="email" name="email" value="jeffkostlim@gmail.com" placeholder="jeffkostlim@gmail.com" required>
+                <input type="email" name="email" placeholder="Email" required>
             </div>
 
             <div class="field">
