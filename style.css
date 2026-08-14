@@ -812,6 +812,29 @@ body.theme-snow {
     .tab-btn { padding: 9px 16px; font-size: 11px; }
 }
 
+/* ── Категории/фильтры на телефоне: горизонтальная прокрутка вместо
+   переноса на много строк — легче попасть пальцем, понятнее порядок ── */
+@media (max-width: 720px) {
+    .tabs-container, .portfolio-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        justify-content: flex-start;
+        padding: 2px 4px 10px;
+        margin: 24px 0 22px;
+    }
+    .tabs-container::-webkit-scrollbar, .portfolio-tabs::-webkit-scrollbar { display: none; }
+    .tab-btn { flex: 0 0 auto; min-height: 40px; }
+}
+
+/* ── Поле, автозаполненное подтверждённым Telegram-аккаунтом ── */
+.order-input--tg-verified {
+    border-color: rgba(34,197,94,.45) !important;
+    background: rgba(34,197,94,.08) !important;
+    color: #fff !important;
+}
+
 /* =====================================================
    ADMIN PANEL — Orange Glow
    Автоматически применяется ко всем страницам в /admin/

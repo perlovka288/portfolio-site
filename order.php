@@ -1921,6 +1921,35 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
         var tg = window.Telegram && window.Telegram.WebApp;
         if (!tg || !tg.initData) return;
         tg.ready();
+        if (typeof tg.expand === 'function') tg.expand();
+
+        // ── Автоподстановка имени/контакта из Telegram ──────────────────
+        // Открыто как Mini App (кнопка "web_app" в bot.php) — значит
+        // tg.initDataUnsafe.user уже содержит имя и username, за которые
+        // ручается Telegram (initData подписан и проверяется на сервере
+        // в tg_webapp_auth.php). Подставляем их во все поля "Ваше имя" и
+        // "Контакт" на странице (основной слот + доп. заказы), чтобы
+        // человеку не нужно было вводить их вручную.
+        var tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) || null;
+        if (tgUser) {
+            var displayName = tgUser.first_name || tgUser.username || '';
+            var handle       = tgUser.username ? ('@' + tgUser.username) : '';
+            document.querySelectorAll('input[name="username"]').forEach(function(el){
+                if (!el.value && displayName) {
+                    el.value = displayName;
+                    el.readOnly = true;
+                    el.classList.add('order-input--tg-verified');
+                }
+            });
+            document.querySelectorAll('input[name="telegram"]').forEach(function(el){
+                if (!el.value && handle) {
+                    el.value = handle;
+                    el.readOnly = true;
+                    el.classList.add('order-input--tg-verified');
+                }
+            });
+        }
+
         fetch('/tg_webapp_auth.php', {
             method: 'POST',
             credentials: 'same-origin',

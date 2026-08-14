@@ -898,7 +898,10 @@ if (isset($update['message'])) {
             'parse_mode' => 'Markdown',
             'reply_markup' => json_encode([
                 'inline_keyboard' => [[
-                    ['text' => '📝 Оформить заказ', 'url' => $order_url],
+                    // web_app вместо url — форма открывается прямо внутри Telegram
+                    // (Mini App), а не во внешнем браузере. Имя/username подставляются
+                    // из подписанных initData на странице (см. order.php внизу).
+                    ['text' => '📝 Оформить заказ', 'web_app' => ['url' => $order_url]],
                 ]],
             ], JSON_UNESCAPED_UNICODE),
         ]);
