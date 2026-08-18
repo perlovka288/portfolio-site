@@ -1,5 +1,9 @@
 # Лимит для обычных форм (заказы, превью). Большие PSD — admin/large_upload.php (320M)
+# До 40 файлов в заказе: post_max_size и max_file_uploads подняты под этот лимит
+# (PHP по умолчанию режет max_file_uploads=20 — без этого файлы 21-40 молча терялись бы).
 php_value upload_max_filesize 32M
-php_value post_max_size 34M
-php_value memory_limit 128M
-php_value max_execution_time 60
+php_value post_max_size 500M
+php_value memory_limit 256M
+php_value max_execution_time 120
+php_value max_input_time 120
+php_value max_file_uploads 45

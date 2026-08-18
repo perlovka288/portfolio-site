@@ -1,0 +1,275 @@
+diff --git a/htaccess b/htaccess
+index 7132303..03ea3de 100644
+--- a/htaccess
++++ b/htaccess
+@@ -1,5 +1,7 @@
+ # Лимит для обычных форм (заказы, превью). Большие PSD — admin/large_upload.php (320M)
++# Увеличено под форму заказа: до 40 файлов-референсов за раз.
+ php_value upload_max_filesize 32M
+-php_value post_max_size 34M
++php_value post_max_size 220M
++php_value max_file_uploads 45
+ php_value memory_limit 128M
+ php_value max_execution_time 60
+diff --git a/order.php b/order.php
+index 4d17dca..d092b57 100644
+--- a/order.php
++++ b/order.php
+@@ -693,17 +693,19 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
+             </div>
+             <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+         </div>
+-        <div class="file-upload-block mb22">
+-            <input type="file" name="example_photos[]" accept="image/*" multiple id="s<?= $s ?>_refs">
++        <div class="file-upload-block mb22" id="s<?= $s ?>_refs_dropzone" data-slot="<?= $s ?>">
++            <input type="file" name="example_photos[]" accept="image/*,.psd,.pdf,.zip,.rar,.7z,.ai,.fig,.svg" multiple id="s<?= $s ?>_refs" data-max="40">
+             <div class="file-label-row">
+-                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
++                <span class="file-label-title">🖼️ Исходники / референсы (до 40 файлов)</span>
++                <span class="file-count-badge" id="s<?= $s ?>_refs_count">0 / 40</span>
+                 <label for="s<?= $s ?>_refs" class="file-choose-btn">
+                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                     Выбрать файлы
+                 </label>
+             </div>
+             <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
+-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько</div>
++            <div class="file-preview-grid" id="s<?= $s ?>_refs_preview"></div>
++            <div class="file-hint">Перетащи файлы сюда или зажми Ctrl (Win) / Cmd (Mac), чтобы выбрать сразу несколько. Можно PSD, PDF, ZIP и архивы.</div>
+         </div>
+         <div class="mb16">
+             <label class="order-label">Промокод (необязательно)</label>
+@@ -836,6 +838,24 @@ body::before {
+ .file-name-display { font-size: 11px; color: #666678; font-style: italic; margin-top: 8px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ .file-name-display.has-file { color: #86efac; font-style: normal; font-weight: 700; }
+ .file-hint { color: #555568; font-size: 10px; margin-top: 6px; line-height: 1.5; }
++.file-upload-block.dragover { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.18), 0 0 18px rgba(249,115,22,0.25); background: rgba(249,115,22,0.06); }
++.file-count-badge { font-size: 10px; font-weight: 800; color: #8a8a96; background: rgba(255,255,255,0.05); border-radius: 20px; padding: 3px 9px; white-space: nowrap; }
++.file-count-badge.file-count-max { color: #fca5a5; background: rgba(239,68,68,0.12); }
++.file-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; margin-top: 10px; }
++.file-preview-item { position: relative; aspect-ratio: 1/1; border-radius: 8px; overflow: hidden; background: #16161f; border: 1px solid #24242f; }
++.file-preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
++.file-preview-item.is-doc { display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 4px; text-align: center; }
++.file-preview-item.is-doc .doc-ext { font-size: 9px; font-weight: 800; color: #fdba74; text-transform: uppercase; margin-top: 2px; word-break: break-all; }
++.file-preview-item.is-doc svg { width: 20px; height: 20px; color: #8a8a96; }
++.file-preview-remove {
++    position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%;
++    background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.15); color: #fff;
++    font-size: 11px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
++    padding: 0; font-family: inherit; transition: background .15s;
++}
++.file-preview-remove:hover { background: #ef4444; }
++.file-preview-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.12); }
++.file-preview-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--or2), var(--or)); transition: width .2s; }
+ .turnstile-wrap { display: flex; justify-content: center; margin-bottom: 18px; }
+ .order-submit {
+     width: 100%; background: linear-gradient(135deg, var(--or2), var(--or));
+@@ -1403,17 +1423,19 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
+             </div>
+             <textarea name="details" id="s1_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+         </div>
+-        <div class="file-upload-block mb22">
+-            <input type="file" name="example_photos[]" accept="image/*" multiple id="s1_refs">
++        <div class="file-upload-block mb22" id="s1_refs_dropzone" data-slot="1">
++            <input type="file" name="example_photos[]" accept="image/*,.psd,.pdf,.zip,.rar,.7z,.ai,.fig,.svg" multiple id="s1_refs" data-max="40">
+             <div class="file-label-row">
+-                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
++                <span class="file-label-title">🖼️ Исходники / референсы (до 40 файлов)</span>
++                <span class="file-count-badge" id="s1_refs_count">0 / 40</span>
+                 <label for="s1_refs" class="file-choose-btn">
+                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                     Выбрать файлы
+                 </label>
+             </div>
+             <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
+-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
++            <div class="file-preview-grid" id="s1_refs_preview"></div>
++            <div class="file-hint">Перетащи файлы сюда или зажми Ctrl (Win) / Cmd (Mac), чтобы выбрать сразу несколько. Можно PSD, PDF, ZIP и архивы.</div>
+         </div>
+         <div class="mb16">
+             <label class="order-label">Промокод (необязательно)</label>
+@@ -1508,40 +1530,125 @@ document.addEventListener('DOMContentLoaded', function() {
+         el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
+         el.classList.toggle('has-file', !!this.files[0]);
+     });
+-    document.getElementById('s1_refs').addEventListener('change', function() {
+-        var el = document.getElementById('s1_refs_name');
+-        if (this.files.length > 0) {
+-            el.textContent = '✅ ' + this.files.length + ' файл(а): ' + Array.from(this.files).map(function(f){return f.name;}).join(', ');
+-            el.classList.add('has-file');
+-        } else {
+-            el.textContent = 'Файлы не выбраны';
+-            el.classList.remove('has-file');
+-        }
+-    });
++    initRefsUploader(1);
+     // Слоты 2 и 3
+     [2,3].forEach(function(n) {
+         var sc = document.getElementById('s'+n+'_screenshot');
+-        var rf = document.getElementById('s'+n+'_refs');
+         if (sc) sc.addEventListener('change', function() {
+             var el = document.getElementById('s'+n+'_screenshot_name');
+             el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
+             el.classList.toggle('has-file', !!this.files[0]);
+         });
+-        if (rf) rf.addEventListener('change', function() {
+-            var el = document.getElementById('s'+n+'_refs_name');
+-            if (this.files.length > 0) {
+-                el.textContent = '✅ ' + this.files.length + ' файл(а)';
+-                el.classList.add('has-file');
+-            } else {
+-                el.textContent = 'Файлы не выбраны';
+-                el.classList.remove('has-file');
+-            }
+-        });
++        initRefsUploader(n);
+     });
+ 
+     updateArchiveBtn();
+ });
+ 
++// ─── Загрузчик исходников: до 40 файлов, drag&drop, превью, удаление по одному ───
++var REFS_MAX_FILES = 40;
++var refsFileStore = {}; // { slotNumber: File[] }
++
++function initRefsUploader(slot) {
++    var input = document.getElementById('s' + slot + '_refs');
++    var zone = document.getElementById('s' + slot + '_refs_dropzone');
++    if (!input || !zone) return;
++    refsFileStore[slot] = [];
++
++    input.addEventListener('change', function() {
++        addRefsFiles(slot, Array.from(this.files || []));
++        this.value = ''; // сбрасываем, т.к. файлы теперь живут в refsFileStore
++    });
++
++    ['dragenter','dragover'].forEach(function(evt) {
++        zone.addEventListener(evt, function(e) {
++            e.preventDefault(); e.stopPropagation();
++            zone.classList.add('dragover');
++        });
++    });
++    ['dragleave','drop'].forEach(function(evt) {
++        zone.addEventListener(evt, function(e) {
++            e.preventDefault(); e.stopPropagation();
++            if (evt === 'dragleave' && e.target !== zone) return;
++            zone.classList.remove('dragover');
++        });
++    });
++    zone.addEventListener('drop', function(e) {
++        var dropped = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
++        if (dropped.length) addRefsFiles(slot, dropped);
++    });
++}
++
++function addRefsFiles(slot, newFiles) {
++    var store = refsFileStore[slot] || (refsFileStore[slot] = []);
++    var room = REFS_MAX_FILES - store.length;
++    if (room <= 0) {
++        showToastMsg('⚠️ Максимум ' + REFS_MAX_FILES + ' файлов за один заказ', '#ef4444');
++        renderRefsPreview(slot);
++        return;
++    }
++    var toAdd = newFiles.slice(0, room);
++    store.push.apply(store, toAdd);
++    if (newFiles.length > toAdd.length) {
++        showToastMsg('⚠️ Добавлено ' + toAdd.length + ' из ' + newFiles.length + ' — лимит ' + REFS_MAX_FILES + ' файлов', '#f97316');
++    }
++    syncRefsInput(slot);
++    renderRefsPreview(slot);
++}
++
++function removeRefsFile(slot, index) {
++    var store = refsFileStore[slot] || [];
++    store.splice(index, 1);
++    syncRefsInput(slot);
++    renderRefsPreview(slot);
++}
++
++// Переносим управляемый JS-массив файлов обратно в реальный <input type="file">
++// через DataTransfer, чтобы обычная отправка формы (multipart) тоже видела все файлы.
++function syncRefsInput(slot) {
++    var input = document.getElementById('s' + slot + '_refs');
++    if (!input) return;
++    var dt = new DataTransfer();
++    (refsFileStore[slot] || []).forEach(function(f) { dt.items.add(f); });
++    input.files = dt.files;
++}
++
++function renderRefsPreview(slot) {
++    var store = refsFileStore[slot] || [];
++    var grid = document.getElementById('s' + slot + '_refs_preview');
++    var nameEl = document.getElementById('s' + slot + '_refs_name');
++    var countEl = document.getElementById('s' + slot + '_refs_count');
++    if (countEl) {
++        countEl.textContent = store.length + ' / ' + REFS_MAX_FILES;
++        countEl.classList.toggle('file-count-max', store.length >= REFS_MAX_FILES);
++    }
++    if (nameEl) {
++        if (store.length > 0) { nameEl.textContent = '✅ Выбрано файлов: ' + store.length; nameEl.classList.add('has-file'); }
++        else { nameEl.textContent = 'Файлы не выбраны'; nameEl.classList.remove('has-file'); }
++    }
++    if (!grid) return;
++    grid.innerHTML = '';
++    store.forEach(function(file, idx) {
++        var item = document.createElement('div');
++        item.className = 'file-preview-item';
++        if (file.type && file.type.indexOf('image/') === 0) {
++            var img = document.createElement('img');
++            img.src = URL.createObjectURL(file);
++            img.onload = function() { URL.revokeObjectURL(img.src); };
++            item.appendChild(img);
++        } else {
++            item.classList.add('is-doc');
++            var ext = (file.name.split('.').pop() || 'файл').toUpperCase().slice(0, 5);
++            item.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="doc-ext">.' + ext + '</span>';
++        }
++        var rm = document.createElement('button');
++        rm.type = 'button'; rm.className = 'file-preview-remove'; rm.title = 'Удалить'; rm.textContent = '✕';
++        rm.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); removeRefsFile(slot, idx); });
++        item.appendChild(rm);
++        grid.appendChild(item);
++    });
++}
++
+ // ─── Таб-система ───
+ var _slots = [1];
+ var _currentSlot = 1;
+@@ -1653,6 +1760,21 @@ async function uploadFileToCloudinary(file) {
+     } catch(e) { return null; }
+ }
+ 
++// Загружает файлы пачками по `concurrency` штук параллельно (а не все 40 разом
++// и не строго по одному), чтобы не упереться в лимиты сервера/сети на большом заказе.
++async function uploadFilesBatched(files, concurrency, onProgress) {
++    var urls = [];
++    var done = 0;
++    for (var i = 0; i < files.length; i += concurrency) {
++        var chunk = files.slice(i, i + concurrency);
++        var results = await Promise.all(chunk.map(function(f) { return uploadFileToCloudinary(f); }));
++        results.forEach(function(u) { if (u) urls.push(u); });
++        done += chunk.length;
++        if (onProgress) onProgress(Math.min(done, files.length), files.length);
++    }
++    return urls;
++}
++
+ function showToastMsg(msg, color) {
+     var old = document.getElementById('order-toast');
+     if (old) old.remove();
+@@ -1729,11 +1851,10 @@ async function archiveSlot(slot) {
+     }
+     var rfInput = document.getElementById('s'+slot+'_refs');
+     if (rfInput && rfInput.files.length > 0) {
+-        var urls = [];
+-        for (var i = 0; i < Math.min(rfInput.files.length, 5); i++) {
+-            var u = await uploadFileToCloudinary(rfInput.files[i]);
+-            if (u) urls.push(u);
+-        }
++        var files = Array.from(rfInput.files).slice(0, REFS_MAX_FILES);
++        var urls = await uploadFilesBatched(files, 4, function(done, total) {
++            showToastMsg('⏳ Загружаю файлы... ' + done + '/' + total, '#6366f1');
++        });
+         if (urls.length) data._refs_urls = urls;
+     }
+ 

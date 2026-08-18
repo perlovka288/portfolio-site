@@ -12,11 +12,14 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 
 RUN a2enmod rewrite headers
 
+# До 40 файлов в заказе: post_max_size и max_file_uploads подняты под этот лимит
+# (PHP по умолчанию режет max_file_uploads=20 — без этого файлы 21-40 молча терялись бы).
 RUN echo "upload_max_filesize = 32M\n\
-post_max_size = 34M\n\
-memory_limit = 128M\n\
-max_execution_time = 60\n\
-max_input_time = 60" > /usr/local/etc/php/conf.d/uploads.ini
+post_max_size = 500M\n\
+memory_limit = 256M\n\
+max_execution_time = 120\n\
+max_input_time = 120\n\
+max_file_uploads = 45" > /usr/local/etc/php/conf.d/uploads.ini
 
 COPY . /var/www/html/
 

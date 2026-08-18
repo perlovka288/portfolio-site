@@ -85,17 +85,18 @@ try {
 define('ADMIN_TG_ID', '1710365896');
 
 function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
-    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
-    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
-    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
-    if (!is_file($filePath)) return '';
+    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
+    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
+    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
+    if (!is_file($filePath) || $cloudName === '' || $apiKey === '' || $apiSecret === '') return '';
     $timestamp = time();
     $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
-    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
+    // resource_type=auto — чтобы не только картинки, но и исходники (psd/ai/zip/pdf и т.п.) грузились корректно
+    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/auto/upload");
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_TIMEOUT        => 60,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_POSTFIELDS     => [
             'file'      => new CURLFile($filePath),
@@ -114,7 +115,7 @@ if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 
-$bot_token   = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$bot_token   = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: "";
 $my_chat_id  = getenv('ADMIN_ID')  ?: "1710365896";
 $bot_link    = 'https://t.me/kostlimdznbot';
 $support_tg  = 'https://t.me/Perlo_ovka';
@@ -280,6 +281,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     $example_imgs   = [];
 
     if (!empty($_FILES['example_photos']['name'][0])) {
+        $uploadedCount = count(array_filter($_FILES['example_photos']['tmp_name'], fn($t) => !empty($t)));
+        if ($uploadedCount > 40) {
+            $error_msg = '⚠️ Максимум 40 файлов за один заказ. Пришли до 40 файлов и попробуй ещё раз.';
+            goto render_page;
+        }
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === UPLOAD_ERR_OK) {
                 $url = uploadToCloudinary($tmp, 'orders/ref');
@@ -639,6 +645,24 @@ function tgEscapeSend(string $token, int $chat_id, string $text, string $photoPa
 function slotFormFields(int $slot, array $services, string $selectedService, string $turnstileSiteKey): string {
     $s = $slot;
     ob_start(); ?>
+        <div class="wizard-progress">
+            <div class="wizard-progress-step active" data-progress-step="1">
+                <span class="wizard-progress-num">1</span>
+                <span class="wizard-progress-label">Услуга и ТЗ</span>
+            </div>
+            <div class="wizard-progress-line"></div>
+            <div class="wizard-progress-step" data-progress-step="2">
+                <span class="wizard-progress-num">2</span>
+                <span class="wizard-progress-label">Параметры</span>
+            </div>
+            <div class="wizard-progress-line"></div>
+            <div class="wizard-progress-step" data-progress-step="3">
+                <span class="wizard-progress-num">3</span>
+                <span class="wizard-progress-label">Подтверждение</span>
+            </div>
+        </div>
+
+        <div class="wizard-step" data-step="1">
         <div class="mb16">
             <label class="order-label">Ваше имя / никнейм</label>
             <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
@@ -657,6 +681,35 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
                 <?php endforeach; ?>
             </select>
         </div>
+        <div class="mb16">
+            <div class="order-label-row">
+                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">🤖 Помочь составить ТЗ</button>
+            </div>
+            <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+        </div>
+        <div class="file-upload-block mb22" data-slot="<?= $s ?>">
+            <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s<?= $s ?>_refs" class="file-input-hidden">
+            <div class="file-dropzone" id="s<?= $s ?>_refs_dropzone">
+                <div class="file-label-row">
+                    <span class="file-label-title">🖼️ Референсы и исходники (до 40 файлов)</span>
+                    <label for="s<?= $s ?>_refs" class="file-choose-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Выбрать файлы
+                    </label>
+                </div>
+                <div class="file-dropzone-hint">или перетащи файлы сюда</div>
+            </div>
+            <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
+            <div class="file-preview-list" id="s<?= $s ?>_refs_preview"></div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько · до 40 шт.</div>
+        </div>
+        <div class="wizard-nav">
+            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
+        </div>
+        </div><!-- /wizard-step 1 -->
+
+        <div class="wizard-step" data-step="2" style="display:none;">
         <div class="mb16">
             <label class="coop-toggle-row">
                 <span>Сотрудничество — цена 0 ₽ / 0 ₴</span>
@@ -685,26 +738,6 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
                 </label>
             </div>
         </div>
-
-        <div class="mb16">
-            <div class="order-label-row">
-                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">🤖 Помочь составить ТЗ</button>
-            </div>
-            <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
-        </div>
-        <div class="file-upload-block mb22">
-            <input type="file" name="example_photos[]" accept="image/*" multiple id="s<?= $s ?>_refs">
-            <div class="file-label-row">
-                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
-                <label for="s<?= $s ?>_refs" class="file-choose-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Выбрать файлы
-                </label>
-            </div>
-            <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько</div>
-        </div>
         <div class="mb16">
             <label class="order-label">Промокод (необязательно)</label>
             <div class="promo-input-row">
@@ -716,10 +749,24 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="normal"></div>
         </div>
-        <div style="display:grid;gap:8px;margin-top:6px;">
+        <div class="wizard-nav">
+            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
+            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
+        </div>
+        </div><!-- /wizard-step 2 -->
+
+        <div class="wizard-step" data-step="3" style="display:none;">
+        <div class="wizard-confirm-note">
+            Заказ отправляется дизайнеру. После того как дизайнер подтвердит приём заказа, реквизиты на оплату и форма загрузки чека станут доступны в профиле и придут в Telegram-бот.
+        </div>
+        <div class="wizard-nav" style="margin-bottom:10px;">
+            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
+        </div>
+        <div style="display:grid;gap:8px;margin-top:0;">
             <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ №<?= $s ?></button>
             <button type="button" class="btn-archive-small" onclick="archiveSlot(<?= $s ?>)">📦 Архивировать заказ</button>
         </div>
+        </div><!-- /wizard-step 3 -->
     <?php
     return ob_get_clean();
 }
@@ -836,6 +883,45 @@ body::before {
 .file-name-display { font-size: 11px; color: #666678; font-style: italic; margin-top: 8px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-name-display.has-file { color: #86efac; font-style: normal; font-weight: 700; }
 .file-hint { color: #555568; font-size: 10px; margin-top: 6px; line-height: 1.5; }
+.file-dropzone { border-radius: 10px; transition: background .15s; }
+.file-dropzone.dragover { background: rgba(249,115,22,0.08); box-shadow: inset 0 0 0 1.5px rgba(249,115,22,0.5); }
+.file-dropzone-hint { font-size: 10px; color: #4a4a5c; margin-top: 6px; }
+.file-preview-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.file-preview-item { position: relative; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.file-preview-thumb { width: 64px; height: 64px; border-radius: 8px; background: #1a1a24; border: 1px solid #2a2a3a; display: flex; align-items: center; justify-content: center; font-size: 22px; overflow: hidden; }
+.file-preview-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.file-preview-name { font-size: 9px; color: #666678; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.file-preview-remove { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: none; background: #ef4444; color: #fff; font-size: 10px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.file-preview-remove:hover { background: #dc2626; }
+
+/* ── Wizard: 3-step progress + nav ── */
+.wizard-progress { display: flex; align-items: center; margin-bottom: 22px; }
+.wizard-progress-step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
+.wizard-progress-num {
+    width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; background: #1a1a24; border: 1.5px solid #2a2a3a; color: #555568;
+    transition: all .25s;
+}
+.wizard-progress-step.active .wizard-progress-num { border-color: #f97316; color: #fff; background: linear-gradient(135deg,#fb923c,#f97316); box-shadow: 0 0 14px rgba(249,115,22,.4); }
+.wizard-progress-step.done .wizard-progress-num { border-color: #86efac; color: #86efac; background: rgba(134,239,172,.08); }
+.wizard-progress-label { font-size: 9.5px; color: #666678; text-align: center; max-width: 70px; line-height: 1.3; }
+.wizard-progress-step.active .wizard-progress-label { color: #fff; font-weight: 700; }
+.wizard-progress-line { flex: 1; height: 1.5px; background: #2a2a3a; margin: 0 4px 20px; }
+.wizard-step { animation: wizardFadeIn .28s ease; }
+@keyframes wizardFadeIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+.wizard-nav { display: flex; gap: 10px; margin-top: 6px; }
+.wizard-btn-next, .wizard-btn-back {
+    flex: 1; border-radius: 10px; padding: 13px; font-weight: 900; font-size: 12.5px; letter-spacing: .3px;
+    cursor: pointer; border: none; font-family: inherit; transition: transform .15s, box-shadow .15s;
+}
+.wizard-btn-next { background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; box-shadow: var(--or-glow); }
+.wizard-btn-next:hover { transform: translateY(-1px); }
+.wizard-btn-back { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: #8a8a96; flex: 0 0 auto; padding: 13px 18px; }
+.wizard-btn-back:hover { background: rgba(255,255,255,.1); }
+.wizard-confirm-note {
+    background: rgba(249,115,22,.06); border: 1px solid rgba(249,115,22,.2); border-radius: 12px;
+    padding: 14px 16px; font-size: 12px; line-height: 1.6; color: #c9c9d4; margin: 4px 0 14px;
+}
 .turnstile-wrap { display: flex; justify-content: center; margin-bottom: 18px; }
 .order-submit {
     width: 100%; background: linear-gradient(135deg, var(--or2), var(--or));
@@ -1137,8 +1223,21 @@ body::before {
             ">Оцените, чтобы продолжить</button>
         </div>
 
-        <div style="font-size:11px;color:#555568;line-height:1.5;">
+        <div style="font-size:11px;color:#555568;line-height:1.5;margin-bottom:16px;">
             💬 Статус заказа и реквизиты придут в Telegram, как только дизайнер примет заказ.
+        </div>
+
+        <div style="display:flex;gap:10px;">
+            <a href="<?= htmlspecialchars($bot_link) ?>" target="_blank" rel="noopener" style="
+                flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+                background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;
+                border-radius:10px;padding:11px;font-weight:900;font-size:12px;text-decoration:none;
+            ">✈️ В бот</a>
+            <a href="/profile.php" style="
+                flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+                background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#c9c9d4;
+                border-radius:10px;padding:11px;font-weight:900;font-size:12px;text-decoration:none;
+            ">👤 Личный кабинет</a>
         </div>
     </div>
 </div>
@@ -1338,10 +1437,28 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
     </a>
     <div class="order-title">📋 Заполнить ТЗ для работы</div>
     <div class="req-block"><h3>Оплата после принятия</h3><div class="req-row"><div class="req-info"><span>Сначала отправь ТЗ. Если дизайнер примет заказ, реквизиты и загрузка чека появятся в профиле и придут в Telegram.</span></div></div></div>
-<form id="form-slot-1" action="" method="POST" enctype="multipart/form-data">
+<form id="form-slot-1" action="" method="POST" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="rules_accepted" value="1">
         <input type="hidden" name="order_slot" value="1">
 
+        <div class="wizard-progress">
+            <div class="wizard-progress-step active" data-progress-step="1">
+                <span class="wizard-progress-num">1</span>
+                <span class="wizard-progress-label">Услуга и ТЗ</span>
+            </div>
+            <div class="wizard-progress-line"></div>
+            <div class="wizard-progress-step" data-progress-step="2">
+                <span class="wizard-progress-num">2</span>
+                <span class="wizard-progress-label">Параметры</span>
+            </div>
+            <div class="wizard-progress-line"></div>
+            <div class="wizard-progress-step" data-progress-step="3">
+                <span class="wizard-progress-num">3</span>
+                <span class="wizard-progress-label">Подтверждение</span>
+            </div>
+        </div>
+
+        <div class="wizard-step" data-step="1">
         <div class="mb16">
             <label class="order-label">Ваше имя / никнейм</label>
             <input type="text" name="username" id="remember-username" required placeholder="Например: Влад" class="order-input">
@@ -1367,6 +1484,35 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
                 <?php endforeach; ?>
             </select>
         </div>
+        <div class="mb16">
+            <div class="order-label-row">
+                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s1_details')">🤖 Помочь составить ТЗ</button>
+            </div>
+            <textarea name="details" id="s1_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
+        </div>
+        <div class="file-upload-block mb22" data-slot="1">
+            <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s1_refs" class="file-input-hidden">
+            <div class="file-dropzone" id="s1_refs_dropzone">
+                <div class="file-label-row">
+                    <span class="file-label-title">🖼️ Референсы и исходники (до 40 файлов)</span>
+                    <label for="s1_refs" class="file-choose-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Выбрать файлы
+                    </label>
+                </div>
+                <div class="file-dropzone-hint">или перетащи файлы сюда</div>
+            </div>
+            <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
+            <div class="file-preview-list" id="s1_refs_preview"></div>
+            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов · до 40 шт.</div>
+        </div>
+        <div class="wizard-nav">
+            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
+        </div>
+        </div><!-- /wizard-step 1 -->
+
+        <div class="wizard-step" data-step="2" style="display:none;">
         <div class="mb16">
             <label class="coop-toggle-row">
                 <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
@@ -1395,26 +1541,6 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
                 </label>
             </div>
         </div>
-
-        <div class="mb16">
-            <div class="order-label-row">
-                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s1_details')">🤖 Помочь составить ТЗ</button>
-            </div>
-            <textarea name="details" id="s1_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
-        </div>
-        <div class="file-upload-block mb22">
-            <input type="file" name="example_photos[]" accept="image/*" multiple id="s1_refs">
-            <div class="file-label-row">
-                <span class="file-label-title">🖼️ Референсы (до 5 фото)</span>
-                <label for="s1_refs" class="file-choose-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Выбрать файлы
-                </label>
-            </div>
-            <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов</div>
-        </div>
         <div class="mb16">
             <label class="order-label">Промокод (необязательно)</label>
             <div class="promo-input-row">
@@ -1426,10 +1552,24 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <div class="turnstile-wrap">
             <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>" data-theme="dark" data-size="normal"></div>
         </div>
-        <div style="display:grid;gap:8px;margin-top:6px;">
+        <div class="wizard-nav">
+            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
+            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
+        </div>
+        </div><!-- /wizard-step 2 -->
+
+        <div class="wizard-step" data-step="3" style="display:none;">
+        <div class="wizard-confirm-note">
+            Заказ отправляется дизайнеру. После того как дизайнер подтвердит приём заказа, реквизиты на оплату и форма загрузки чека станут доступны в профиле и придут в Telegram-бот.
+        </div>
+        <div class="wizard-nav" style="margin-bottom:10px;">
+            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
+        </div>
+        <div style="display:grid;gap:8px;margin-top:0;">
             <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ Kostlim'у</button>
             <button type="button" class="btn-archive-small" onclick="archiveSlot(1)">📦 Архивировать заказ</button>
         </div>
+        </div><!-- /wizard-step 3 -->
     </form>
 
 </div><!-- .order-card -->
@@ -1451,7 +1591,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <div class="slot-header-title">📋 Заказ №2</div>
         <button class="btn-remove-slot" onclick="removeSlot(2)">✕ Удалить</button>
     </div>
-    <form id="form-slot-2" action="" method="POST" enctype="multipart/form-data">
+    <form id="form-slot-2" action="" method="POST" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="rules_accepted" value="1">
         <input type="hidden" name="order_slot" value="2">
         <?php echo slotFormFields(2, $services, $selected_service, $turnstile_site_key); ?>
@@ -1466,7 +1606,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
         <div class="slot-header-title">📋 Заказ №3</div>
         <button class="btn-remove-slot" onclick="removeSlot(3)">✕ Удалить</button>
     </div>
-    <form id="form-slot-3" action="" method="POST" enctype="multipart/form-data">
+    <form id="form-slot-3" action="" method="POST" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="rules_accepted" value="1">
         <input type="hidden" name="order_slot" value="3">
         <?php echo slotFormFields(3, $services, $selected_service, $turnstile_site_key); ?>
@@ -1508,39 +1648,202 @@ document.addEventListener('DOMContentLoaded', function() {
         el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
         el.classList.toggle('has-file', !!this.files[0]);
     });
-    document.getElementById('s1_refs').addEventListener('change', function() {
-        var el = document.getElementById('s1_refs_name');
-        if (this.files.length > 0) {
-            el.textContent = '✅ ' + this.files.length + ' файл(а): ' + Array.from(this.files).map(function(f){return f.name;}).join(', ');
-            el.classList.add('has-file');
-        } else {
-            el.textContent = 'Файлы не выбраны';
-            el.classList.remove('has-file');
-        }
-    });
-    // Слоты 2 и 3
+    // Слоты 2 и 3 — скриншот
     [2,3].forEach(function(n) {
         var sc = document.getElementById('s'+n+'_screenshot');
-        var rf = document.getElementById('s'+n+'_refs');
         if (sc) sc.addEventListener('change', function() {
             var el = document.getElementById('s'+n+'_screenshot_name');
             el.textContent = this.files[0] ? '✅ ' + this.files[0].name : 'Файл не выбран';
             el.classList.toggle('has-file', !!this.files[0]);
         });
-        if (rf) rf.addEventListener('change', function() {
-            var el = document.getElementById('s'+n+'_refs_name');
-            if (this.files.length > 0) {
-                el.textContent = '✅ ' + this.files.length + ' файл(а)';
-                el.classList.add('has-file');
-            } else {
-                el.textContent = 'Файлы не выбраны';
-                el.classList.remove('has-file');
-            }
-        });
+    });
+
+    // Референсы/исходники: drag-and-drop, превью, удаление по одному, лимит 40
+    [1,2,3].forEach(function(n) { initRefsDropzone(n); });
+
+    // Wizard: показать шаг 1 во всех формах заказа при загрузке
+    document.querySelectorAll('form[id^="form-slot-"]').forEach(function(form) {
+        wizardShowStep(form, 1);
     });
 
     updateArchiveBtn();
 });
+
+// ─── Wizard: 3-шаговый мастер оформления заказа ───
+function wizardValidateStep(stepEl) {
+    var fields = stepEl.querySelectorAll('input[required], select[required], textarea[required]');
+    for (var i = 0; i < fields.length; i++) {
+        if (!fields[i].checkValidity()) {
+            fields[i].reportValidity();
+            fields[i].focus();
+            return false;
+        }
+    }
+    return true;
+}
+
+function wizardShowStep(form, n) {
+    var steps = form.querySelectorAll('.wizard-step');
+    steps.forEach(function(st) {
+        st.style.display = (parseInt(st.dataset.step, 10) === n) ? 'block' : 'none';
+    });
+    var progress = form.querySelectorAll('.wizard-progress-step');
+    progress.forEach(function(p) {
+        var ps = parseInt(p.dataset.progressStep, 10);
+        p.classList.toggle('active', ps === n);
+        p.classList.toggle('done', ps < n);
+    });
+    form.dataset.wizardStep = n;
+    if (n > 1) {
+        var card = form.closest('.order-card');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+document.addEventListener('click', function(e) {
+    var nextBtn = e.target.closest('[data-wizard-next]');
+    if (nextBtn) {
+        var form = nextBtn.closest('form');
+        if (!form) return;
+        var cur = parseInt(form.dataset.wizardStep || '1', 10);
+        var curStepEl = form.querySelector('.wizard-step[data-step="' + cur + '"]');
+        if (curStepEl && !wizardValidateStep(curStepEl)) return;
+        wizardShowStep(form, cur + 1);
+        return;
+    }
+    var prevBtn = e.target.closest('[data-wizard-prev]');
+    if (prevBtn) {
+        var form2 = prevBtn.closest('form');
+        if (!form2) return;
+        var cur2 = parseInt(form2.dataset.wizardStep || '1', 10);
+        wizardShowStep(form2, Math.max(1, cur2 - 1));
+    }
+});
+
+
+var REFS_MAX_FILES = 40;
+var FILE_ICON_EXT = { psd:'🎨', ai:'🎨', eps:'🎨', cdr:'🎨', fig:'🧩', sketch:'🧩', pdf:'📄', zip:'🗜️', rar:'🗜️', '7z':'🗜️' };
+
+function initRefsDropzone(slot) {
+    var input = document.getElementById('s' + slot + '_refs');
+    var dropzone = document.getElementById('s' + slot + '_refs_dropzone');
+    var nameEl = document.getElementById('s' + slot + '_refs_name');
+    var previewEl = document.getElementById('s' + slot + '_refs_preview');
+    if (!input || !dropzone || !previewEl) return;
+
+    function currentFiles() { return Array.from(input.files || []); }
+
+    function setInputFiles(files) {
+        var dt = new DataTransfer();
+        files.slice(0, REFS_MAX_FILES).forEach(function(f) { dt.items.add(f); });
+        input.files = dt.files;
+    }
+
+    function renderPreview() {
+        var files = currentFiles();
+        previewEl.innerHTML = '';
+        files.forEach(function(file, idx) {
+            var item = document.createElement('div');
+            item.className = 'file-preview-item';
+
+            var thumb = document.createElement('div');
+            thumb.className = 'file-preview-thumb';
+            if (file.type && file.type.indexOf('image/') === 0) {
+                var img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                img.onload = function() { URL.revokeObjectURL(img.src); };
+                thumb.appendChild(img);
+            } else {
+                var ext = (file.name.split('.').pop() || '').toLowerCase();
+                thumb.textContent = FILE_ICON_EXT[ext] || '📎';
+            }
+            item.appendChild(thumb);
+
+            var nm = document.createElement('span');
+            nm.className = 'file-preview-name';
+            nm.textContent = file.name;
+            item.appendChild(nm);
+
+            var rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'file-preview-remove';
+            rm.setAttribute('aria-label', 'Удалить файл');
+            rm.textContent = '✕';
+            rm.onclick = function() {
+                var next = currentFiles();
+                next.splice(idx, 1);
+                setInputFiles(next);
+                refreshLabel();
+                renderPreview();
+            };
+            item.appendChild(rm);
+
+            previewEl.appendChild(item);
+        });
+    }
+
+    function refreshLabel() {
+        var files = currentFiles();
+        if (files.length > 0) {
+            nameEl.textContent = '✅ ' + files.length + ' / ' + REFS_MAX_FILES + ' файл(ов)';
+            nameEl.classList.add('has-file');
+        } else {
+            nameEl.textContent = 'Файлы не выбраны';
+            nameEl.classList.remove('has-file');
+        }
+    }
+
+    function addFiles(newFiles) {
+        var existing = currentFiles();
+        var incoming = Array.from(newFiles);
+        var merged = existing.concat(incoming);
+        if (merged.length > REFS_MAX_FILES) {
+            showToastMsg('⚠️ Максимум ' + REFS_MAX_FILES + ' файлов, лишние не добавлены', '#ef4444');
+            merged = merged.slice(0, REFS_MAX_FILES);
+        }
+        setInputFiles(merged);
+        refreshLabel();
+        renderPreview();
+    }
+
+    input.addEventListener('change', function() {
+        var picked = currentFiles();
+        if (picked.length > REFS_MAX_FILES) {
+            showToastMsg('⚠️ Максимум ' + REFS_MAX_FILES + ' файлов, лишние не добавлены', '#ef4444');
+            picked = picked.slice(0, REFS_MAX_FILES);
+            setInputFiles(picked);
+        }
+        refreshLabel();
+        renderPreview();
+    });
+
+    ['dragenter','dragover'].forEach(function(evt) {
+        dropzone.addEventListener(evt, function(e) {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.add('dragover');
+        });
+    });
+    ['dragleave','drop'].forEach(function(evt) {
+        dropzone.addEventListener(evt, function(e) {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.remove('dragover');
+        });
+    });
+    dropzone.addEventListener('drop', function(e) {
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+            addFiles(e.dataTransfer.files);
+        }
+    });
+
+    refreshLabel();
+
+    var ownerForm = input.closest('form');
+    if (ownerForm) {
+        ownerForm.addEventListener('reset', function() {
+            setTimeout(function() { refreshLabel(); renderPreview(); }, 0);
+        });
+    }
+}
 
 // ─── Таб-система ───
 var _slots = [1];
@@ -1609,7 +1912,7 @@ function removeSlot(n) {
     if (panel) panel.style.display = 'none';
 
     var form = document.getElementById('form-slot-' + n);
-    if (form) form.reset();
+    if (form) { form.reset(); wizardShowStep(form, 1); }
 
     var pill = document.getElementById('pill-' + n);
     if (pill) pill.remove();
@@ -1651,6 +1954,21 @@ async function uploadFileToCloudinary(file) {
         var data = await resp.json();
         return data.ok ? data.url : null;
     } catch(e) { return null; }
+}
+
+// Грузит файлы пачками по `concurrency` штук параллельно (не все 40 разом и не строго
+// по одному), чтобы не упереться в лимиты сервера/сети при архивировании крупного заказа.
+async function uploadFilesBatched(files, concurrency, onProgress) {
+    var urls = [];
+    var done = 0;
+    for (var i = 0; i < files.length; i += concurrency) {
+        var chunk = files.slice(i, i + concurrency);
+        var results = await Promise.all(chunk.map(function(f) { return uploadFileToCloudinary(f); }));
+        results.forEach(function(u) { if (u) urls.push(u); });
+        done += chunk.length;
+        if (onProgress) onProgress(Math.min(done, files.length), files.length);
+    }
+    return urls;
 }
 
 function showToastMsg(msg, color) {
@@ -1729,11 +2047,10 @@ async function archiveSlot(slot) {
     }
     var rfInput = document.getElementById('s'+slot+'_refs');
     if (rfInput && rfInput.files.length > 0) {
-        var urls = [];
-        for (var i = 0; i < Math.min(rfInput.files.length, 5); i++) {
-            var u = await uploadFileToCloudinary(rfInput.files[i]);
-            if (u) urls.push(u);
-        }
+        var files = Array.from(rfInput.files).slice(0, REFS_MAX_FILES);
+        var urls = await uploadFilesBatched(files, 4, function(done, total) {
+            showToastMsg('⏳ Загружаю файлы... ' + done + '/' + total, '#6366f1');
+        });
         if (urls.length) data._refs_urls = urls;
     }
 

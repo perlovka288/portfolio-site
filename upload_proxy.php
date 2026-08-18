@@ -8,10 +8,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || empty($_FILES['file'])) {
     exit;
 }
 
-$cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
-$apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
-$apiSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+$cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
+$apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
+$apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
 $folder    = 'orders/archive';
+
+if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
+    echo json_encode(['ok' => false, 'error' => 'Cloudinary not configured']);
+    exit;
+}
 
 $fileTmp  = $_FILES['file']['tmp_name'];
 $fileSize = $_FILES['file']['size'];

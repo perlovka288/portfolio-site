@@ -12,7 +12,7 @@ ensureOrderFlowSchema($pdo);
  * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
  */
 define('BOT_ADMIN_ID', '1710365896');
-$token    = getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$token    = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: "";
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
 $site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
 
@@ -2404,38 +2404,57 @@ function sendOrderPhotos($token, $chat_id, $item) {
         return;
     }
 
-    // multiple media: media group (2..10)
-    // detect if any are local files
-    $useFiles = false;
-    foreach ($media as $m) {
-        if ($m['media'] instanceof CURLFile) { $useFiles = true; break; }
-    }
-
-    if ($useFiles) {
-        // Смешанный альбом: локальные файлы — через attach://, ссылки — напрямую
-        // ("attach://" работает только для реально прикреплённых multipart-файлов,
-        // иначе Telegram отклоняет весь альбом целиком).
-        $post = ['chat_id' => $chat_id];
-        $mediaPayload = [];
-        $i = 0;
-        foreach ($media as $m) {
+    // multiple media: media group, max 10 per album (Telegram hard limit) —
+    // до 40 файлов на заказ бьём на пачки по 10 и шлём последовательно.
+    $batches = array_chunk($media, 10);
+    $batchCount = count($batches);
+    foreach ($batches as $batchIndex => $batch) {
+        if (count($batch) === 1) {
+            // Пачка из одного файла — sendMediaGroup такое не примет, шлём как одиночное фото/документ
+            $m = $batch[0];
             if ($m['media'] instanceof CURLFile) {
-                $i++;
-                $attachKey = "photo{$i}";
-                $post[$attachKey] = $m['media'];
-                $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
+                $res = sendTelegramFile($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
             } else {
-                $mediaPayload[] = ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']];
+                $res = sendTelegram($token, 'sendPhoto', ['chat_id' => $chat_id, 'photo' => $m['media'], 'caption' => $m['caption']]);
             }
+            botLog("sendOrderPhotos: batch " . ($batchIndex + 1) . "/{$batchCount} single send result=" . substr((string)$res, 0, 200));
+            if ($batchIndex < $batchCount - 1) usleep(400000); // 0.4s пауза между пачками — не упереться в rate-limit Telegram
+            continue;
         }
-        $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
-        $res = sendTelegramFile($token, 'sendMediaGroup', $post);
-        botLog("sendOrderPhotos: sendMediaGroup result=" . substr((string)$res, 0, 200));
-    } else {
-        // All media are URLs — send via sendMediaGroup with JSON payload
-        $mediaPayload = array_map(fn($m) => ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']], $media);
-        $res = sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
-        botLog("sendOrderPhotos: sendMediaGroup (urls) result=" . substr((string)$res, 0, 200));
+
+        $useFiles = false;
+        foreach ($batch as $m) {
+            if ($m['media'] instanceof CURLFile) { $useFiles = true; break; }
+        }
+
+        if ($useFiles) {
+            // Смешанный альбом: локальные файлы — через attach://, ссылки — напрямую
+            // ("attach://" работает только для реально прикреплённых multipart-файлов,
+            // иначе Telegram отклоняет весь альбом целиком).
+            $post = ['chat_id' => $chat_id];
+            $mediaPayload = [];
+            $i = 0;
+            foreach ($batch as $m) {
+                if ($m['media'] instanceof CURLFile) {
+                    $i++;
+                    $attachKey = "photo{$i}";
+                    $post[$attachKey] = $m['media'];
+                    $mediaPayload[] = ['type' => 'photo', 'media' => "attach://{$attachKey}", 'caption' => $m['caption']];
+                } else {
+                    $mediaPayload[] = ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']];
+                }
+            }
+            $post['media'] = json_encode($mediaPayload, JSON_UNESCAPED_UNICODE);
+            $res = sendTelegramFile($token, 'sendMediaGroup', $post);
+            botLog("sendOrderPhotos: batch " . ($batchIndex + 1) . "/{$batchCount} sendMediaGroup result=" . substr((string)$res, 0, 200));
+        } else {
+            // All media in this batch are URLs — send via sendMediaGroup with JSON payload
+            $mediaPayload = array_map(fn($m) => ['type' => 'photo', 'media' => $m['media'], 'caption' => $m['caption']], $batch);
+            $res = sendTelegram($token, 'sendMediaGroup', ['chat_id' => $chat_id, 'media' => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE)]);
+            botLog("sendOrderPhotos: batch " . ($batchIndex + 1) . "/{$batchCount} sendMediaGroup (urls) result=" . substr((string)$res, 0, 200));
+        }
+
+        if ($batchIndex < $batchCount - 1) usleep(400000); // 0.4s пауза между пачками альбомов
     }
 }
 
