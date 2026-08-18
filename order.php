@@ -88,7 +88,14 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
     $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
     $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
     $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
-    if (!is_file($filePath) || $cloudName === '' || $apiKey === '' || $apiSecret === '') return '';
+    if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
+        error_log('[uploadToCloudinary] CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET env vars are not set — upload skipped.');
+        return '';
+    }
+    if (!is_file($filePath)) {
+        error_log("[uploadToCloudinary] tmp file not found: {$filePath}");
+        return '';
+    }
     $timestamp = time();
     $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
     // resource_type=auto — чтобы не только картинки, но и исходники (psd/ai/zip/pdf и т.п.) грузились корректно
@@ -107,9 +114,19 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
         ],
     ]);
     $resp = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    $data = $resp ? json_decode($resp, true) : null;
-    return $data['secure_url'] ?? '';
+    if ($resp === false) {
+        error_log("[uploadToCloudinary] curl error: {$curlErr}");
+        return '';
+    }
+    $data = json_decode($resp, true);
+    if (!isset($data['secure_url'])) {
+        error_log("[uploadToCloudinary] Cloudinary API error (HTTP {$httpCode}): " . substr($resp, 0, 500));
+        return '';
+    }
+    return $data['secure_url'];
 }
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
@@ -284,6 +301,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         $uploadedCount = count(array_filter($_FILES['example_photos']['tmp_name'], fn($t) => !empty($t)));
         if ($uploadedCount > 40) {
             $error_msg = '⚠️ Максимум 40 файлов за один заказ. Пришли до 40 файлов и попробуй ещё раз.';
+            goto render_page;
+        }
+        if ($uploadedCount > 0 && (!getenv('CLOUDINARY_CLOUD_NAME') || !getenv('CLOUDINARY_API_KEY') || !getenv('CLOUDINARY_API_SECRET'))) {
+            // Раньше при отсутствии этих переменных код молча подставлял захардкоженные
+            // ключи и всё "работало". Теперь ключей в коде нет (это правильно, они были
+            // скомпрометированы), но БЕЗ переменных окружения загрузка файлов тихо не
+            // происходит — и клиент теряет все вложения незаметно для себя. Лучше сразу
+            // сказать явно, чем принять заказ без исходников.
+            error_log('[order.php] Cloudinary env vars missing — order files were about to be silently dropped, blocking submission instead.');
+            $error_msg = '⚠️ Загрузка файлов временно недоступна (техническая ошибка на сервере). Отправь заказ без файлов или напиши нам в Telegram, чтобы прислать их отдельно — мы уже разбираемся с проблемой.';
             goto render_page;
         }
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
@@ -526,7 +553,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                     $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendPhoto");
                     curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30,
                         CURLOPT_POSTFIELDS => http_build_query($fields)]);
-                    curl_exec($ch); curl_close($ch);
+                    $spResp = curl_exec($ch); $spErr = curl_error($ch); curl_close($ch);
+                    if ($spResp === false || (is_string($spResp) && str_contains($spResp, '"ok":false'))) {
+                        error_log("[order.php] sendPhoto for order #{$order_id} failed: " . ($spErr ?: substr((string)$spResp, 0, 300)));
+                    }
                     if (!$caption) {
                         $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMessage");
                         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
@@ -534,34 +564,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
                         curl_exec($ch); curl_close($ch);
                     }
                 } else {
-                    // Несколько фото — sendMediaGroup через URL (multipart).
+                    // Несколько фото — sendMediaGroup через URL, БАТЧАМИ по 10
+                    // (жёсткий лимит Telegram на альбом — при вызове с 11+ элементами
+                    // Telegram API отклоняет ВЕСЬ запрос целиком, и раньше это тихо
+                    // проглатывалось, потому что curl_exec() результат не проверялся).
                     // reply_markup (кнопки) Telegram НЕ поддерживает у альбомов —
                     // это ограничение самого API, а не недоработка кода, поэтому
                     // кнопки в любом случае идут отдельным сообщением. Но сам
-                    // текст заказа теперь по возможности вкладываем в подпись
-                    // первого фото альбома (если помещается в лимit в 1024
-                    // символа) — тогда не дублируется отдельным сообщением.
+                    // текст заказа по возможности вкладываем в подпись первого фото
+                    // первой пачки (если помещается в лимит 1024 символа).
                     $fitsAsCaption = mb_strlen($full_msg_text) <= 1024;
-                    $mediaPayload = [];
-                    foreach ($photos_to_send as $i => $url) {
-                        $mediaItem = ['type' => 'photo', 'media' => $url];
-                        if ($i === 0) {
-                            $mediaItem['caption']    = $fitsAsCaption ? $full_msg_text : ('📸 Фото к заказу #' . $order_id);
-                            $mediaItem['parse_mode'] = 'HTML';
+                    $batches = array_chunk($photos_to_send, 10);
+                    foreach ($batches as $bi => $batch) {
+                        $mediaPayload = [];
+                        foreach ($batch as $i => $url) {
+                            $mediaItem = ['type' => 'photo', 'media' => $url];
+                            if ($bi === 0 && $i === 0) {
+                                $mediaItem['caption']    = $fitsAsCaption ? $full_msg_text : ('📸 Фото к заказу #' . $order_id . ' (' . count($photos_to_send) . ' шт., ' . count($batches) . ' альбом(ов))');
+                                $mediaItem['parse_mode'] = 'HTML';
+                            }
+                            $mediaPayload[] = $mediaItem;
                         }
-                        $mediaPayload[] = $mediaItem;
+                        $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
+                        curl_setopt_array($ch, [
+                            CURLOPT_POST           => true,
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_TIMEOUT        => 30,
+                            CURLOPT_POSTFIELDS     => [
+                                'chat_id' => $my_chat_id,
+                                'media'   => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                            ],
+                        ]);
+                        $mgResp = curl_exec($ch);
+                        $mgErr  = curl_error($ch);
+                        curl_close($ch);
+                        if ($mgResp === false || (is_string($mgResp) && str_contains($mgResp, '"ok":false'))) {
+                            error_log("[order.php] sendMediaGroup batch " . ($bi + 1) . "/" . count($batches) . " for order #{$order_id} failed: " . ($mgErr ?: substr((string)$mgResp, 0, 300)));
+                        }
+                        if ($bi < count($batches) - 1) usleep(400000); // пауза между альбомами — не упереться в rate-limit
                     }
-                    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/sendMediaGroup");
-                    curl_setopt_array($ch, [
-                        CURLOPT_POST           => true,
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_TIMEOUT        => 30,
-                        CURLOPT_POSTFIELDS     => [
-                            'chat_id' => $my_chat_id,
-                            'media'   => json_encode($mediaPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                        ],
-                    ]);
-                    curl_exec($ch); curl_close($ch);
                     // Кнопки управления — отдельным сообщением (иначе никак,
                     // Telegram не разрешает reply_markup у альбомов). Текст
                     // дублируем только если он не поместился в подпись выше.
