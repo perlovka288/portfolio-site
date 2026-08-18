@@ -128,6 +128,40 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
     }
     return $data['secure_url'];
 }
+
+/**
+ * Локальный запасной вариант сохранения файла, если Cloudinary не настроен
+ * (нет env-переменных) или его API временно недоступно/вернуло ошибку.
+ * Раньше в обоих случаях файл просто пропадал (или мы вообще блокировали
+ * отправку заказа), хотя место для хранения на сервере есть — тот же
+ * /uploads/orders, что уже используют admin/large_upload.php и админка.
+ * Возвращает ИМЯ ФАЙЛА (не URL) — admin/index.php::imgSrc() сам достроит
+ * его до полного пути через '../uploads/orders/' + SITE_URL при показе.
+ */
+function uploadLocalFallback(string $tmpPath, string $origName): string {
+    if (!is_file($tmpPath)) {
+        return '';
+    }
+    $uploadDir = __DIR__ . '/uploads/orders/';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0777, true);
+    }
+    if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
+        error_log("[uploadLocalFallback] uploads/orders/ отсутствует или недоступна для записи");
+        return '';
+    }
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
+    $uniqueName = 'ref_' . date('Ymd_His') . '_' . bin2hex(random_bytes(5)) . '.' . $ext;
+    $destPath = $uploadDir . $uniqueName;
+    if (!move_uploaded_file($tmpPath, $destPath)) {
+        error_log("[uploadLocalFallback] move_uploaded_file не удался: {$tmpPath} -> {$destPath}");
+        return '';
+    }
+    @chmod($destPath, 0644);
+    return $uniqueName;
+}
+
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
@@ -303,21 +337,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $error_msg = '⚠️ Максимум 40 файлов за один заказ. Пришли до 40 файлов и попробуй ещё раз.';
             goto render_page;
         }
-        if ($uploadedCount > 0 && (!getenv('CLOUDINARY_CLOUD_NAME') || !getenv('CLOUDINARY_API_KEY') || !getenv('CLOUDINARY_API_SECRET'))) {
-            // Раньше при отсутствии этих переменных код молча подставлял захардкоженные
-            // ключи и всё "работало". Теперь ключей в коде нет (это правильно, они были
-            // скомпрометированы), но БЕЗ переменных окружения загрузка файлов тихо не
-            // происходит — и клиент теряет все вложения незаметно для себя. Лучше сразу
-            // сказать явно, чем принять заказ без исходников.
-            error_log('[order.php] Cloudinary env vars missing — order files were about to be silently dropped, blocking submission instead.');
-            $error_msg = '⚠️ Загрузка файлов временно недоступна (техническая ошибка на сервере). Отправь заказ без файлов или напиши нам в Telegram, чтобы прислать их отдельно — мы уже разбираемся с проблемой.';
-            goto render_page;
+        $cloudinaryConfigured = getenv('CLOUDINARY_CLOUD_NAME') && getenv('CLOUDINARY_API_KEY') && getenv('CLOUDINARY_API_SECRET');
+        if ($uploadedCount > 0 && !$cloudinaryConfigured) {
+            // Cloudinary не настроен (нет env-переменных) — не блокируем заказ,
+            // как раньше, а сохраняем файлы прямо на сервер в uploads/orders/.
+            error_log('[order.php] Cloudinary env vars missing — falling back to local storage for this order\'s files.');
         }
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
-            if (!empty($tmp) && $_FILES['example_photos']['error'][$i] === UPLOAD_ERR_OK) {
-                $url = uploadToCloudinary($tmp, 'orders/ref');
-                if ($url !== '') $example_imgs[] = $url;
+            if (empty($tmp) || $_FILES['example_photos']['error'][$i] !== UPLOAD_ERR_OK) continue;
+            $origName = (string)($_FILES['example_photos']['name'][$i] ?? 'file');
+            $url = $cloudinaryConfigured ? uploadToCloudinary($tmp, 'orders/ref') : '';
+            if ($url !== '') {
+                $example_imgs[] = $url;
+                continue;
             }
+            // Либо Cloudinary не настроен, либо его API вернуло ошибку/недоступно —
+            // в обоих случаях пробуем сохранить файл локально, а не терять его молча.
+            $localName = uploadLocalFallback($tmp, $origName);
+            if ($localName !== '') $example_imgs[] = $localName;
         }
     }
     // Референсы из архива (JSON массив URL)
