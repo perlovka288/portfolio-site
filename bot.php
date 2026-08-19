@@ -34,6 +34,16 @@ if (!$update) {
     exit;
 }
 
+// Защита от повторной доставки одного и того же апдейта Telegram (webhook
+// retry) — если наш ответ не успел вернуться вовремя (например, пока шла
+// фоновая заливка чека на ImgBB), Telegram присылает СТРОГО ТОТ ЖЕ update_id
+// ещё раз. Без этой проверки повтор обрабатывался заново целиком: чек по
+// одному реальному сообщению задваивался/затраивался (1/3, 2/3, 3/3 из
+// одной отправки), плюс задваивались все уведомления в чате.
+if (isDuplicateTelegramUpdate($pdo, (int)($update['update_id'] ?? 0))) {
+    exit;
+}
+
 // ── CALLBACK QUERY ──────────────────────────────────────────────
 if (isset($update['callback_query'])) {
     $callback_id   = $update['callback_query']['id'];
@@ -576,7 +586,7 @@ if (isset($update['message'])) {
             // которому только что запустили работу и куда клиент долистывает
             // ещё чеки (до 3 штук суммарно).
             $stmt = $pdo->prepare("
-                SELECT id, is_urgent, payment_receipt_count FROM orders
+                SELECT id, is_urgent, payment_receipt_count, payment_receipt FROM orders
                 WHERE client_chat_id = ?
                   AND (status = 'awaiting_payment' OR (payment_status = 'receipt_received' AND payment_receipt_count < 3))
                 ORDER BY accepted_at DESC NULLS LAST, id DESC LIMIT 1
@@ -601,34 +611,40 @@ if (isset($update['message'])) {
                 }
                 $receiptFileName = 'receipt_' . $order_id . '_' . $receiptCount . '_' . time() . '.' . $receiptExt;
                 $receiptAbsPath  = __DIR__ . '/uploads/orders/' . $receiptFileName;
-                $savedLocally    = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
 
-                // Заливаем на ImgBB — постоянная ссылка, которая гарантированно
-                // откроется и в админке на сайте, и в Telegram sendPhoto (локальный
-                // диск на Render эфемерный и может обнулиться после рестарта).
-                // ImgBB принимает только изображения — для PDF заливка не пройдёт,
-                // и код ниже сам откатится на локальное имя файла (с .pdf).
-                $receiptStoreValue = ($receiptExt !== 'pdf' && $savedLocally) ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id) : '';
-                if ($receiptStoreValue === '') {
-                    // Фолбэк: просто имя файла (БЕЗ префикса 'uploads/orders/' —
-                    // так его ожидает imgSrc() в админке, которая сама этот
-                    // префикс достраивает; путь с префиксом даёт битую двойную
-                    // ссылку и картинка не отображается на сайте).
-                    $receiptStoreValue = $savedLocally ? $receiptFileName : $receiptFileId;
-                }
+                // ✅ БЫСТРЫЙ путь: используем file_id, который Telegram уже дал
+                // нам В ЭТОМ ЖЕ update — им можно сразу пользоваться в sendPhoto/
+                // sendDocument ниже БЕЗ скачивания. Раньше здесь СНАЧАЛА шло
+                // скачивание файла с серверов Telegram (getFile + file_get_contents)
+                // и ТОЛЬКО ПОТОМ — заливка на ImgBB (до 3 ключей × 30с таймаута
+                // каждый = до 1.5 минуты), и лишь после всего этого клиент/админ
+                // получали хоть какое-то сообщение. Именно это и было "бесконечной
+                // загрузкой" — сама заливка на ImgBB не нужна, чтобы разослать
+                // подтверждения, она нужна только для постоянной ссылки на сайте.
+                // Теперь: сначала быстро обновляем заказ и шлём подтверждения
+                // (используя file_id — это мгновенно), а скачивание+заливка на
+                // ImgBB для сайта делаются уже ПОСЛЕ, не задерживая ответ в чате.
+                $receiptStoreValue = $receiptFileId;
+
+                // Список чеков заказа — JSON-массив, добавляем текущий чек к уже
+                // имеющимся (а не затираем/игнорируем, как было раньше — из-за
+                // этого 2-й/3-й чек либо терялся, либо стирал 1-й на сайте).
+                $receiptList = decodeReceiptList((string)($payOrder['payment_receipt'] ?? ''));
+                $receiptList[] = $receiptStoreValue;
+                $receiptListIdx = count($receiptList) - 1;
 
                 if ($isFirstReceipt) {
                     $isUrgent   = !empty($payOrder['is_urgent']);
                     $deadline   = calculateOrderDeadline($isUrgent);
                     $newStatus  = $isUrgent ? 'urgent' : 'in_progress';
                     $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_receipt_count = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
-                        ->execute([$newStatus, $receiptStoreValue, $receiptCount, $deadline, $order_id]);
+                        ->execute([$newStatus, encodeReceiptList($receiptList), $receiptCount, $deadline, $order_id]);
                 } else {
                     // Доп. фото чека (2-е / 3-е) — прикрепляем, дедлайн не пересчитываем
                     $deadlineStmt = $pdo->prepare("SELECT deadline FROM orders WHERE id = ? LIMIT 1");
                     $deadlineStmt->execute([$order_id]);
                     $deadline = (string)$deadlineStmt->fetchColumn();
-                    $pdo->prepare("UPDATE orders SET payment_receipt_count = ? WHERE id = ?")->execute([$receiptCount, $order_id]);
+                    $pdo->prepare("UPDATE orders SET payment_receipt_count = ?, payment_receipt = ? WHERE id = ?")->execute([$receiptCount, encodeReceiptList($receiptList), $order_id]);
                 }
                 addOrderMessage($pdo, $order_id, 'client', "Клиент отправил чек оплаты ({$receiptCount}/3).", $receiptStoreValue);
 
@@ -690,6 +706,50 @@ if (isset($update['message'])) {
                         'reply_markup' => $chekConfirmKeyboard,
                     ]);
                 }
+
+                // ── Фоновая "апгрейд-ссылка" для сайта ──────────────────────
+                // Всё, что видит человек в чате, уже отправлено выше. Дальше —
+                // скачиваем файл с Telegram и заливаем на ImgBB, чтобы на
+                // сайте (профиль клиента / админка) чек открывался по прямой
+                // постоянной ссылке, а не только по file_id (тот работает
+                // только внутри Telegram). Если это не получится — на сайте
+                // просто останется file_id, ничего не сломается, только
+                // отображение чека там будет недоступно.
+                //
+                // Закрываем HTTP-ответ Telegram'у ПРЯМО СЕЙЧАС, не заставляя
+                // его ждать эту заливку — иначе вебхук может не уложиться в
+                // таймаут Telegram и получить повторную доставку того же
+                // update (от повторов теперь защищает isDuplicateTelegramUpdate(),
+                // но лучше вообще не провоцировать их лишний раз).
+                if (function_exists('fastcgi_finish_request')) {
+                    fastcgi_finish_request();
+                } else {
+                    ignore_user_abort(true);
+                    if (ob_get_level() === 0) ob_start();
+                    $size = ob_get_length();
+                    header('Connection: close');
+                    header('Content-Length: ' . (int)$size);
+                    @ob_end_flush();
+                    @flush();
+                }
+
+                $savedLocally = downloadTelegramFileToLocal($token, $receiptFileId, $receiptAbsPath);
+                $upgradedValue = ($receiptExt !== 'pdf' && $savedLocally)
+                    ? uploadReceiptToImgBB($receiptAbsPath, 'receipt_' . $order_id)
+                    : '';
+                if ($upgradedValue === '' && $savedLocally) {
+                    // Фолбэк: просто имя файла (без префикса 'uploads/orders/' —
+                    // так его ожидает imgSrc() в админке, которая сама этот
+                    // префикс достраивает).
+                    $upgradedValue = $receiptFileName;
+                }
+                if ($upgradedValue !== '' && $upgradedValue !== $receiptStoreValue) {
+                    try {
+                        $receiptList[$receiptListIdx] = $upgradedValue;
+                        $pdo->prepare("UPDATE orders SET payment_receipt = ? WHERE id = ?")->execute([encodeReceiptList($receiptList), $order_id]);
+                    } catch (Throwable $e) {}
+                }
+
                 exit;
             }
         } catch (Throwable $e) {
@@ -1612,13 +1672,23 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
             }
         }
         if (!empty($order['payment_receipt'])) {
-            $rv = (string)$order['payment_receipt'];
-            if (str_starts_with($rv, 'http')) {
-                $orderPhotos[] = ['media' => $rv, 'caption' => '💳 Чек оплаты'];
-            } else {
-                $rpath = __DIR__ . '/uploads/orders/' . basename($rv);
-                if (is_file($rpath)) {
-                    $orderPhotos[] = ['media' => new CURLFile(realpath($rpath)), 'caption' => '💳 Чек оплаты'];
+            // payment_receipt — JSON-массив (до 3 чеков на заказ), а не
+            // голая строка — показываем все, а не только один.
+            $receiptListView = decodeReceiptList((string)$order['payment_receipt']);
+            foreach ($receiptListView as $ri => $rv) {
+                $rLabel = count($receiptListView) > 1 ? ('💳 Чек оплаты ' . ($ri + 1)) : '💳 Чек оплаты';
+                if (str_starts_with($rv, 'http')) {
+                    $orderPhotos[] = ['media' => $rv, 'caption' => $rLabel];
+                } elseif (preg_match('~^[A-Za-z0-9_-]{20,}$~', $rv)) {
+                    // Похоже на "голый" Telegram file_id (не URL, не имя файла на
+                    // диске) — им тоже можно пользоваться напрямую в sendPhoto/
+                    // sendMediaGroup, скачивать заново не нужно.
+                    $orderPhotos[] = ['media' => $rv, 'caption' => $rLabel];
+                } else {
+                    $rpath = __DIR__ . '/uploads/orders/' . basename($rv);
+                    if (is_file($rpath)) {
+                        $orderPhotos[] = ['media' => new CURLFile(realpath($rpath)), 'caption' => $rLabel];
+                    }
                 }
             }
         }
@@ -2108,16 +2178,20 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     //  2) просто имя файла на диске (uploads/orders/имя.jpg) — оборачиваем в CURLFile
     //  3) "сырой" Telegram file_id (старые заказы, до перехода на ImgBB) — передаём как есть
     if (!empty($item['payment_receipt'])) {
-        $val = (string)$item['payment_receipt'];
-        if (str_starts_with($val, 'http')) {
-            $photos[] = ['file' => $val, 'label' => 'Чек оплаты', 'is_local' => false];
-        } else {
-            $path = __DIR__ . '/uploads/orders/' . basename($val);
-            if (is_file($path)) {
-                $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => 'Чек оплаты', 'is_local' => true];
+        // payment_receipt — JSON-массив (до 3 чеков на заказ) — показываем все.
+        $receiptListAdm = decodeReceiptList((string)$item['payment_receipt']);
+        foreach ($receiptListAdm as $ri => $val) {
+            $rLabelAdm = count($receiptListAdm) > 1 ? ('Чек оплаты ' . ($ri + 1)) : 'Чек оплаты';
+            if (str_starts_with($val, 'http')) {
+                $photos[] = ['file' => $val, 'label' => $rLabelAdm, 'is_local' => false];
             } else {
-                // Похоже на Telegram file_id (не найден локально и не URL) — пробуем как есть
-                $photos[] = ['file' => $val, 'label' => 'Чек оплаты', 'is_local' => false];
+                $path = __DIR__ . '/uploads/orders/' . basename($val);
+                if (is_file($path)) {
+                    $photos[] = ['file' => new CURLFile(realpath($path)), 'label' => $rLabelAdm, 'is_local' => true];
+                } else {
+                    // Похоже на Telegram file_id (не найден локально и не URL) — пробуем как есть
+                    $photos[] = ['file' => $val, 'label' => $rLabelAdm, 'is_local' => false];
+                }
             }
         }
     }

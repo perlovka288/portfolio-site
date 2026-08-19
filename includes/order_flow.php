@@ -149,8 +149,43 @@ function ensureOrderFlowSchema(PDO $pdo): void
         // "column value does not exist" в логах. Явно догоняем колонку.
         try { $pdo->exec("ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS value TEXT DEFAULT ''"); } catch (Throwable $e) {}
         try { $pdo->exec("ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS setting_key VARCHAR(64)"); } catch (Throwable $e) {}
+
+        // Дедупликация вебхуков Telegram: если наш ответ не успевает уйти
+        // вовремя (например, пока идёт фоновая заливка чека на ImgBB),
+        // Telegram повторно доставляет ТОТ ЖЕ update_id — без этой таблицы
+        // такой повтор обрабатывался заново целиком (задваивался чек,
+        // задваивались уведомления и т.д.).
+        $pdo->exec("CREATE TABLE IF NOT EXISTS processed_updates (
+            update_id BIGINT PRIMARY KEY,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * true, если этот update_id от Telegram уже обрабатывался (повторная
+ * доставка вебхука) — вызывающий код должен просто завершиться, ничего
+ * не переделывая. Возвращает false и при этом сама помечает update_id
+ * как обработанный, если это первая встреча.
+ */
+function isDuplicateTelegramUpdate(PDO $pdo, int $updateId): bool
+{
+    if ($updateId <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("INSERT INTO processed_updates (update_id) VALUES (?) ON CONFLICT (update_id) DO NOTHING");
+        $stmt->execute([$updateId]);
+        if ($stmt->rowCount() === 0) return true; // уже был — это повтор
+
+        // Лёгкая уборка старых записей, не на каждый запрос.
+        if (random_int(1, 200) === 1) {
+            $pdo->exec("DELETE FROM processed_updates WHERE created_at < NOW() - INTERVAL '3 days'");
+        }
+        return false;
+    } catch (Throwable $e) {
+        error_log('isDuplicateTelegramUpdate error: ' . $e->getMessage());
+        return false; // при сбое лучше обработать, чем молча потерять update
     }
 }
 
@@ -212,6 +247,32 @@ function calculateOrderDeadline(bool $isUrgent): string
 }
 
 /**
+ * payment_receipt хранится как JSON-массив (аналогично example_photo) —
+ * на один заказ может быть до 3 чеков (см. payment_receipt_count), и
+ * раньше колонка была одиночной строкой: при 2-м/3-м чеке она либо вообще
+ * не трогалась (терялись 2-й/3-й чек), либо перезатиралась (терялся 1-й).
+ * Теперь это всегда JSON-массив всех присланных чеков. Старые заказы, где
+ * там просто голая строка (ссылка/имя файла/file_id) — тоже поддержаны:
+ * decodeReceiptList() трактует не-JSON/не-массив как один элемент.
+ */
+function decodeReceiptList(?string $raw): array
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') return [];
+    $decoded = json_decode($raw, true);
+    if (is_array($decoded)) {
+        return array_values(array_filter(array_map('strval', $decoded), fn($v) => $v !== ''));
+    }
+    return [$raw];
+}
+
+function encodeReceiptList(array $list): string
+{
+    $list = array_values(array_filter(array_map('strval', $list), fn($v) => $v !== ''));
+    return json_encode($list, JSON_UNESCAPED_SLASHES);
+}
+
+/**
  * Скачивает файл из Telegram (по file_id) и сохраняет его локально.
  * Возвращает true при успехе.
  */
@@ -222,7 +283,7 @@ function downloadTelegramFileToLocal(string $token, string $fileId, string $dest
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_TIMEOUT        => 10,
             CURLOPT_POSTFIELDS     => ['file_id' => $fileId],
         ]);
         $resp = curl_exec($ch);
@@ -231,8 +292,15 @@ function downloadTelegramFileToLocal(string $token, string $fileId, string $dest
         $filePath = $data['result']['file_path'] ?? '';
         if ($filePath === '') return false;
 
+        // Явный таймаут на скачивание самого файла — раньше file_get_contents()
+        // тут мог зависнуть без ограничения (это и была основная причина
+        // "бесконечной загрузки" при приёме чека), т.к. эта функция сейчас
+        // вызывается уже ПОСЛЕ того, как клиент/админ получили подтверждение,
+        // но зависший запрос всё равно держит воркер и может упереться в
+        // max_execution_time — 10с более чем достаточно для фото из Telegram.
+        $ctx = stream_context_create(['http' => ['timeout' => 10]]);
         $fileUrl = "https://api.telegram.org/file/bot{$token}/{$filePath}";
-        $bytes = @file_get_contents($fileUrl);
+        $bytes = @file_get_contents($fileUrl, false, $ctx);
         if ($bytes === false || strlen($bytes) < 50) return false;
 
         $dir = dirname($destPath);
@@ -266,42 +334,59 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
         $uan = (int)round($uan * (1 - $discountPercent / 100));
     }
 
-    $rubDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn')), ENT_QUOTES);
+    $rubDetailsRaw = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
     $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: '4874070010369708 (Monobank)')), ENT_QUOTES);
     $cryptoDetails = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2')), ENT_QUOTES);
     $monoDetails   = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_MONO') ?: '4874070010369708')), ENT_QUOTES);
+
+    // Рублёвый реквизит обычно ссылка (DonationAlerts) — показываем её как
+    // кликабельное название сервиса, а не голым URL, как просили.
+    if (preg_match('~^https?://~i', $rubDetailsRaw)) {
+        $rubLine = '<a href="' . htmlspecialchars($rubDetailsRaw, ENT_QUOTES) . '">DonationAlerts</a>';
+    } else {
+        $rubLine = '<code>' . htmlspecialchars($rubDetailsRaw, ENT_QUOTES) . '</code>';
+    }
 
     // ВАЖНО: раньше это форматировалось звёздочками (*bold*) под parse_mode
     // "Markdown" (старый режим v1). Это ЛОМАЛО ВСЮ отправку любого сообщения,
     // где встречается "@Perlo_ovka" (или вообще любой текст с одиночным "_") —
     // Markdown v1 считает "_" началом курсива, и без парной закрывающей "_"
     // Telegram отклоняет ВЕСЬ запрос целиком с ошибкой "can't parse entities",
-    // то есть не уходило вообще ничего — ни текст, ни фото. Поэтому теперь
-    // используется HTML-разметка (<b>...</b>) и parse_mode="HTML" — она не
-    // страдает от одиночных подчёркиваний.
+    // то есть не уходило вообще ничего — ни текст, ни фото. Поэтому здесь
+    // используется HTML-разметка (<b>/<i>/<code>) и parse_mode="HTML" —
+    // визуально даёт тот же результат (жирный/курсив/моноширинный), но не
+    // страдает от одиночных подчёркиваний в username.
     $header = $isUrgent
-        ? "⚡ <b>Заказ #{$orderId} принят как СРОЧНЫЙ.</b> Ожидается оплата.\n\n"
-        : "✅ <b>Заказ #{$orderId} принят.</b> Ожидается оплата.\n\n";
+        ? "⚡ <b>Заказ #{$orderId} принят как СРОЧНЫЙ.</b>\nОжидается оплата.\n\n"
+        : "✅ <b>Заказ #{$orderId} принят.</b>\nОжидается оплата.\n\n";
 
-    $priceBlock = "💰💰💰 <b>К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
+    $priceBlock = "💰 <b>Итого:</b>\n<b>{$rub} ₽ / {$uan} ₴</b>\n\n";
+
+    $footNotes = [];
     if ($isUrgent && !$isCooperation) {
-        $priceBlock = "Базовая стоимость: {$baseRub} ₽ / {$baseUan} ₴\n"
-            . "⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rubBeforeDiscount - $baseRub) . " ₽ / +" . ($uanBeforeDiscount - $baseUan) . " ₴\n\n"
-            . "💰💰💰 <b>ИТОГО К ОПЛАТЕ: {$rubBeforeDiscount} ₽ / {$uanBeforeDiscount} ₴</b> 💰💰💰\n\n";
+        $footNotes[] = "<i>⚡ Наценка за срочность (+50%, готово за 24ч вместо 5 суток): +" . ($rubBeforeDiscount - $baseRub) . " ₽ / +" . ($uanBeforeDiscount - $baseUan) . " ₴</i>";
     }
     if ($discountPercent > 0 && !$isCooperation) {
-        $priceBlock = ($isUrgent ? $priceBlock : "Стоимость без скидки: {$rubBeforeDiscount} ₽ / {$uanBeforeDiscount} ₴\n\n")
-            . "🎁 Промокод \"" . htmlspecialchars($promoCode) . "\" (−{$discountPercent}%): −" . ($rubBeforeDiscount - $rub) . " ₽ / −" . ($uanBeforeDiscount - $uan) . " ₴\n\n"
-            . "💰💰💰 <b>ИТОГО К ОПЛАТЕ: {$rub} ₽ / {$uan} ₴</b> 💰💰💰\n\n";
+        $footNotes[] = "<i>Промокод \"" . htmlspecialchars($promoCode, ENT_QUOTES) . "\" (-{$discountPercent}%): -" . ($rubBeforeDiscount - $rub) . " ₽ / -" . ($uanBeforeDiscount - $uan) . " ₴</i>";
+        $footNotes[] = "<i>Стоимость без скидки: {$rubBeforeDiscount} ₽ / {$uanBeforeDiscount} ₴</i>";
+    } elseif ($isUrgent && !$isCooperation) {
+        $footNotes[] = "<i>Базовая стоимость (без срочности): {$baseRub} ₽ / {$baseUan} ₴</i>";
     }
 
-    return $header
+    $text = $header
         . $priceBlock
-        . "🔗 Реквизиты:\n"
-        . "-Рубли: {$rubDetails}\n"
-        . "-Гривны: {$uanDetails}\n"
-        . "-Крипта: {$cryptoDetails}\n\n"
-        . "❓ " . paymentSupportLine();
+        . "Реквизиты:\n"
+        . "📍 <b>Рубли:</b> {$rubLine}\n"
+        . "📍 <b>Гривны:</b> <code>{$uanDetails}</code>\n"
+        . "📍 <b>Крипта:</b> <code>{$cryptoDetails}</code>\n";
+
+    if (!empty($footNotes)) {
+        $text .= "\n" . implode("\n", $footNotes) . "\n";
+    }
+
+    $text .= "\n❓ @Perlo_ovka";
+
+    return $text;
 }
 
 /**
@@ -359,7 +444,7 @@ function uploadReceiptToImgBB(string $tmpPath, string $name = 'receipt'): string
             curl_setopt_array($ch, [
                 CURLOPT_POST           => true,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_TIMEOUT        => 10,
                 CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
             ]);
             $res = curl_exec($ch);

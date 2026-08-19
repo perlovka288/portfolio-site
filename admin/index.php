@@ -3104,8 +3104,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     $cleanTg = ltrim(str_replace(['https://t.me/','http://t.me/','@'], '', $cleanTg), '@');
                                     $screenshotSrc = imgSrc($viewOrder['screenshot'] ?? '', '../uploads/orders/');
                                     // Новый флоу оплаты (order_flow.php): чек, который клиент прикрепляет
-                                    // ПОСЛЕ принятия заказа, хранится в payment_receipt, а не в screenshot.
-                                    $paymentReceiptSrc = imgSrc($viewOrder['payment_receipt'] ?? '', '../uploads/orders/');
+                                    // ПОСЛЕ принятия заказа, хранится в payment_receipt — теперь это
+                                    // JSON-массив (до 3 чеков на заказ), раньше показывался только один.
+                                    $paymentReceiptList = decodeReceiptList($viewOrder['payment_receipt'] ?? '');
                                     $examples = [];
                                     $raw = $viewOrder['example_photo'] ?? '';
                                     if ($raw !== '') {
@@ -3184,20 +3185,24 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                         </div>
 
                                         <!-- Файлы -->
-                                        <?php if ($screenshotSrc !== '' || $paymentReceiptSrc !== '' || !empty($examples)): ?>
+                                        <?php if ($screenshotSrc !== '' || !empty($paymentReceiptList) || !empty($examples)): ?>
                                         <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
                                             <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Файлы</div>
                                             <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
-                                                <?php if ($paymentReceiptSrc !== ''): ?>
+                                                <?php if (!empty($paymentReceiptList)): ?>
                                                 <div>
-                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">💳 Чек оплаты</div>
-                                                    <?php if (str_ends_with(strtolower($paymentReceiptSrc), '.pdf')): ?>
-                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:12px 16px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
-                                                    <?php else: ?>
-                                                        <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank">
-                                                            <img src="<?= htmlspecialchars($paymentReceiptSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
-                                                        </a>
-                                                    <?php endif; ?>
+                                                    <div style="font-size:11px;color:#8a8a96;margin-bottom:6px;">💳 Чек оплаты<?= count($paymentReceiptList) > 1 ? ' (' . count($paymentReceiptList) . ')' : '' ?></div>
+                                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                                    <?php foreach ($paymentReceiptList as $rv): $paymentReceiptSrc = imgSrc($rv, '../uploads/orders/'); if ($paymentReceiptSrc === '') continue; ?>
+                                                        <?php if (str_ends_with(strtolower($paymentReceiptSrc), '.pdf')): ?>
+                                                            <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:12px 16px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
+                                                        <?php else: ?>
+                                                            <a href="<?= htmlspecialchars($paymentReceiptSrc) ?>" target="_blank">
+                                                                <img src="<?= htmlspecialchars($paymentReceiptSrc) ?>" style="max-width:200px;max-height:160px;border-radius:10px;object-fit:cover;display:block;" onerror="this.style.display='none'">
+                                                            </a>
+                                                        <?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                    </div>
                                                 </div>
                                                 <?php endif; ?>
                                                 <?php if ($screenshotSrc !== ''): ?>

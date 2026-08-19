@@ -248,7 +248,7 @@ if (isset($_POST['upload_payment_receipt'])) {
         $deadline = calculateOrderDeadline($isUrgent);
         $newStatus = $isUrgent ? 'urgent' : 'in_progress';
         $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
-            ->execute([$newStatus, $receiptPath, $deadline, $receiptOrderId]);
+            ->execute([$newStatus, encodeReceiptList([$receiptPath]), $deadline, $receiptOrderId]);
         addOrderMessage($pdo, $receiptOrderId, 'client', 'Клиент отправил чек оплаты через сайт.', $receiptPath);
 
         $adminText = "💳 Чек оплаты по заказу #{$receiptOrderId}\nСтатус: заказ запущен в работу. Дедлайн: " . date('d.m.Y H:i', strtotime($deadline));
@@ -1030,7 +1030,7 @@ body::before {
                 <?php endif; ?>
 
                 <?php
-                    // Собираем миниатюры: референсы (example_photo — JSON-массив ссылок) + чек
+                    // Собираем миниатюры: референсы (example_photo — JSON-массив ссылок) + чек(и)
                     $thumbUrls = [];
                     if (!empty($order['example_photo'])) {
                         $decodedThumbs = json_decode((string)$order['example_photo'], true);
@@ -1040,15 +1040,21 @@ body::before {
                             if ($tu !== '') $thumbUrls[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
                         }
                     }
-                    $receiptIsPdf = false;
-                    if (!empty($order['payment_receipt'])) {
-                        $receiptUrlTmp = imgSrc((string)$order['payment_receipt'], 'uploads/orders/');
-                        $receiptIsPdf  = str_ends_with(strtolower($receiptUrlTmp), '.pdf');
-                        // PDF-чек нельзя показать через <img> — раньше он просто
-                        // пропадал из списка миниатюр (onerror прятал ссылку).
-                        // Показываем его отдельной ссылкой-кнопкой, а не миниатюрой.
-                        if (!$receiptIsPdf) {
-                            $thumbUrls[] = ['url' => $receiptUrlTmp, 'label' => 'Чек оплаты'];
+                    // payment_receipt — JSON-массив (до 3 чеков на заказ, см.
+                    // payment_receipt_count). Раньше показывался только один чек
+                    // (последний записанный, а 2-й/3-й вообще терялись на сайте) —
+                    // теперь показываем все присланные.
+                    $receiptPdfUrls = [];
+                    $receiptList = decodeReceiptList((string)($order['payment_receipt'] ?? ''));
+                    foreach ($receiptList as $i => $rv) {
+                        $receiptUrlTmp = imgSrc($rv, 'uploads/orders/');
+                        $label = count($receiptList) > 1 ? ('Чек оплаты ' . ($i + 1)) : 'Чек оплаты';
+                        if (str_ends_with(strtolower($receiptUrlTmp), '.pdf')) {
+                            // PDF-чек нельзя показать через <img> — показываем
+                            // отдельной ссылкой-кнопкой, а не миниатюрой.
+                            $receiptPdfUrls[] = ['url' => $receiptUrlTmp, 'label' => $label];
+                        } else {
+                            $thumbUrls[] = ['url' => $receiptUrlTmp, 'label' => $label];
                         }
                     }
                 ?>
@@ -1059,9 +1065,11 @@ body::before {
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-                <?php if ($receiptIsPdf): ?>
+                <?php if (!empty($receiptPdfUrls)): ?>
                 <div class="order-thumbs-row">
-                    <a href="<?= htmlspecialchars($receiptUrlTmp) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
+                    <?php foreach ($receiptPdfUrls as $rp): ?>
+                    <a href="<?= htmlspecialchars($rp['url']) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 <?= htmlspecialchars($rp['label']) ?></a>
+                    <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
 
@@ -1199,12 +1207,16 @@ body::before {
                         if ($tu !== '') $thumbUrlsHist[] = ['url' => imgSrc($tu), 'label' => 'Референс'];
                     }
                 }
-                $receiptIsPdfHist = false; $receiptUrlHist = '';
-                if (!empty($order['payment_receipt'])) {
-                    $receiptUrlHist   = imgSrc((string)$order['payment_receipt'], 'uploads/orders/');
-                    $receiptIsPdfHist = str_ends_with(strtolower($receiptUrlHist), '.pdf');
-                    if (!$receiptIsPdfHist) {
-                        $thumbUrlsHist[] = ['url' => $receiptUrlHist, 'label' => 'Чек оплаты'];
+                // payment_receipt — JSON-массив (до 3 чеков на заказ), показываем все.
+                $receiptPdfUrlsHist = [];
+                $receiptListHist = decodeReceiptList((string)($order['payment_receipt'] ?? ''));
+                foreach ($receiptListHist as $i => $rv) {
+                    $receiptUrlHist = imgSrc($rv, 'uploads/orders/');
+                    $labelHist = count($receiptListHist) > 1 ? ('Чек оплаты ' . ($i + 1)) : 'Чек оплаты';
+                    if (str_ends_with(strtolower($receiptUrlHist), '.pdf')) {
+                        $receiptPdfUrlsHist[] = ['url' => $receiptUrlHist, 'label' => $labelHist];
+                    } else {
+                        $thumbUrlsHist[] = ['url' => $receiptUrlHist, 'label' => $labelHist];
                     }
                 }
             ?>
@@ -1215,9 +1227,11 @@ body::before {
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
-            <?php if ($receiptIsPdfHist): ?>
+            <?php if (!empty($receiptPdfUrlsHist)): ?>
             <div class="order-thumbs-row">
-                <a href="<?= htmlspecialchars($receiptUrlHist) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 Открыть PDF-чек</a>
+                <?php foreach ($receiptPdfUrlsHist as $rp): ?>
+                <a href="<?= htmlspecialchars($rp['url']) ?>" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;background:#0b0b10;border:1px solid #2a2a38;border-radius:10px;padding:10px 14px;color:#fdba74;text-decoration:none;font-size:12px;font-weight:700;">📄 <?= htmlspecialchars($rp['label']) ?></a>
+                <?php endforeach; ?>
             </div>
             <?php endif; ?>
 
