@@ -190,9 +190,24 @@ if (isset($update['callback_query'])) {
         $promoDiscountPct = 0;
         $promoCodeApplied = '';
         try {
-            $st = $pdo->prepare("SELECT p.title, p.price_rub, p.price_uan, o.cooperation, o.promo_code FROM orders o LEFT JOIN prices p ON p.category_key = o.service_key WHERE o.id = ? LIMIT 1");
-            $st->execute([$order_id]);
-            $info = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Раньше цена бралась ОДНИМ JOIN'ом по одиночному service_key —
+            // при мультивыборе услуг это считало только первую из них.
+            // getOrderServicesList()/суммирование поддерживает и старые
+            // заказы с одной услугой (даёт тот же результат, что и раньше).
+            $ordRowStmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? LIMIT 1");
+            $ordRowStmt->execute([$order_id]);
+            $ordRow = $ordRowStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $sumRub = 0; $sumUan = 0;
+            foreach (getOrderServicesList($pdo, $ordRow) as $sv) {
+                $sumRub += (float)($sv['price_rub'] ?? 0);
+                $sumUan += (float)($sv['price_uan'] ?? 0);
+            }
+            $info = [
+                'price_rub'   => $sumRub,
+                'price_uan'   => $sumUan,
+                'cooperation' => $ordRow['cooperation'] ?? 0,
+                'promo_code'  => $ordRow['promo_code'] ?? null,
+            ];
             if (!empty($info['promo_code'])) {
                 $promoCodeApplied = $info['promo_code'];
                 $ppStmt = $pdo->prepare("SELECT discount_percent FROM promo_codes WHERE UPPER(code) = UPPER(?) LIMIT 1");
@@ -2147,7 +2162,7 @@ function showAdminQueue($pdo, $token, $admin_id, $site_url) {
 
 function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
     $o_stmt = $pdo->prepare("
-        SELECT o.id, o.username, o.telegram, o.service_key, o.details, o.screenshot,
+        SELECT o.id, o.username, o.telegram, o.service_key, o.service_keys_extra, o.details, o.screenshot,
                o.example_photo, o.status, o.payment_status, o.payment_receipt, o.payment_received_at,
                o.declined_reason, o.created_at, o.deadline, o.client_chat_id, o.cooperation, o.is_urgent,
                tl.tg_username
@@ -2163,11 +2178,16 @@ function showAdminOrderDetails($pdo, $token, $admin_id, $site_url, $order_id) {
         return;
     }
 
-    $price_stmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
-    $price_stmt->execute([$item['service_key']]);
-    $price_info = $price_stmt->fetch(PDO::FETCH_ASSOC);
+    // Мультивыбор услуг: суммируем цены всех выбранных (для одной услуги —
+    // тот же результат, что и раньше), название — через "+" если их несколько.
+    $svcList = getOrderServicesList($pdo, $item);
+    $price_info = [
+        'title'     => getOrderServiceTitle($pdo, $item),
+        'price_rub' => array_sum(array_map(fn($s) => (float)($s['price_rub'] ?? 0), $svcList)),
+        'price_uan' => array_sum(array_map(fn($s) => (float)($s['price_uan'] ?? 0), $svcList)),
+    ];
 
-    $cardText = buildOrderCard($item, $price_info ?: [], $site_url);
+    $cardText = buildOrderCard($item, $price_info, $site_url);
     $keyboard = orderKeyboard($item['id'], $item['status'], $item['telegram']);
 
     // Собираем фото

@@ -390,7 +390,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
     } catch (PDOException $e) {}
 
     $username    = $_POST['username'] ?? '';
-    $service_key = $_POST['service']  ?? '';
+    // Мультивыбор услуг: форма шлёт service_keys[] (несколько чипсов может
+    // быть выбрано) + service (первая выбранная, для обратной совместимости
+    // со всем, что читает одиночный service_key по всему проекту).
+    $service_keys_raw = $_POST['service_keys'] ?? [];
+    if (!is_array($service_keys_raw)) $service_keys_raw = [$service_keys_raw];
+    $service_keys_raw = array_values(array_unique(array_filter(array_map('strval', $service_keys_raw), fn($k) => trim($k) !== '')));
+    $service_key = $service_keys_raw[0] ?? ($_POST['service'] ?? '');
+    $service_keys_extra_json = count($service_keys_raw) > 1 ? encodeServiceKeysList($service_keys_raw) : null;
     $details     = $_POST['details']  ?? '';
     $cooperation = !empty($_POST['cooperation']) ? 1 : 0;
     $requestedUrgency = ($_POST['requested_urgency'] ?? 'normal') === 'urgent' ? 'urgent' : 'normal';
@@ -438,10 +445,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
 
     try {
     $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS requested_urgency VARCHAR(10) NOT NULL DEFAULT 'normal'");
+    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_keys_extra TEXT DEFAULT NULL");
     $stmt = $pdo->prepare("INSERT INTO orders
-     (username, telegram, service_key, details, screenshot, example_photo, status, payment_status, cooperation, requested_urgency, client_ip, session_id, created_at)
-     VALUES (?, ?, ?, ?, '', ?, 'pending', 'not_requested', ?, ?, ?, ?, NOW()) RETURNING id");
-     $stmt->execute([$username, $telegram_raw, $service_key, $details, $example_img_json, $cooperation, $requestedUrgency, $user_ip, session_id()]);
+     (username, telegram, service_key, service_keys_extra, details, screenshot, example_photo, status, payment_status, cooperation, requested_urgency, client_ip, session_id, created_at)
+     VALUES (?, ?, ?, ?, ?, '', ?, 'pending', 'not_requested', ?, ?, ?, ?, NOW()) RETURNING id");
+     $stmt->execute([$username, $telegram_raw, $service_key, $service_keys_extra_json, $details, $example_img_json, $cooperation, $requestedUrgency, $user_ip, session_id()]);
         $order_id = (int)$stmt->fetchColumn();
         if ($order_id <= 0) {
             $order_id = (int)$pdo->lastInsertId();
@@ -533,9 +541,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         } catch (Throwable $e) {}
 
         if ($client_chat_id) {
-            $pr = $pdo->prepare("SELECT title FROM prices WHERE category_key = ? LIMIT 1");
-            $pr->execute([$service_key]);
-            $srv_title = (string)($pr->fetchColumn() ?: $service_key);
+            $srv_title = getOrderServiceTitle($pdo, ['service_key' => $service_key, 'service_keys_extra' => $service_keys_extra_json]);
             tgEscapeSend($bot_token, $client_chat_id,
                 "✅ *Заказ \#{$order_id} создан\!*\n\n🎨 Услуга: " . tgEsc($srv_title) . "\n📋 Статус: ожидает рассмотрения\n\nОплата пока не нужна\. Как только дизайнер примет заказ — сюда придут реквизиты\.",
                 __DIR__ . '/assets/notify/status.jpg'
@@ -587,15 +593,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             // попросил срочный), затем скидка по промокоду — порядок именно
             // такой, см. computeOrderPriceWithPromo().
             $orderForPrice = [
-                'service_key'       => $service_key,
-                'status'            => 'pending',
-                'requested_urgency' => $requestedUrgency,
-                'promo_code'        => $appliedPromo['code'] ?? null,
+                'service_key'        => $service_key,
+                'service_keys_extra' => $service_keys_extra_json,
+                'status'             => 'pending',
+                'requested_urgency'  => $requestedUrgency,
+                'promo_code'         => $appliedPromo['code'] ?? null,
             ];
             $priceCalc     = computeOrderPriceWithPromo($pdo, $orderForPrice);
-            $service_title = $pdo->prepare("SELECT title FROM prices WHERE category_key = ? LIMIT 1");
-            $service_title->execute([$service_key]);
-            $service_title = (string)($service_title->fetchColumn() ?: $service_key);
+            $service_title = getOrderServiceTitle($pdo, $orderForPrice);
             $p_rub         = $priceCalc['final_rub'];
             $p_uan         = $priceCalc['final_uan'];
 
@@ -823,8 +828,7 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             <input type="text" name="telegram" <?= $showIdentitySave ? 'id="remember-telegram"' : '' ?> required placeholder="@username" class="order-input">
         </div>
         <div class="mb16">
-            <label class="order-label">Что вас интересует?</label>
-            <input type="hidden" name="service" id="s<?= $s ?>_service" value="<?= htmlspecialchars($activeServiceKey) ?>">
+            <label class="order-label">Что вас интересует? <span style="font-weight:400;color:#555568;text-transform:none;letter-spacing:0;">(можно выбрать несколько)</span></label>
             <div class="service-chip-grid" data-slot="<?= $s ?>">
                 <?php foreach ($services as $sv): ?>
                 <button type="button" class="service-chip <?= ($activeServiceKey === $sv['category_key']) ? 'active' : '' ?>" data-value="<?= htmlspecialchars($sv['category_key']) ?>">
@@ -833,6 +837,10 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
                     <svg class="service-chip-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
                 <?php endforeach; ?>
+            </div>
+            <div id="s<?= $s ?>_service_inputs">
+                <input type="hidden" name="service" value="<?= htmlspecialchars($activeServiceKey) ?>">
+                <input type="hidden" name="service_keys[]" value="<?= htmlspecialchars($activeServiceKey) ?>">
             </div>
         </div>
         <div class="mb16">
@@ -843,21 +851,18 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             </div>
         </div>
         <div class="file-upload-block mb22" data-slot="<?= $s ?>">
-            <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s<?= $s ?>_refs" class="file-input-hidden">
-            <div class="file-dropzone" id="s<?= $s ?>_refs_dropzone">
-                <div class="file-label-row">
-                    <span class="file-label-title">🖼️ Референсы и исходники</span>
-                    <span class="file-count-badge" id="s<?= $s ?>_refs_count">0 / 40</span>
-                    <label for="s<?= $s ?>_refs" class="file-choose-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        Выбрать файлы
-                    </label>
-                </div>
-                <div class="file-dropzone-hint">или перетащи файлы сюда</div>
+            <div class="file-label-row">
+                <span class="file-label-title">🖼️ Референсы и исходники</span>
+                <span class="file-count-badge" id="s<?= $s ?>_refs_count">0 / 40</span>
             </div>
+            <label for="s<?= $s ?>_refs" class="file-dropzone" id="s<?= $s ?>_refs_dropzone">
+                <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s<?= $s ?>_refs" class="file-input-hidden">
+                <svg class="file-dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                <div class="file-dropzone-text">Перетащи или нажми, чтобы прикрепить</div>
+                <div class="file-dropzone-hint">Изображения, PSD, AI, PDF, ZIP · до 40 файлов</div>
+            </label>
             <div class="file-name-display" id="s<?= $s ?>_refs_name">Файлы не выбраны</div>
             <div class="file-preview-list" id="s<?= $s ?>_refs_preview"></div>
-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько · до 40 шт.</div>
         </div>
         <div class="wizard-nav">
             <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
@@ -909,7 +914,7 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             <div class="promo-hint" id="s<?= $s ?>_promo_hint"></div>
         </div>
         <div class="turnstile-wrap">
-            <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="normal"></div>
+            <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstileSiteKey) ?>" data-theme="dark" data-size="flexible"></div>
         </div>
         <div class="wizard-nav">
             <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
@@ -1055,25 +1060,23 @@ body::before {
 .file-upload-block { border: 1.5px dashed #2a2a3a; border-radius: 12px; padding: 16px 18px; transition: border-color .2s, box-shadow .2s; background: rgba(249,115,22,0.025); }
 .file-upload-block:hover { border-color: rgba(249,115,22,0.45); box-shadow: 0 0 14px rgba(249,115,22,0.12); }
 .file-upload-block input[type="file"] { display: none; }
-.file-label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.file-label-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .file-label-title { color: #d8d8e0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; flex: 1; }
-.file-choose-btn {
-    display: inline-flex; align-items: center; gap: 7px;
-    background: linear-gradient(135deg, var(--or2), var(--or));
-    border: none; border-radius: 8px; padding: 9px 16px; color: #fff;
-    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px;
-    cursor: pointer; transition: all .2s; box-shadow: 0 4px 14px rgba(249,115,22,0.3);
-    font-family: inherit; white-space: nowrap;
-}
-.file-choose-btn:hover { transform: translateY(-1px); box-shadow: var(--or-glow); }
-.file-choose-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
 .file-name-display { font-size: 11px; color: #666678; font-style: italic; margin-top: 8px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-name-display.has-file { color: #86efac; font-style: normal; font-weight: 700; }
-.file-hint { color: #555568; font-size: 10px; margin-top: 6px; line-height: 1.5; }
-.file-dropzone { border-radius: 10px; transition: background .15s; }
-.file-dropzone.dragover { background: rgba(249,115,22,0.08); box-shadow: inset 0 0 0 1.5px rgba(249,115,22,0.5); }
-.file-dropzone-hint { font-size: 10px; color: #4a4a5c; margin-top: 6px; }
-.file-preview-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+/* ── П.4: dropzone-блок с пунктирным бордером вместо кнопки "Выбрать файлы" ── */
+.file-dropzone {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    border: 1.5px dashed #33333f; border-radius: 14px; padding: 28px 16px; cursor: pointer;
+    background: #101018; transition: border-color .18s, background .18s; gap: 3px;
+}
+.file-dropzone:hover { border-color: #4a4a5c; background: #131320; }
+.file-dropzone.dragover { border-color: var(--or); background: rgba(249,115,22,.07); box-shadow: inset 0 0 0 1.5px rgba(249,115,22,.5); }
+.file-dropzone-icon { width: 30px; height: 30px; color: #555568; margin-bottom: 6px; transition: color .18s; }
+.file-dropzone:hover .file-dropzone-icon, .file-dropzone.dragover .file-dropzone-icon { color: var(--or); }
+.file-dropzone-text { font-size: 12.5px; font-weight: 800; color: #c8c8d4; }
+.file-dropzone-hint { font-size: 10.5px; color: #4a4a5c; margin-top: 2px; }
+.file-preview-list { display: grid; grid-template-columns: repeat(auto-fill, 64px); gap: 8px; margin-top: 12px; justify-content: start; }
 .file-preview-item { position: relative; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .file-preview-thumb { width: 64px; height: 64px; border-radius: 8px; background: #1a1a24; border: 1px solid #2a2a3a; display: flex; align-items: center; justify-content: center; font-size: 22px; overflow: hidden; }
 .file-preview-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -1628,17 +1631,15 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 
 /* ── П.6: поле промокода — встроенная кнопка/индикатор применения ── */
 .promo-apply-btn {
-    position:absolute; right:5px; width:30px; height:30px; border-radius:7px;
-    background:#1a1a24; border:1px solid #2a2a3a; color:#555568;
+    position:absolute; right:5px; top:50%; transform:translateY(-50%); min-width:28px; height:26px;
+    border-radius:7px; background:#1a1a24; border:1px solid #2a2a3a; color:#555568;
     display:flex; align-items:center; justify-content:center; pointer-events:none;
-    transition:.18s; font-size:14px;
+    transition:.18s; font-size:11px; font-weight:900; padding:0 7px; gap:3px; white-space:nowrap;
 }
 .promo-apply-btn.valid { background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.5); color:#4ade80; }
 .promo-apply-btn.invalid { background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.4); color:#fb7185; }
-.promo-hint.valid {
-    display:inline-flex; align-items:center; gap:6px; color:#4ade80; background:rgba(34,197,94,.1);
-    border:1px solid rgba(34,197,94,.3); border-radius:20px; padding:4px 10px; font-weight:800;
-}
+.promo-input { padding-right:76px !important; }
+.promo-hint.valid { display:none; } /* скидка теперь показана компактно в углу инпута, не отдельной строкой */
 
 /* ── П.8: таймлайн + карточка итога на шаге 3 ── */
 .confirm-timeline { display:grid; gap:0; margin-bottom:18px; }
@@ -1665,7 +1666,12 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 .order-summary-total b { color:var(--or); font-size:15px; }
 
 /* ── П.7: карточка Turnstile в стиле сайта ── */
-.turnstile-wrap > div { border-radius:12px; overflow:hidden; }
+.turnstile-wrap {
+    display:flex; justify-content:center; margin-bottom:18px;
+    background:#101018; border:1px solid #1e1e2c; border-radius:14px; padding:14px;
+}
+.turnstile-wrap .cf-turnstile { width:100%; display:flex; justify-content:center; }
+.turnstile-wrap iframe { border-radius:10px; }
 </style>
 
 <div class="slots-wrap">
@@ -1777,16 +1783,33 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 // Данные об услугах (цены/названия) — для карточки итога на шаге 3 и клика по чипсам.
 var SERVICES_DATA = <?= json_encode(array_column($services, null, 'category_key'), JSON_UNESCAPED_UNICODE) ?>;
 
-// ─── П.2: клик по карточке услуги (замена <select>) ───
+// ─── П.2: клик по карточке услуги — МУЛЬТИВЫБОР (можно выбрать несколько) ───
+function syncServiceInputs(grid) {
+    var slot = grid.dataset.slot;
+    var container = document.getElementById('s' + slot + '_service_inputs');
+    if (!container) return;
+    var active = Array.from(grid.querySelectorAll('.service-chip.active')).map(function(c) { return c.dataset.value; });
+    container.innerHTML = '';
+    // "service" (одиночное значение) оставляем для обратной совместимости
+    // со всем, что читает старое одиночное поле — это первая выбранная услуга.
+    var mainInp = document.createElement('input');
+    mainInp.type = 'hidden'; mainInp.name = 'service'; mainInp.value = active[0] || '';
+    container.appendChild(mainInp);
+    active.forEach(function(v) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'service_keys[]'; inp.value = v;
+        container.appendChild(inp);
+    });
+}
 document.addEventListener('click', function(e) {
     var chip = e.target.closest('.service-chip');
     if (!chip) return;
     var grid = chip.closest('.service-chip-grid');
     if (!grid) return;
-    grid.querySelectorAll('.service-chip').forEach(function(c) { c.classList.remove('active'); });
-    chip.classList.add('active');
-    var hidden = document.getElementById('s' + grid.dataset.slot + '_service');
-    if (hidden) hidden.value = chip.dataset.value;
+    chip.classList.toggle('active');
+    // Хотя бы одна услуга должна остаться выбранной — не даём снять последнюю.
+    if (grid.querySelectorAll('.service-chip.active').length === 0) chip.classList.add('active');
+    syncServiceInputs(grid);
 });
 
 // ─── File input labels ───
@@ -1836,6 +1859,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ─── Wizard: 3-шаговый мастер оформления заказа ───
 function wizardValidateStep(stepEl) {
+    var chipGrid = stepEl.querySelector('.service-chip-grid');
+    if (chipGrid && chipGrid.querySelectorAll('.service-chip.active').length === 0) {
+        showToastMsg('⚠️ Выбери хотя бы одну услугу', '#ef4444');
+        chipGrid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    }
     var fields = stepEl.querySelectorAll('input[required], select[required], textarea[required]');
     for (var i = 0; i < fields.length; i++) {
         if (!fields[i].checkValidity()) {
@@ -1868,9 +1897,18 @@ function wizardShowStep(form, n) {
 
 // ─── П.8: карточка итога заказа на шаге "Подтверждение" ───
 function updateOrderSummary(form) {
-    var slot = (form.id || '').replace('form-slot-', '') || '1';
-    var serviceInput = document.getElementById('s' + slot + '_service') || form.querySelector('[name="service"]');
-    var svc = serviceInput ? SERVICES_DATA[serviceInput.value] : null;
+    var grid = form.querySelector('.service-chip-grid');
+    var activeChips = grid ? Array.from(grid.querySelectorAll('.service-chip.active')) : [];
+    var titles = [];
+    var sumRub = 0, sumUan = 0;
+    activeChips.forEach(function(c) {
+        var svc = SERVICES_DATA[c.dataset.value];
+        if (svc) {
+            titles.push(svc.title);
+            sumRub += parseFloat(svc.price_rub) || 0;
+            sumUan += parseFloat(svc.price_uan) || 0;
+        }
+    });
     var urgentInput = form.querySelector('input[name="requested_urgency"]:checked');
     var isUrgent = !!(urgentInput && urgentInput.value === 'urgent');
     var coopInput = form.querySelector('input[name="cooperation"]');
@@ -1880,16 +1918,14 @@ function updateOrderSummary(form) {
     var elUrgency = form.querySelector('.js-summary-urgency');
     var elPrice   = form.querySelector('.js-summary-price');
 
-    if (elService) elService.textContent = svc ? svc.title : '—';
+    if (elService) elService.textContent = titles.length ? titles.join(' + ') : '—';
     if (elUrgency) elUrgency.textContent = isUrgent ? '⚡ Срочно (24ч, +50%)' : 'Обычно (5 дней)';
     if (elPrice) {
         if (isCoop) {
             elPrice.textContent = '0 ₽ / 0 ₴ (сотрудничество)';
-        } else if (svc) {
+        } else if (titles.length) {
             var mult = isUrgent ? 1.5 : 1;
-            var rub = Math.round(parseFloat(svc.price_rub) * mult);
-            var uan = Math.round(parseFloat(svc.price_uan) * mult);
-            elPrice.textContent = rub + ' ₽ / ' + uan + ' ₴';
+            elPrice.textContent = Math.round(sumRub * mult) + ' ₽ / ' + Math.round(sumUan * mult) + ' ₴';
         } else {
             elPrice.textContent = '—';
         }
@@ -2202,12 +2238,12 @@ function showToastMsg(msg, color) {
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         if (data.valid) {
-                            if (checkIcon) { checkIcon.textContent = '✅'; checkIcon.className = 'promo-apply-btn valid'; }
-                            if (hint) {
-                                var bonusStr = data.bonus_text || (data.discount_percent ? ('скидка ' + data.discount_percent + '%') : 'бонус');
-                                hint.textContent = '✅ ' + bonusStr;
-                                hint.className = 'promo-hint valid';
-                            }
+                            var pct = data.discount_percent ? ('-' + data.discount_percent + '%') : (data.bonus_text ? '🎁' : '✓');
+                            if (checkIcon) { checkIcon.textContent = '✅ ' + pct; checkIcon.className = 'promo-apply-btn valid'; }
+                            // Текст скидки теперь компактно в углу поля (см. выше), а не
+                            // отдельной строкой ниже — просили не занимать место. Строку
+                            // подсказки оставляем пустой для валидного промокода.
+                            if (hint) { hint.textContent = ''; hint.className = 'promo-hint valid'; }
                         } else {
                             if (checkIcon) { checkIcon.textContent = '❌'; checkIcon.className = 'promo-apply-btn invalid'; }
                             var reasonMsgs = {

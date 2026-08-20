@@ -620,9 +620,14 @@ function adminAcceptWithPayment(PDO $pdo, int $orderId, bool $isUrgent): void
 
     $priceInfo = [];
     try {
-        $priceStmt = $pdo->prepare("SELECT title, price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
-        $priceStmt->execute([$order['service_key'] ?? '']);
-        $priceInfo = $priceStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        // Мультивыбор услуг: суммируем цены всех выбранных (для заказа с
+        // одной услугой — тот же результат, что и раньше).
+        $svcListAccept = getOrderServicesList($pdo, $order);
+        $priceInfo = [
+            'title'     => getOrderServiceTitle($pdo, $order),
+            'price_rub' => array_sum(array_map(fn($s) => (float)($s['price_rub'] ?? 0), $svcListAccept)),
+            'price_uan' => array_sum(array_map(fn($s) => (float)($s['price_uan'] ?? 0), $svcListAccept)),
+        ];
     } catch (Throwable $e) {}
 
     $payText = paymentInstructionsText($orderId, array_merge($priceInfo, ['cooperation' => $order['cooperation'] ?? false]), !empty($order['cooperation']), $isUrgent, $promoDiscountPct, $promoCodeApplied);
@@ -3152,7 +3157,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                 </div>
                                                 <div>
                                                     <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Услуга</div>
-                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder['service_key'] ?? '—') ?></div>
+                                                    <div style="font-size:14px;color:#efeff7;font-weight:700;"><?= htmlspecialchars($viewOrder ? getOrderServiceTitle($pdo, $viewOrder) : '—') ?></div>
                                                 </div>
                                                 <div>
                                                     <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Цена</div>

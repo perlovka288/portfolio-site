@@ -73,6 +73,63 @@ function checkPromoCode(PDO $pdo, string $codeInput, ?int $clientChatId, string 
 }
 
 /**
+ * service_keys_extra — JSON-массив ключей всех выбранных услуг (мультивыбор
+ * в форме заказа). Пустая/битая строка → пустой массив (тогда используется
+ * одна service_key, как раньше — обратная совместимость со старыми заказами).
+ */
+function decodeServiceKeysList(?string $raw): array
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') return [];
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) return [];
+    return array_values(array_unique(array_filter(array_map('strval', $decoded), fn($v) => $v !== '')));
+}
+
+function encodeServiceKeysList(array $keys): string
+{
+    $keys = array_values(array_unique(array_filter(array_map('strval', $keys), fn($v) => $v !== '')));
+    return json_encode($keys, JSON_UNESCAPED_SLASHES);
+}
+
+/**
+ * Собирает список выбранных услуг заказа (title, price_rub, price_uan) —
+ * либо все из service_keys_extra (мультивыбор), либо одна по service_key
+ * (старые заказы / заказ с одной услугой).
+ */
+function getOrderServicesList(PDO $pdo, array $order): array
+{
+    $extraKeys = decodeServiceKeysList((string)($order['service_keys_extra'] ?? ''));
+    $allKeys   = !empty($extraKeys) ? $extraKeys : [(string)($order['service_key'] ?? '')];
+    $allKeys   = array_values(array_unique(array_filter($allKeys, fn($k) => $k !== '')));
+    if (empty($allKeys)) return [];
+    try {
+        $placeholders = implode(',', array_fill(0, count($allKeys), '?'));
+        $stmt = $pdo->prepare("SELECT title, category_key, price_rub, price_uan FROM prices WHERE category_key IN ($placeholders)");
+        $stmt->execute($allKeys);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Сохраняем порядок выбора пользователя, а не порядок в БД.
+        usort($rows, function($a, $b) use ($allKeys) {
+            return array_search($a['category_key'], $allKeys) <=> array_search($b['category_key'], $allKeys);
+        });
+        return $rows;
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Комбинированное название услуги(-уг) заказа — "Превью для видео + Баннер
+ * для канала" при мультивыборе, иначе просто название одной услуги.
+ */
+function getOrderServiceTitle(PDO $pdo, array $order): string
+{
+    $list = getOrderServicesList($pdo, $order);
+    if (empty($list)) return (string)($order['service_key'] ?? '');
+    return implode(' + ', array_map(fn($r) => (string)$r['title'], $list));
+}
+
+/**
  * Считает итоговую цену заказа: сначала накидывает срочность (+50%), и
  * ТОЛЬКО ПОТОМ вычитает скидку промокода — порядок специально такой
  * (см. пожелание админа), иначе скидка "съедает" часть наценки за срочность.
@@ -81,11 +138,12 @@ function computeOrderPriceWithPromo(PDO $pdo, array $order): array
 {
     $baseRub = 0; $baseUan = 0; $discountPct = 0; $bonusText = ''; $promoCode = '';
     try {
-        $bp = $pdo->prepare("SELECT price_rub, price_uan FROM prices WHERE category_key = ? LIMIT 1");
-        $bp->execute([$order['service_key'] ?? '']);
-        $row = $bp->fetch(PDO::FETCH_ASSOC);
-        $baseRub = (float)($row['price_rub'] ?? 0);
-        $baseUan = (float)($row['price_uan'] ?? 0);
+        // Заказ может включать НЕСКОЛЬКО услуг (мультивыбор в форме) —
+        // суммируем цены всех выбранных, а не только первой.
+        foreach (getOrderServicesList($pdo, $order) as $row) {
+            $baseRub += (float)($row['price_rub'] ?? 0);
+            $baseUan += (float)($row['price_uan'] ?? 0);
+        }
     } catch (Throwable $e) {}
 
     if (in_array($order['status'] ?? '', ['urgent'], true) || ($order['requested_urgency'] ?? '') === 'urgent') {
@@ -120,6 +178,12 @@ function ensureOrderFlowSchema(PDO $pdo): void
 {
     try {
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(32) NOT NULL DEFAULT 'not_requested'");
+        // Мультивыбор услуг в форме заказа: service_key по-прежнему хранит
+        // ПЕРВУЮ выбранную услугу (для обратной совместимости со всеми
+        // существующими "LEFT JOIN prices ON category_key = service_key" по
+        // всему проекту — они продолжают работать как раньше и без этой
+        // колонки). Полный список выбранных услуг — здесь, JSON-массив.
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_keys_extra TEXT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_receipt TEXT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_received_at TIMESTAMP DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP DEFAULT NULL");
