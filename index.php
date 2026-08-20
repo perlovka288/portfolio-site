@@ -492,8 +492,18 @@ body::after {
 }
 
 /* ══ Портфолио ══ */
+/* .portfolio-stage — оставляем локально (не задаёт сетку/центрирование).
+   .portfolio-grid раньше дублировался ЗДЕСЬ без @media, ПОСЛЕ style.css —
+   при равной специфичности (.portfolio-grid, один класс) выигрывает
+   правило, которое стоит позже в документе, а тег <style> в этом файле
+   идёт ПОСЛЕ <link rel="stylesheet" href="style.css">. Из-за этого
+   мобильные версии из style.css (1 колонка ≤720px, 2 колонки ≤1100px)
+   НИКОГДА не применялись — везде побеждал жёсткий repeat(3,minmax(260px,..))
+   отсюда, из-за чего на телефоне сетка требовала минимум 3×260px+gap
+   ширины и вся страница сжималась браузером, чтобы влезть в экран (это и
+   было на скриншоте — мелкий текст, 3 колонки на телефоне). Убрано —
+   единственный источник правды для .portfolio-grid теперь style.css. */
 .portfolio-stage { margin-top: 34px; padding-bottom: 70px; position:relative; z-index:1; }
-.portfolio-grid { display:grid; grid-template-columns:repeat(3,minmax(260px,1fr)); gap:28px; align-items:start; }
 
 /* Появление карточек портфолио при скролле — "выходят из темноты", а не
    просто мгновенно появляются. Затемнение (brightness) + лёгкий подъём
@@ -554,7 +564,11 @@ body::after {
     transition:opacity .2s, transform .2s, box-shadow .2s;
 }
 .order-pill:hover { opacity:.9; transform:translateY(-2px); box-shadow:0 0 28px rgba(249,115,22,0.5); }
-.tabs-container { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:28px; position:relative; z-index:1; }
+/* .tabs-container дублировался здесь без justify-content:center и без
+   @media — тем же образом перебивал версию из style.css (которая уже
+   центрирует теги и на мобильном превращает их в горизонтальную
+   прокрутку), поэтому теги всегда были прижаты к левому краю независимо
+   от ширины экрана. Убрано — стиль теперь только в style.css. */
 .tab-btn {
     background:#111118; border:1px solid #1e1e2c; color:#8a8a96;
     padding:8px 18px; border-radius:30px; font-size:12px; font-weight:700;
