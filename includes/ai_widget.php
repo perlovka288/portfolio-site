@@ -127,7 +127,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 #ai-widget-reset:hover, #ai-widget-close:hover { color: #fff; background: rgba(255,255,255,.08); }
 
 .ai-widget-messages {
-    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #17171f;
 }
 .ai-widget-msg-wrap { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
@@ -174,19 +174,18 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 #ai-widget-overlay.open { display: block; }
 
 @media (max-width: 480px) {
-    /* ── Bottom Sheet на мобильных ── */
-    /* Раньше на телефоне это была просто full-screen панель, слетающая
-       СПРАВА (right: -100vw → 0) — визуально не отличалась от десктопа и
-       "прыгала" при появлении клавиатуры, потому что высота считалась от
-       100vh, а не от реальной видимой области (visualViewport). Теперь —
-       normальная выезжающая снизу шторка (Bottom Sheet) фиксированной
-       высоты, а высота и позиция подстраиваются под visualViewport в JS
-       ниже (см. setupViewportFix), чтобы клавиатура её не сдвигала.
-    */
+    /* ── Bottom Sheet на мобильных ──
+       Выезжает снизу, высота — 92dvh (см. ниже), браузер сам ужимает её
+       при появлении клавиатуры (см. подробности в комментарии у JS). */
     .ai-widget-panel {
         width: 100%; max-width: 100%;
         top: auto; right: 0; left: 0; bottom: -100%;
-        height: 82vh; max-height: 82vh;
+        /* dvh — "динамическая" высота вьюпорта: браузер сам уменьшает её,
+           когда выезжает клавиатура (как в Telegram), без ручного JS-пересчёта.
+           vh — фолбэк для браузеров без поддержки dvh (игнорируют вторую
+           строку целиком и остаются на первой). */
+        height: 92vh; height: 92dvh;
+        max-height: 92vh; max-height: 92dvh;
         border-left: none; border-top: 2px solid #33333f;
         border-radius: 20px 20px 0 0;
         transition: bottom .32s cubic-bezier(.2,.8,.3,1);
@@ -200,31 +199,25 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
 
 <script>
 (function() {
-    // ── Фикс "прыгающей" клавиатуры на iOS/Android (visualViewport API) ──
-    // Раньше высота панели считалась от 100vh, который НЕ уменьшается при
-    // появлении виртуальной клавиатуры на iOS Safari — из-за этого панель
-    // либо перекрывалась клавиатурой, либо весь layout скакал при фокусе на
-    // поле ввода. Подписываемся на visualViewport.resize и держим панель
-    // (и её отступ снизу под клавиатуру) в реальных видимых границах.
+    // ── Фикс клавиатуры на iOS/Android ──
+    // Раньше здесь на КАЖДОЕ событие resize/scroll у visualViewport заново
+    // считались height И transform: translateY(-offsetTop) — при открытии
+    // клавиатуры это могло на мгновение схлопнуть блок переписки (у него
+    // не было min-height:0, теперь есть) и дёргать панель — визуально это
+    // выглядело как "чат ломается и переписка пропадает". Теперь высоту
+    // на мобильном держит CSS через dvh (см. "height: 92dvh" в styles) —
+    // браузер сам корректно ужимает панель под клавиатуру, как в Telegram,
+    // без ручного пересчёта. JS ниже — только фолбэк для старых браузеров
+    // (Safari < 15.4), где dvh не поддерживается, и без transform-сдвига.
     function setupViewportFix(panel) {
         if (!window.visualViewport) return;
+        if (window.CSS && CSS.supports && CSS.supports('height', '100dvh')) return;
         function apply() {
             var vv = window.visualViewport;
             var isMobile = window.innerWidth <= 480;
-            if (isMobile) {
-                panel.style.height = Math.round(vv.height * 0.82) + 'px';
-                panel.style.maxHeight = Math.round(vv.height * 0.82) + 'px';
-            } else {
-                panel.style.height = vv.height + 'px';
-            }
-            // Компенсируем сдвиг видимой области, когда клавиатура выехала
-            // (iOS Safari сдвигает visualViewport.offsetTop вместо простого
-            // уменьшения высоты) — без этого нижняя часть панели с полем
-            // ввода пряталась под клавиатурой.
-            panel.style.transform = 'translateY(' + (-vv.offsetTop) + 'px)';
+            panel.style.height = (isMobile ? Math.round(vv.height * 0.92) : vv.height) + 'px';
         }
         window.visualViewport.addEventListener('resize', apply);
-        window.visualViewport.addEventListener('scroll', apply);
         apply();
     }
 
@@ -259,7 +252,6 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         panel.classList.remove('open');
         overlay.classList.remove('open');
         document.body.classList.remove('ai-widget-lock');
-        panel.style.transform = '';
     }
 
     // Программное открытие панели снаружи (например, кнопкой в блоке ТЗ на
