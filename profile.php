@@ -835,12 +835,42 @@ body::before {
 .appeal-status-dot { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
 
 @media(max-width:600px){
-    .profile-hero{flex-direction:column;align-items:flex-start;padding:22px 18px;}
-    .profile-actions{flex-direction:row;width:100%;}
-    .profile-action-btn{flex:1;justify-content:center;}
-    .profile-meta{gap:10px;}
-    .order-card-header{flex-wrap:wrap;}
+    /* ── П.3.2: карточка профиля — весь контент центрирован ── */
+    .profile-hero{flex-direction:column;align-items:center;text-align:center;padding:26px 20px;}
+    .profile-info{width:100%;display:flex;flex-direction:column;align-items:center;text-align:center;}
+    .profile-name{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;}
+    .profile-meta{gap:10px;justify-content:center;width:100%;}
+    /* ── Кнопки действий вертикально, во всю ширину карточки, крупнее ── */
+    .profile-actions{flex-direction:column;width:100%;gap:10px;margin-top:6px;}
+    .profile-action-btn{width:100%;justify-content:center;min-height:46px;font-size:13px;padding:12px 16px;}
+    .btn-order{box-shadow:0 0 20px rgba(249,115,22,0.4);}
+    .orders-section-title{justify-content:center;text-align:center;}
+    .orders-section-title::after{display:none;}
+    /* ── П.3.3: заказы центрированы, крупнее номер/статус ── */
+    .order-card-header{flex-wrap:wrap;flex-direction:column;align-items:center;text-align:center;gap:8px;}
+    .order-card-body{width:100%;}
+    .order-card-title{font-size:15px;}
+    .order-card-meta{justify-content:center;display:flex;flex-wrap:wrap;gap:6px;}
+    .order-status-badge{font-size:12px;padding:5px 12px;}
+    .order-expand-arrow{position:static;}
     .order-actions-row{flex-direction:column;}
+}
+</style>
+<style>
+/* ── AI-попап "Нужна помощь?" — кнопка крупнее, центрирована ── */
+.ai-widget-bubble-btn {
+    min-height: 46px !important;
+    padding: 13px !important;
+    font-size: 13px !important;
+    text-align: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+@media (max-width: 600px) {
+    /* Плавающая иконка (корзина/бот) — не перекрывает нижние кнопки заказа */
+    #ai-widget-root { bottom: 18px; right: 16px; }
+    #ai-widget-fab { width: 54px; height: 54px; }
 }
 </style>
 </head>

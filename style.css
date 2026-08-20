@@ -170,11 +170,14 @@ header {
     font-weight: 700;
     background: var(--card);
     padding: 10px 18px;
+    min-height: 44px;
+    box-sizing: border-box;
     border-radius: var(--r2);
     border: 1px solid var(--border);
     transition: all var(--t);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 7px;
     white-space: nowrap;
     letter-spacing: .3px;
@@ -790,16 +793,41 @@ body.theme-snow {
 @media (max-width: 720px) {
     header {
         position: relative;
-        padding: 16px 18px;
+        padding: 18px 16px;
         flex-direction: column;
-        gap: 14px;
+        gap: 16px;
     }
     .brand-title { position: static; transform: none; order: -1; }
-    .header-right, .header-left { flex-wrap: wrap; justify-content: center; }
+    /* ── П.2.1: аватар + иконки центрированы под лого, в одну строку ── */
+    .header-left { flex-wrap: wrap; justify-content: center; width: 100%; }
+    /* ── П.2.2: Прайс / Отзывы / профиль-чип — вертикальным стеком,
+       одинаковой ширины, на всю доступную ширину карточки ── */
+    .header-right {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        width: 100%;
+        max-width: 360px;
+        margin: 0 auto;
+        gap: 10px;
+    }
+    .header-right .nav-link,
+    .header-right .tg-user-chip {
+        width: 100%;
+        max-width: none;
+        justify-content: center;
+    }
+    .header-right .tg-user-name { max-width: none; flex: 1; text-align: left; }
     .portfolio-grid { grid-template-columns: 1fr; gap: 20px; }
     .portfolio-media { border-radius: 16px; }
     .portfolio-title, .portfolio-price { font-size: 14px; }
-    .order-pill { font-size: 11px; padding: 10px 20px; }
+    /* ── П.2.4: карточка превью — всё центрировано, кнопка шире, лайк под ней ── */
+    .portfolio-meta { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 12px; }
+    .portfolio-meta .portfolio-title { width: 100%; }
+    .portfolio-meta .portfolio-price { order: 2; font-size: 16px; }
+    .portfolio-meta .portfolio-actions-row { order: 3; width: 100%; flex-direction: column !important; align-items: center !important; }
+    .order-pill { width: 100%; min-height: 46px; font-size: 13px; letter-spacing: 1px; padding: 13px 20px; }
+    .like-btn { margin-left: 0; }
     .design-card .portfolio-media { aspect-ratio: 16/7; min-height: 140px; }
     .design-card .portfolio-meta { grid-template-columns: 1fr; }
     .design-avatar-frame { right: 12px; width: 70px; height: 70px; border-width: 2px; }
@@ -984,8 +1012,18 @@ body.admin-body table th {
 }
  
 /* ── Аватар-кнопки иконки в шапке светятся ── */
+/* ── Круглые иконки-кнопки в шапке (Telegram/Настройки) ──
+   Раньше у этого класса не было базового стиля вообще — только hover-glow
+   ниже. Даём нормальный круглый тач-таргет (мин. 44×44 по ТЗ на мобильную
+   доступность), рамку в цвет акцента и центрированную иконку внутри. */
 .tg-glow-btn,
 .nav-icon-btn {
+    width: 44px; height: 44px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1.5px solid var(--border-accent, rgba(249,115,22,.35));
+    color: var(--accent);
     box-shadow: none;
     transition: all .22s cubic-bezier(.4,0,.2,1);
 }

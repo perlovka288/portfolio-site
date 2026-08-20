@@ -726,12 +726,6 @@ body::after {
 }
 
 @media(max-width:700px){
-    .header-right{flex-wrap:wrap;justify-content:center;}
-    .portfolio-grid{grid-template-columns:1fr;gap:20px;}
-    .portfolio-media{border-radius:16px;}
-    .order-pill{font-size:11px;padding:10px 20px;}
-    .design-card .portfolio-media{aspect-ratio:16/7;min-height:140px;}
-    .design-avatar-frame{right:12px;width:70px;height:70px;border-width:2px;}
     .tg-modal { padding: 24px 18px; }
     .tg-code-val { font-size: 15px; letter-spacing: 2px; }
 }
@@ -911,7 +905,7 @@ body::after {
                 ?>
                 <div class="portfolio-price"><?= $showRub ?>₽/<?= $showUan ?>грн</div>
                 <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
-                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+                <div class="portfolio-actions-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                 <button class="order-pill"
                     onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
                     ЗАКАЗАТЬ
