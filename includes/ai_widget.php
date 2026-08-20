@@ -174,13 +174,60 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 #ai-widget-overlay.open { display: block; }
 
 @media (max-width: 480px) {
-    .ai-widget-panel { width: 100vw; max-width: 100vw; }
+    /* ── Bottom Sheet на мобильных ── */
+    /* Раньше на телефоне это была просто full-screen панель, слетающая
+       СПРАВА (right: -100vw → 0) — визуально не отличалась от десктопа и
+       "прыгала" при появлении клавиатуры, потому что высота считалась от
+       100vh, а не от реальной видимой области (visualViewport). Теперь —
+       normальная выезжающая снизу шторка (Bottom Sheet) фиксированной
+       высоты, а высота и позиция подстраиваются под visualViewport в JS
+       ниже (см. setupViewportFix), чтобы клавиатура её не сдвигала.
+    */
+    .ai-widget-panel {
+        width: 100%; max-width: 100%;
+        top: auto; right: 0; left: 0; bottom: -100%;
+        height: 82vh; max-height: 82vh;
+        border-left: none; border-top: 2px solid #33333f;
+        border-radius: 20px 20px 0 0;
+        transition: bottom .32s cubic-bezier(.2,.8,.3,1);
+        box-shadow: 0 -16px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
+    }
+    .ai-widget-panel.open { bottom: 0; right: 0; }
     #ai-widget-root { bottom: 16px; right: 16px; }
 }
+body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
 </style>
 
 <script>
 (function() {
+    // ── Фикс "прыгающей" клавиатуры на iOS/Android (visualViewport API) ──
+    // Раньше высота панели считалась от 100vh, который НЕ уменьшается при
+    // появлении виртуальной клавиатуры на iOS Safari — из-за этого панель
+    // либо перекрывалась клавиатурой, либо весь layout скакал при фокусе на
+    // поле ввода. Подписываемся на visualViewport.resize и держим панель
+    // (и её отступ снизу под клавиатуру) в реальных видимых границах.
+    function setupViewportFix(panel) {
+        if (!window.visualViewport) return;
+        function apply() {
+            var vv = window.visualViewport;
+            var isMobile = window.innerWidth <= 480;
+            if (isMobile) {
+                panel.style.height = Math.round(vv.height * 0.82) + 'px';
+                panel.style.maxHeight = Math.round(vv.height * 0.82) + 'px';
+            } else {
+                panel.style.height = vv.height + 'px';
+            }
+            // Компенсируем сдвиг видимой области, когда клавиатура выехала
+            // (iOS Safari сдвигает visualViewport.offsetTop вместо простого
+            // уменьшения высоты) — без этого нижняя часть панели с полем
+            // ввода пряталась под клавиатурой.
+            panel.style.transform = 'translateY(' + (-vv.offsetTop) + 'px)';
+        }
+        window.visualViewport.addEventListener('resize', apply);
+        window.visualViewport.addEventListener('scroll', apply);
+        apply();
+    }
+
     var fab       = document.getElementById('ai-widget-fab');
     var bubble    = document.getElementById('ai-widget-bubble');
     var bubbleAsk = document.getElementById('ai-widget-bubble-ask');
@@ -204,11 +251,15 @@ $aiWidgetContext = $aiWidgetContext ?? '';
         if (bubble) bubble.classList.add('hidden');
         panel.classList.add('open');
         overlay.classList.add('open');
+        document.body.classList.add('ai-widget-lock');
+        setupViewportFix(panel);
         setTimeout(function() { input.focus(); }, 350);
     }
     function closePanel() {
         panel.classList.remove('open');
         overlay.classList.remove('open');
+        document.body.classList.remove('ai-widget-lock');
+        panel.style.transform = '';
     }
 
     // Программное открытие панели снаружи (например, кнопкой в блоке ТЗ на

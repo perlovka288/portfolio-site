@@ -773,8 +773,16 @@ function tgEscapeSend(string $token, int $chat_id, string $text, string $photoPa
 }
 
 
-function slotFormFields(int $slot, array $services, string $selectedService, string $turnstileSiteKey): string {
+function slotFormFields(int $slot, array $services, string $selectedService, string $turnstileSiteKey, bool $showIdentitySave = false, string $submitLabel = ''): string {
     $s = $slot;
+    if ($submitLabel === '') $submitLabel = "Отправить заказ №{$s}";
+    // Если ни одна услуга не совпала с $selectedService — активной делаем первую
+    // карточку (раньше это был <select>, где браузер сам подсвечивал первый
+    // <option> по умолчанию; с чипсами это нужно явно посчитать в PHP).
+    $activeServiceKey = $selectedService;
+    if ($activeServiceKey === '' || !in_array($activeServiceKey, array_column($services, 'category_key'), true)) {
+        $activeServiceKey = $services[0]['category_key'] ?? '';
+    }
     ob_start(); ?>
         <div class="wizard-progress">
             <div class="wizard-progress-step active" data-progress-step="1">
@@ -795,35 +803,51 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
 
         <div class="wizard-step" data-step="1">
         <div class="mb16">
+            <?php if ($showIdentitySave): ?>
+            <div class="order-label-row">
+                <label class="order-label" style="margin-bottom:0;">Ваше имя / никнейм</label>
+                <label class="save-identity-toggle" title="Запомнить имя и Telegram на этом устройстве">
+                    <input type="checkbox" id="remember-identity-cb" checked>
+                    <span class="save-identity-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    </span>
+                </label>
+            </div>
+            <?php else: ?>
             <label class="order-label">Ваше имя / никнейм</label>
-            <input type="text" name="username" required placeholder="Например: Влад" class="order-input">
+            <?php endif; ?>
+            <input type="text" name="username" <?= $showIdentitySave ? 'id="remember-username"' : '' ?> required placeholder="Например: Влад" class="order-input">
         </div>
         <div class="mb16">
             <label class="order-label">Контакт (Telegram @username — обязательно)</label>
-            <input type="text" name="telegram" required placeholder="@username" class="order-input">
+            <input type="text" name="telegram" <?= $showIdentitySave ? 'id="remember-telegram"' : '' ?> required placeholder="@username" class="order-input">
         </div>
         <div class="mb16">
             <label class="order-label">Что вас интересует?</label>
-            <select name="service" class="order-select">
+            <input type="hidden" name="service" id="s<?= $s ?>_service" value="<?= htmlspecialchars($activeServiceKey) ?>">
+            <div class="service-chip-grid" data-slot="<?= $s ?>">
                 <?php foreach ($services as $sv): ?>
-                <option value="<?= htmlspecialchars($sv['category_key']) ?>" <?= ($selectedService === $sv['category_key']) ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($sv['title']) ?> (<?= $sv['price_uan'] ?>₴ / <?= $sv['price_rub'] ?>₽)
-                </option>
+                <button type="button" class="service-chip <?= ($activeServiceKey === $sv['category_key']) ? 'active' : '' ?>" data-value="<?= htmlspecialchars($sv['category_key']) ?>">
+                    <span class="service-chip-title"><?= htmlspecialchars($sv['title']) ?></span>
+                    <span class="service-chip-price"><?= $sv['price_uan'] ?> ₴ · <?= $sv['price_rub'] ?> ₽</span>
+                    <svg class="service-chip-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
                 <?php endforeach; ?>
-            </select>
+            </div>
         </div>
         <div class="mb16">
-            <div class="order-label-row">
-                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">🤖 Помочь составить ТЗ</button>
+            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
+            <div class="tz-textarea-wrap">
+                <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea tz-textarea"></textarea>
+                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">✨ AI</button>
             </div>
-            <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
         </div>
         <div class="file-upload-block mb22" data-slot="<?= $s ?>">
             <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s<?= $s ?>_refs" class="file-input-hidden">
             <div class="file-dropzone" id="s<?= $s ?>_refs_dropzone">
                 <div class="file-label-row">
-                    <span class="file-label-title">🖼️ Референсы и исходники (до 40 файлов)</span>
+                    <span class="file-label-title">🖼️ Референсы и исходники</span>
+                    <span class="file-count-badge" id="s<?= $s ?>_refs_count">0 / 40</span>
                     <label for="s<?= $s ?>_refs" class="file-choose-btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         Выбрать файлы
@@ -842,13 +866,20 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
 
         <div class="wizard-step" data-step="2" style="display:none;">
         <div class="mb16">
-            <label class="coop-toggle-row">
-                <span>Сотрудничество — цена 0 ₽ / 0 ₴</span>
-                <span class="coop-toggle">
-                    <input type="checkbox" name="cooperation" value="1">
-                    <span class="coop-toggle-track"><span class="coop-toggle-thumb"></span></span>
-                </span>
-            </label>
+            <div class="coop-card">
+                <div class="coop-card-head">
+                    <div class="coop-card-icon">🤝</div>
+                    <div class="coop-card-title">Сотрудничество / Бартер</div>
+                    <span class="coop-card-badge">0 ₽ / 0 ₴</span>
+                </div>
+                <label class="coop-toggle-row">
+                    <span>Если приму такой заказ — оплата не потребуется</span>
+                    <span class="coop-toggle">
+                        <input type="checkbox" name="cooperation" value="1">
+                        <span class="coop-toggle-track"><span class="coop-toggle-thumb"></span></span>
+                    </span>
+                </label>
+            </div>
         </div>
         <div class="mb16">
             <label class="order-label">Срок выполнения (пожелание — финальное решение за дизайнером)</label>
@@ -872,8 +903,8 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
         <div class="mb16">
             <label class="order-label">Промокод (необязательно)</label>
             <div class="promo-input-row">
-                <input type="text" name="promo_code" id="s<?= $s ?>_promo" class="order-textarea promo-input" placeholder="Есть промокод? Впиши его сюда" autocomplete="off">
-                <span class="promo-check" id="s<?= $s ?>_promo_check"></span>
+                <input type="text" name="promo_code" id="s<?= $s ?>_promo" class="order-input promo-input" placeholder="Есть промокод? Впиши его сюда" autocomplete="off">
+                <span class="promo-apply-btn" id="s<?= $s ?>_promo_check"></span>
             </div>
             <div class="promo-hint" id="s<?= $s ?>_promo_hint"></div>
         </div>
@@ -887,14 +918,39 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
         </div><!-- /wizard-step 2 -->
 
         <div class="wizard-step" data-step="3" style="display:none;">
-        <div class="wizard-confirm-note">
-            Заказ отправляется дизайнеру. После того как дизайнер подтвердит приём заказа, реквизиты на оплату и форма загрузки чека станут доступны в профиле и придут в Telegram-бот.
+        <div class="confirm-timeline">
+            <div class="confirm-timeline-item done">
+                <div class="confirm-timeline-icon">📄</div>
+                <div class="confirm-timeline-body">
+                    <div class="confirm-timeline-title">ТЗ отправлено</div>
+                    <div class="confirm-timeline-sub">Заказ сформирован и передан дизайнеру</div>
+                </div>
+            </div>
+            <div class="confirm-timeline-item">
+                <div class="confirm-timeline-icon">⏳</div>
+                <div class="confirm-timeline-body">
+                    <div class="confirm-timeline-title">Ожидание подтверждения</div>
+                    <div class="confirm-timeline-sub">Дизайнер проверяет детали ТЗ</div>
+                </div>
+            </div>
+            <div class="confirm-timeline-item">
+                <div class="confirm-timeline-icon">💳</div>
+                <div class="confirm-timeline-body">
+                    <div class="confirm-timeline-title">Оплата и реквизиты</div>
+                    <div class="confirm-timeline-sub">После принятия заказа реквизиты и форма загрузки чека откроются в боте и профиле</div>
+                </div>
+            </div>
+        </div>
+        <div class="order-summary-card">
+            <div class="order-summary-row"><span>Услуга</span><b class="js-summary-service">—</b></div>
+            <div class="order-summary-row"><span>Срочность</span><b class="js-summary-urgency">Обычный (5 дней)</b></div>
+            <div class="order-summary-row order-summary-total"><span>Итого</span><b class="js-summary-price">—</b></div>
         </div>
         <div class="wizard-nav" style="margin-bottom:10px;">
             <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
         </div>
         <div style="display:grid;gap:8px;margin-top:0;">
-            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ №<?= $s ?></button>
+            <button type="submit" class="order-submit" style="margin-top:0;"><?= htmlspecialchars($submitLabel) ?></button>
             <button type="button" class="btn-archive-small" onclick="archiveSlot(<?= $s ?>)">📦 Архивировать заказ</button>
         </div>
         </div><!-- /wizard-step 3 -->
@@ -1509,15 +1565,107 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 .promo-hint.valid { color:#4ade80; }
 .promo-hint.invalid { color:#fb7185; }
 .ai-tz-help-btn {
-    background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.35); color: #fdba74;
-    font-size: 11px; font-weight: 800; border-radius: 8px; padding: 6px 10px; cursor: pointer;
-    font-family: inherit; white-space: nowrap; transition: .15s;
+    position: absolute; right: 8px; bottom: 8px;
+    background: rgba(249,115,22,.15); border: 1px solid rgba(249,115,22,.4); color: #fdba74;
+    font-size: 11px; font-weight: 900; border-radius: 8px; padding: 7px 11px; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: .15s; box-shadow: 0 2px 10px rgba(0,0,0,.35);
 }
-.ai-tz-help-btn:hover { background: rgba(249,115,22,.22); border-color: #f97316; }
+.ai-tz-help-btn:hover { background: rgba(249,115,22,.28); border-color: #f97316; transform: translateY(-1px); }
+.tz-textarea-wrap { position: relative; }
+.tz-textarea { padding-bottom: 42px !important; }
 .slot-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #1f1f2a; }
 .slot-header-title { font-size:14px; font-weight:900; color:#f97316; text-transform:uppercase; letter-spacing:1px; }
 .btn-remove-slot { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#fca5a5; border-radius:7px; padding:6px 12px; font-size:11px; font-weight:800; cursor:pointer; font-family:inherit; transition:.15s; }
 .btn-remove-slot:hover { background:rgba(239,68,68,.2); }
+
+/* ── П.1: компактная иконка "запомнить данные" вместо строки текста ── */
+.save-identity-toggle { display:inline-flex; align-items:center; cursor:pointer; user-select:none; flex-shrink:0; }
+.save-identity-toggle input { position:absolute; opacity:0; width:0; height:0; }
+.save-identity-icon {
+    width:26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center;
+    background:#1a1a24; border:1.5px solid #2a2a3a; color:#555568; transition:.18s;
+}
+.save-identity-icon svg { width:13px; height:13px; }
+.save-identity-toggle input:checked ~ .save-identity-icon { background:rgba(249,115,22,.15); border-color:var(--or); color:var(--or); box-shadow:var(--or-glow-sm); }
+.save-identity-toggle input:focus-visible ~ .save-identity-icon { outline:2px solid var(--or); outline-offset:2px; }
+
+/* ── П.2: карточки услуг вместо <select> ── */
+.service-chip-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.service-chip {
+    position:relative; text-align:left; background:#16161f; border:1.5px solid #262633; border-radius:11px;
+    padding:11px 30px 11px 12px; cursor:pointer; font-family:inherit; transition:border-color .18s, background .18s, transform .12s;
+}
+.service-chip:hover { border-color:#3a3a4c; }
+.service-chip-title { display:block; font-size:12px; font-weight:800; color:#d8d8e0; line-height:1.35; }
+.service-chip-price { display:block; font-size:11px; color:#8a8a96; margin-top:3px; font-weight:700; }
+.service-chip.active {
+    border-color:var(--or); background:linear-gradient(135deg, rgba(251,146,60,.14), rgba(249,115,22,.06));
+    box-shadow: var(--or-glow-sm); transform: translateY(-1px);
+}
+.service-chip.active .service-chip-title { color:#fff; }
+.service-chip.active .service-chip-price { color:#fdba74; }
+.service-chip-check {
+    position:absolute; top:9px; right:9px; width:15px; height:15px; opacity:0; transform:scale(.6);
+    transition:.18s; color:var(--or);
+}
+.service-chip.active .service-chip-check { opacity:1; transform:scale(1); }
+@media(max-width:420px){ .service-chip-grid{ grid-template-columns:1fr; } }
+
+/* ── П.4: счётчик файлов в шапке дропзоны ── */
+.file-count-badge {
+    font-size:10.5px; font-weight:800; color:#8a8a96; background:#1a1a24; border:1px solid #2a2a3a;
+    border-radius:20px; padding:3px 10px; white-space:nowrap; flex-shrink:0;
+}
+.file-count-badge.has-files { color:var(--or); border-color:rgba(249,115,22,.4); background:rgba(249,115,22,.08); }
+
+/* ── П.5: блок "Сотрудничество" отдельной карточкой ── */
+.coop-card { background:#0e0e16; border:1px solid #1e1e2c; border-radius:14px; padding:16px 18px; }
+.coop-card-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.coop-card-icon { width:30px; height:30px; border-radius:9px; background:rgba(249,115,22,.12); border:1px solid rgba(249,115,22,.3); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0; }
+.coop-card-title { flex:1; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.6px; color:#e0e0ec; }
+.coop-card-badge { font-size:10.5px; font-weight:800; color:#8a8a96; background:#16161f; border:1px solid #262633; border-radius:20px; padding:3px 10px; white-space:nowrap; }
+.coop-card .coop-toggle-row span:first-child { font-size:12px; color:#8a8a96; font-weight:600; }
+
+/* ── П.6: поле промокода — встроенная кнопка/индикатор применения ── */
+.promo-apply-btn {
+    position:absolute; right:5px; width:30px; height:30px; border-radius:7px;
+    background:#1a1a24; border:1px solid #2a2a3a; color:#555568;
+    display:flex; align-items:center; justify-content:center; pointer-events:none;
+    transition:.18s; font-size:14px;
+}
+.promo-apply-btn.valid { background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.5); color:#4ade80; }
+.promo-apply-btn.invalid { background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.4); color:#fb7185; }
+.promo-hint.valid {
+    display:inline-flex; align-items:center; gap:6px; color:#4ade80; background:rgba(34,197,94,.1);
+    border:1px solid rgba(34,197,94,.3); border-radius:20px; padding:4px 10px; font-weight:800;
+}
+
+/* ── П.8: таймлайн + карточка итога на шаге 3 ── */
+.confirm-timeline { display:grid; gap:0; margin-bottom:18px; }
+.confirm-timeline-item { display:flex; gap:12px; position:relative; padding-bottom:22px; }
+.confirm-timeline-item:last-child { padding-bottom:0; }
+.confirm-timeline-item:not(:last-child)::before {
+    content:''; position:absolute; left:15px; top:32px; bottom:0; width:1.5px; background:#262633;
+}
+.confirm-timeline-icon {
+    width:32px; height:32px; border-radius:50%; background:#1a1a24; border:1.5px solid #2a2a3a;
+    display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; z-index:1;
+}
+.confirm-timeline-item.done .confirm-timeline-icon { border-color:#4ade80; background:rgba(74,222,128,.1); }
+.confirm-timeline-body { padding-top:4px; }
+.confirm-timeline-title { font-size:12.5px; font-weight:800; color:#e0e0ec; }
+.confirm-timeline-sub { font-size:11px; color:#6a6a76; margin-top:2px; line-height:1.4; }
+
+.order-summary-card { background:#0e0e16; border:1px solid #1e1e2c; border-radius:14px; padding:16px 18px; margin-bottom:16px; }
+.order-summary-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; font-size:12.5px; color:#8a8a96; border-bottom:1px solid #1a1a24; }
+.order-summary-row:last-child { border-bottom:none; }
+.order-summary-row b { color:#e0e0ec; font-weight:800; text-align:right; }
+.order-summary-total { margin-top:2px; padding-top:11px; border-top:1px solid #262633 !important; }
+.order-summary-total span { color:#fdba74; font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+.order-summary-total b { color:var(--or); font-size:15px; }
+
+/* ── П.7: карточка Turnstile в стиле сайта ── */
+.turnstile-wrap > div { border-radius:12px; overflow:hidden; }
 </style>
 
 <div class="slots-wrap">
@@ -1571,136 +1719,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 <form id="form-slot-1" action="" method="POST" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="rules_accepted" value="1">
         <input type="hidden" name="order_slot" value="1">
-
-        <div class="wizard-progress">
-            <div class="wizard-progress-step active" data-progress-step="1">
-                <span class="wizard-progress-num">1</span>
-                <span class="wizard-progress-label">Услуга и ТЗ</span>
-            </div>
-            <div class="wizard-progress-line"></div>
-            <div class="wizard-progress-step" data-progress-step="2">
-                <span class="wizard-progress-num">2</span>
-                <span class="wizard-progress-label">Параметры</span>
-            </div>
-            <div class="wizard-progress-line"></div>
-            <div class="wizard-progress-step" data-progress-step="3">
-                <span class="wizard-progress-num">3</span>
-                <span class="wizard-progress-label">Подтверждение</span>
-            </div>
-        </div>
-
-        <div class="wizard-step" data-step="1">
-        <div class="mb16">
-            <label class="order-label">Ваше имя / никнейм</label>
-            <input type="text" name="username" id="remember-username" required placeholder="Например: Влад" class="order-input">
-        </div>
-        <div class="mb16">
-            <label class="order-label">Контакт для связи (Telegram @username — обязательно)</label>
-            <input type="text" name="telegram" id="remember-telegram" required placeholder="@username" class="order-input">
-        </div>
-        <div class="mb16">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:#8a8a96;font-size:12px;">
-                <input type="checkbox" id="remember-identity-cb" checked style="width:auto;margin:0;accent-color:var(--or);">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                Использовать эти данные по умолчанию
-            </label>
-        </div>
-        <div class="mb16">
-            <label class="order-label">Что вас интересует?</label>
-            <select name="service" class="order-select">
-                <?php foreach ($services as $s): ?>
-                <option value="<?= htmlspecialchars($s['category_key']) ?>" <?= ($selected_service === $s['category_key']) ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($s['title']) ?> (<?= $s['price_uan'] ?>₴ / <?= $s['price_rub'] ?>₽)
-                </option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-        <div class="mb16">
-            <div class="order-label-row">
-                <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s1_details')">🤖 Помочь составить ТЗ</button>
-            </div>
-            <textarea name="details" id="s1_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea"></textarea>
-        </div>
-        <div class="file-upload-block mb22" data-slot="1">
-            <input type="file" name="example_photos[]" accept="image/*,.psd,.ai,.pdf,.zip,.rar,.7z,.fig,.sketch,.cdr,.eps" multiple id="s1_refs" class="file-input-hidden">
-            <div class="file-dropzone" id="s1_refs_dropzone">
-                <div class="file-label-row">
-                    <span class="file-label-title">🖼️ Референсы и исходники (до 40 файлов)</span>
-                    <label for="s1_refs" class="file-choose-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        Выбрать файлы
-                    </label>
-                </div>
-                <div class="file-dropzone-hint">или перетащи файлы сюда</div>
-            </div>
-            <div class="file-name-display" id="s1_refs_name">Файлы не выбраны</div>
-            <div class="file-preview-list" id="s1_refs_preview"></div>
-            <div class="file-hint">Зажми Ctrl (Win) или Cmd (Mac) чтобы выбрать несколько файлов · до 40 шт.</div>
-        </div>
-        <div class="wizard-nav">
-            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
-        </div>
-        </div><!-- /wizard-step 1 -->
-
-        <div class="wizard-step" data-step="2" style="display:none;">
-        <div class="mb16">
-            <label class="coop-toggle-row">
-                <span>Сотрудничество — если приму такой заказ, то цена будет 0 ₽ / 0 ₴</span>
-                <span class="coop-toggle">
-                    <input type="checkbox" name="cooperation" value="1">
-                    <span class="coop-toggle-track"><span class="coop-toggle-thumb"></span></span>
-                </span>
-            </label>
-        </div>
-        <div class="mb16">
-            <label class="order-label">Срок выполнения (пожелание — финальное решение за дизайнером)</label>
-            <div class="urgency-select-row">
-                <label class="urgency-option">
-                    <input type="radio" name="requested_urgency" value="normal" checked>
-                    <span class="urgency-option-card">
-                        <div class="u-title">Обычный</div>
-                        <div class="u-sub">5 дней</div>
-                    </span>
-                </label>
-                <label class="urgency-option urgent">
-                    <input type="radio" name="requested_urgency" value="urgent">
-                    <span class="urgency-option-card">
-                        <div class="u-title">Срочный</div>
-                        <div class="u-sub">24ч, +50%</div>
-                    </span>
-                </label>
-            </div>
-        </div>
-        <div class="mb16">
-            <label class="order-label">Промокод (необязательно)</label>
-            <div class="promo-input-row">
-                <input type="text" name="promo_code" id="s1_promo" class="order-textarea promo-input" placeholder="Есть промокод? Впиши его сюда" autocomplete="off">
-                <span class="promo-check" id="s1_promo_check"></span>
-            </div>
-            <div class="promo-hint" id="s1_promo_hint"></div>
-        </div>
-        <div class="turnstile-wrap">
-            <div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile_site_key) ?>" data-theme="dark" data-size="normal"></div>
-        </div>
-        <div class="wizard-nav">
-            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
-            <button type="button" class="wizard-btn-next" data-wizard-next>Далее →</button>
-        </div>
-        </div><!-- /wizard-step 2 -->
-
-        <div class="wizard-step" data-step="3" style="display:none;">
-        <div class="wizard-confirm-note">
-            Заказ отправляется дизайнеру. После того как дизайнер подтвердит приём заказа, реквизиты на оплату и форма загрузки чека станут доступны в профиле и придут в Telegram-бот.
-        </div>
-        <div class="wizard-nav" style="margin-bottom:10px;">
-            <button type="button" class="wizard-btn-back" data-wizard-prev>← Назад</button>
-        </div>
-        <div style="display:grid;gap:8px;margin-top:0;">
-            <button type="submit" class="order-submit" style="margin-top:0;">Отправить заказ Kostlim'у</button>
-            <button type="button" class="btn-archive-small" onclick="archiveSlot(1)">📦 Архивировать заказ</button>
-        </div>
-        </div><!-- /wizard-step 3 -->
+        <?php echo slotFormFields(1, $services, $selected_service, $turnstile_site_key, true, "Отправить заказ Kostlim'у"); ?>
     </form>
 
 </div><!-- .order-card -->
@@ -1755,6 +1774,21 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 </div><!-- .slots-wrap -->
 
 <script>
+// Данные об услугах (цены/названия) — для карточки итога на шаге 3 и клика по чипсам.
+var SERVICES_DATA = <?= json_encode(array_column($services, null, 'category_key'), JSON_UNESCAPED_UNICODE) ?>;
+
+// ─── П.2: клик по карточке услуги (замена <select>) ───
+document.addEventListener('click', function(e) {
+    var chip = e.target.closest('.service-chip');
+    if (!chip) return;
+    var grid = chip.closest('.service-chip-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.service-chip').forEach(function(c) { c.classList.remove('active'); });
+    chip.classList.add('active');
+    var hidden = document.getElementById('s' + grid.dataset.slot + '_service');
+    if (hidden) hidden.value = chip.dataset.value;
+});
+
 // ─── File input labels ───
 document.addEventListener('DOMContentLoaded', function() {
     // Защита от повторной отправки формы двойным кликом/медленной сетью —
@@ -1825,9 +1859,40 @@ function wizardShowStep(form, n) {
         p.classList.toggle('done', ps < n);
     });
     form.dataset.wizardStep = n;
+    if (n === 3) updateOrderSummary(form);
     if (n > 1) {
         var card = form.closest('.order-card');
         if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// ─── П.8: карточка итога заказа на шаге "Подтверждение" ───
+function updateOrderSummary(form) {
+    var slot = (form.id || '').replace('form-slot-', '') || '1';
+    var serviceInput = document.getElementById('s' + slot + '_service') || form.querySelector('[name="service"]');
+    var svc = serviceInput ? SERVICES_DATA[serviceInput.value] : null;
+    var urgentInput = form.querySelector('input[name="requested_urgency"]:checked');
+    var isUrgent = !!(urgentInput && urgentInput.value === 'urgent');
+    var coopInput = form.querySelector('input[name="cooperation"]');
+    var isCoop = !!(coopInput && coopInput.checked);
+
+    var elService = form.querySelector('.js-summary-service');
+    var elUrgency = form.querySelector('.js-summary-urgency');
+    var elPrice   = form.querySelector('.js-summary-price');
+
+    if (elService) elService.textContent = svc ? svc.title : '—';
+    if (elUrgency) elUrgency.textContent = isUrgent ? '⚡ Срочно (24ч, +50%)' : 'Обычно (5 дней)';
+    if (elPrice) {
+        if (isCoop) {
+            elPrice.textContent = '0 ₽ / 0 ₴ (сотрудничество)';
+        } else if (svc) {
+            var mult = isUrgent ? 1.5 : 1;
+            var rub = Math.round(parseFloat(svc.price_rub) * mult);
+            var uan = Math.round(parseFloat(svc.price_uan) * mult);
+            elPrice.textContent = rub + ' ₽ / ' + uan + ' ₴';
+        } else {
+            elPrice.textContent = '—';
+        }
     }
 }
 
@@ -1859,6 +1924,7 @@ function initRefsDropzone(slot) {
     var input = document.getElementById('s' + slot + '_refs');
     var dropzone = document.getElementById('s' + slot + '_refs_dropzone');
     var nameEl = document.getElementById('s' + slot + '_refs_name');
+    var countEl = document.getElementById('s' + slot + '_refs_count');
     var previewEl = document.getElementById('s' + slot + '_refs_preview');
     if (!input || !dropzone || !previewEl) return;
 
@@ -1921,6 +1987,10 @@ function initRefsDropzone(slot) {
         } else {
             nameEl.textContent = 'Файлы не выбраны';
             nameEl.classList.remove('has-file');
+        }
+        if (countEl) {
+            countEl.textContent = 'Загружено: ' + files.length + ' / ' + REFS_MAX_FILES;
+            countEl.classList.toggle('has-files', files.length > 0);
         }
     }
 
@@ -2123,22 +2193,23 @@ function showToastMsg(msg, color) {
         input.addEventListener('input', function() {
             var val = input.value.trim();
             clearTimeout(promoTimers[id]);
-            if (checkIcon) checkIcon.textContent = '';
+            if (checkIcon) { checkIcon.textContent = ''; checkIcon.className = 'promo-apply-btn'; }
             if (hint) { hint.textContent = ''; hint.className = 'promo-hint'; }
             if (val === '') return;
+            if (checkIcon) checkIcon.textContent = '⏳';
             promoTimers[id] = setTimeout(function() {
                 fetch('order.php?check_promo=' + encodeURIComponent(val))
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
                         if (data.valid) {
-                            if (checkIcon) checkIcon.textContent = '✅';
+                            if (checkIcon) { checkIcon.textContent = '✅'; checkIcon.className = 'promo-apply-btn valid'; }
                             if (hint) {
                                 var bonusStr = data.bonus_text || (data.discount_percent ? ('скидка ' + data.discount_percent + '%') : 'бонус');
-                                hint.textContent = 'Промокод действует: ' + bonusStr;
+                                hint.textContent = '✅ ' + bonusStr;
                                 hint.className = 'promo-hint valid';
                             }
                         } else {
-                            if (checkIcon) checkIcon.textContent = '❌';
+                            if (checkIcon) { checkIcon.textContent = '❌'; checkIcon.className = 'promo-apply-btn invalid'; }
                             var reasonMsgs = {
                                 already_used: 'Этот промокод вы уже использовали ранее',
                                 expired:      'Срок действия промокода истёк',
@@ -2153,6 +2224,7 @@ function showToastMsg(msg, color) {
         });
     });
 })();
+
 
 async function archiveSlot(slot) {
     var form = document.getElementById('form-slot-' + slot);
