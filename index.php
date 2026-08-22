@@ -267,7 +267,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <head>
     <script src="/ai_support.php"></script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Kostlim Design | Портфолио</title>
 <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/notify/fav.png">

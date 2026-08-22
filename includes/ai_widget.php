@@ -54,13 +54,22 @@ $aiWidgetContext = $aiWidgetContext ?? '';
         </div>
 
         <div id="ai-widget-quick" class="ai-widget-quick">
+            <button type="button" class="ai-widget-quick-btn" data-action="ideas">💡 Придумать идеи и CTR-заголовки</button>
+            <button type="button" class="ai-widget-quick-btn" data-action="ctr">📊 Оценить CTR моего превью</button>
             <button type="button" class="ai-widget-quick-btn" data-q="Узнать прайс-лист">💰 Узнать прайс-лист</button>
-            <button type="button" class="ai-widget-quick-btn" data-q="Как привязать Telegram?">🤖 Как привязать Telegram?</button>
-            <button type="button" class="ai-widget-quick-btn" data-q="Как оплатить заказ?">💳 Как оплатить заказ?</button>
+            <button type="button" class="ai-widget-quick-btn" data-q="Как привязать Telegram?">✈️ Как привязать Telegram?</button>
+        </div>
+
+        <div id="ai-widget-attach-preview" class="ai-widget-attach-preview hidden">
+            <img id="ai-widget-attach-preview-img" alt="превью">
+            <span class="ai-widget-attach-preview-name" id="ai-widget-attach-preview-name"></span>
+            <button type="button" id="ai-widget-attach-remove" aria-label="Убрать фото">✕</button>
         </div>
 
         <div class="ai-widget-footer">
             <a href="https://t.me/Perlo_ovka" target="_blank" rel="noopener" class="ai-widget-manager-btn" title="Задать вопрос менеджеру">👤</a>
+            <button type="button" id="ai-widget-attach-btn" class="ai-widget-attach-btn" title="Прикрепить фото превью для оценки CTR">📎</button>
+            <input type="file" id="ai-widget-photo-input" accept="image/*" style="display:none">
             <input type="text" id="ai-widget-input" placeholder="Напиши сообщение…" maxlength="2000" autocomplete="off">
             <button type="button" id="ai-widget-send" aria-label="Отправить">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -108,6 +117,10 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     display: flex; flex-direction: column; z-index: 9600;
     box-shadow: -16px 0 60px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
     transition: right .32s cubic-bezier(.2,.8,.3,1);
+    /* Защита от авто-увеличения текста WebKit при фокусе на поле ввода —
+       на случай, если эта разметка когда-нибудь окажется на странице без
+       style.css (там такое же правило добавлено на уровне <html>). */
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 }
 .ai-widget-panel.open { right: 0; }
 .ai-widget-swipe-hint {
@@ -159,8 +172,13 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 }
 .ai-widget-manager-btn:hover { border-color: rgba(249,115,22,.5); }
 #ai-widget-input {
+    /* font-size ниже 16px — iOS Safari при фокусе на таком поле сам зумит
+       страницу (считает, что текст слишком мелкий), и после этого зум не
+       всегда корректно возвращается обратно — именно это и было на скрине:
+       "приближает" при открытии клавиатуры. 16px — стандартный порог, при
+       котором Safari зум не включает. */
     flex: 1; background: #24242e; border: 1px solid #33333f; border-radius: 20px;
-    padding: 10px 16px; color: #fff; font-size: 13px; font-family: inherit; min-width: 0;
+    padding: 10px 16px; color: #fff; font-size: 16px; font-family: inherit; min-width: 0;
 }
 #ai-widget-input:focus { outline: none; border-color: rgba(249,115,22,.5); }
 #ai-widget-send {
@@ -169,6 +187,70 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     transition: transform .15s;
 }
 #ai-widget-send:hover { transform: scale(1.08); }
+
+/* ── Прикреплённое фото над строкой ввода ── */
+.ai-widget-attach-preview {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    background: #1e1e26; border-top: 1px solid #2a2a34; flex-shrink: 0;
+}
+.ai-widget-attach-preview.hidden { display: none; }
+.ai-widget-attach-preview img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.ai-widget-attach-preview-name { flex: 1; font-size: 11px; color: #9a9aa8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ai-widget-attach-remove {
+    background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
+}
+#ai-widget-attach-remove:hover { color: #fb7185; }
+.ai-widget-attach-btn {
+    width: 36px; height: 36px; border-radius: 50%; background: #24242e; border: 1px solid #33333f;
+    display: flex; align-items: center; justify-content: center; font-size: 16px; color: #9a9aa8;
+    flex-shrink: 0; cursor: pointer; transition: border-color .15s, color .15s;
+}
+.ai-widget-attach-btn:hover { border-color: rgba(249,115,22,.5); color: #fdba74; }
+.ai-widget-msg-img { max-width: 100%; border-radius: 12px; display: block; margin-bottom: 6px; }
+
+/* ── Печатает: анимированные точки вместо статичного текста ── */
+.ai-widget-typing-dots { display: inline-flex; gap: 4px; padding: 3px 0; }
+.ai-widget-typing-dots span {
+    width: 6px; height: 6px; border-radius: 50%; background: #8a8a96;
+    animation: aiTypingBounce 1.1s infinite ease-in-out;
+}
+.ai-widget-typing-dots span:nth-child(2) { animation-delay: .15s; }
+.ai-widget-typing-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes aiTypingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+.ai-widget-typing-label { font-size: 11px; color: #6a6a76; margin-top: 3px; }
+
+/* ── Структурированные карточки ответа (идеи / CTR-оценка) ── */
+.ai-widget-card {
+    background: #1e1e26; border: 1px solid #2e2e3a; border-radius: 14px; padding: 14px; width: 100%;
+}
+.ai-widget-card-title { font-size: 11.5px; font-weight: 800; color: #fdba74; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+.ai-widget-headline-item {
+    display: flex; align-items: center; gap: 8px; background: #24242e; border: 1px solid #2e2e3a;
+    border-radius: 10px; padding: 9px 11px; margin-bottom: 6px; font-size: 12.5px; color: #e8e8ee;
+}
+.ai-widget-headline-item span { flex: 1; }
+.ai-widget-headline-copy {
+    background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 13px; flex-shrink: 0; padding: 2px;
+}
+.ai-widget-headline-copy:hover { color: #fdba74; }
+.ai-widget-concept-item { background: #24242e; border: 1px solid #2e2e3a; border-radius: 10px; padding: 11px; margin-bottom: 8px; }
+.ai-widget-concept-title { font-size: 12.5px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+.ai-widget-concept-desc { font-size: 12px; color: #b4b4c0; line-height: 1.5; margin-bottom: 8px; }
+.ai-widget-card-action-btn {
+    width: 100%; background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.4); color: #fdba74;
+    font-size: 11.5px; font-weight: 800; border-radius: 8px; padding: 8px; cursor: pointer; transition: .15s; font-family: inherit;
+}
+.ai-widget-card-action-btn:hover { background: rgba(249,115,22,.22); border-color: #f97316; }
+
+.ai-widget-ctr-badge {
+    display: inline-flex; align-items: center; gap: 6px; background: rgba(249,115,22,.14); border: 1px solid rgba(249,115,22,.4);
+    color: #fdba74; font-size: 13px; font-weight: 900; border-radius: 20px; padding: 6px 14px; margin-bottom: 12px;
+}
+.ai-widget-ctr-row { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
+.ai-widget-ctr-row.plus { color: #86efac; }
+.ai-widget-ctr-row.minus { color: #fca5a5; }
+.ai-widget-ctr-tip { font-size: 11.5px; color: #9a9aa8; font-style: italic; margin: 8px 0 12px; padding-top: 8px; border-top: 1px solid #2e2e3a; }
+
 
 #ai-widget-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9550; display: none; }
 #ai-widget-overlay.open { display: block; }
@@ -203,19 +285,26 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
     // Раньше здесь на КАЖДОЕ событие resize/scroll у visualViewport заново
     // считались height И transform: translateY(-offsetTop) — при открытии
     // клавиатуры это могло на мгновение схлопнуть блок переписки (у него
-    // не было min-height:0, теперь есть) и дёргать панель — визуально это
-    // выглядело как "чат ломается и переписка пропадает". Теперь высоту
-    // на мобильном держит CSS через dvh (см. "height: 92dvh" в styles) —
-    // браузер сам корректно ужимает панель под клавиатуру, как в Telegram,
-    // без ручного пересчёта. JS ниже — только фолбэк для старых браузеров
-    // (Safari < 15.4), где dvh не поддерживается, и без transform-сдвига.
+    // не было min-height:0, теперь есть) и дёргать панель. CSS dvh (см.
+    // "height: 92dvh" в styles) сам корректно ужимает панель под клавиатуру
+    // в обычном Safari — но сайт открывается и во встроенном браузере
+    // Telegram (Mini App), а его WebView может формально уметь в dvh, но
+    // считать его нестабильно. Поэтому JS-подстраховка ниже включена
+    // ВСЕГДА (не только как фолбэк для старых браузеров) — inline
+    // style.height от JS всегда побеждает CSS-класс, так что конфликта с
+    // dvh нет, а поведение становится предсказуемым везде одинаково.
+    // Никакого transform — только высота, без сдвига панели.
     function setupViewportFix(panel) {
-        if (!window.visualViewport) return;
-        if (window.CSS && CSS.supports && CSS.supports('height', '100dvh')) return;
+        if (!window.visualViewport || panel.dataset.vvBound === '1') return;
+        panel.dataset.vvBound = '1';
+        var raf = null;
         function apply() {
-            var vv = window.visualViewport;
-            var isMobile = window.innerWidth <= 480;
-            panel.style.height = (isMobile ? Math.round(vv.height * 0.92) : vv.height) + 'px';
+            if (raf) cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(function() {
+                var vv = window.visualViewport;
+                var isMobile = window.innerWidth <= 480;
+                panel.style.height = (isMobile ? Math.round(vv.height * 0.92) : vv.height) + 'px';
+            });
         }
         window.visualViewport.addEventListener('resize', apply);
         apply();
@@ -234,6 +323,46 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
     var input     = document.getElementById('ai-widget-input');
     var sendBtn   = document.getElementById('ai-widget-send');
     var root      = document.getElementById('ai-widget-root');
+    var attachBtn      = document.getElementById('ai-widget-attach-btn');
+    var photoInput      = document.getElementById('ai-widget-photo-input');
+    var attachPreview   = document.getElementById('ai-widget-attach-preview');
+    var attachPreviewImg  = document.getElementById('ai-widget-attach-preview-img');
+    var attachPreviewName = document.getElementById('ai-widget-attach-preview-name');
+    var attachRemoveBtn   = document.getElementById('ai-widget-attach-remove');
+
+    // Прикреплённое клиентом фото превью (base64), ждёт отправки.
+    var pendingImage = null; // { base64, name }
+
+    function clearPendingImage() {
+        pendingImage = null;
+        photoInput.value = '';
+        attachPreview.classList.add('hidden');
+    }
+    attachBtn && attachBtn.addEventListener('click', function() { photoInput.click(); });
+    photoInput && photoInput.addEventListener('change', function() {
+        var file = photoInput.files && photoInput.files[0];
+        if (!file) return;
+        if (!file.type || file.type.indexOf('image/') !== 0) {
+            showAiToast('⚠️ Нужен файл-изображение');
+            photoInput.value = '';
+            return;
+        }
+        var reader = new FileReader();
+        reader.onload = function() {
+            pendingImage = { base64: reader.result, name: file.name };
+            attachPreviewImg.src = reader.result;
+            attachPreviewName.textContent = file.name;
+            attachPreview.classList.remove('hidden');
+            input.focus();
+        };
+        reader.readAsDataURL(file);
+    });
+    attachRemoveBtn && attachRemoveBtn.addEventListener('click', clearPendingImage);
+
+    function showAiToast(text) {
+        if (window.showToastMsg) { window.showToastMsg(text, '#ef4444'); return; }
+        addMessage(text, 'bot');
+    }
 
     // Текущий textarea ТЗ, в который нужно вставлять готовый текст от ИИ
     // (устанавливается кнопкой "Помочь составить ТЗ" на странице заказа).
@@ -311,18 +440,34 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         }, 2000);
     }
 
-    function addMessage(text, who) {
+    function addMessage(text, who, opts) {
+        opts = opts || {};
         var wrap = document.createElement('div');
         wrap.className = 'ai-widget-msg-wrap ai-widget-msg-wrap-' + who;
 
         var div = document.createElement('div');
         div.className = 'ai-widget-msg ai-widget-msg-' + who;
-        div.textContent = text;
+
+        if (opts.imageSrc) {
+            var img = document.createElement('img');
+            img.className = 'ai-widget-msg-img';
+            img.src = opts.imageSrc;
+            img.alt = 'превью';
+            div.appendChild(img);
+        }
+        if (opts.cardEl) {
+            div.appendChild(opts.cardEl);
+        } else if (text) {
+            var textNode = document.createElement('div');
+            textNode.textContent = text;
+            div.appendChild(textNode);
+        }
         wrap.appendChild(div);
 
-        // Под каждым сообщением ИИ — кнопка "Копировать", а в режиме
-        // подсказки ТЗ — ещё и "Вставить в ТЗ" (прямо в textarea заказа).
-        if (who === 'bot') {
+        // Под каждым текстовым сообщением ИИ (не карточкой — у карточек свои
+        // action-кнопки внутри) — кнопка "Копировать", а в режиме подсказки
+        // ТЗ — ещё и "Вставить в ТЗ" (прямо в textarea заказа).
+        if (who === 'bot' && text && !opts.cardEl) {
             var actions = document.createElement('div');
             actions.className = 'ai-widget-msg-actions';
 
@@ -365,16 +510,26 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
 
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
+        return wrap;
     }
 
-    function showTyping() {
+    function showTyping(label) {
         var wrap = document.createElement('div');
         wrap.className = 'ai-widget-msg-wrap ai-widget-msg-wrap-bot';
         wrap.id = 'ai-widget-typing';
         var div = document.createElement('div');
         div.className = 'ai-widget-msg ai-widget-msg-bot';
-        div.textContent = 'печатает…';
+        var dots = document.createElement('div');
+        dots.className = 'ai-widget-typing-dots';
+        dots.innerHTML = '<span></span><span></span><span></span>';
+        div.appendChild(dots);
         wrap.appendChild(div);
+        if (label) {
+            var lbl = document.createElement('div');
+            lbl.className = 'ai-widget-typing-label';
+            lbl.textContent = label;
+            wrap.appendChild(lbl);
+        }
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
     }
@@ -383,26 +538,232 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         if (t) t.remove();
     }
 
+    // ── Вставка концепта в ТЗ / прикрепление фото к заказу ──
+    // Если чат открыт прямо на странице заказа (order.php) — textarea ТЗ
+    // уже есть в DOM, вставляем сразу. Если чат открыт на другой странице
+    // (каталог, профиль) — сохраняем в sessionStorage и переходим на
+    // order.php, где он подхватится сразу при загрузке (см. order.php).
+    function insertConceptIntoTZ(conceptText) {
+        var target = window.__aiTzTarget || document.getElementById('s1_details');
+        if (target) {
+            target.value = (target.value ? target.value.trim() + '\n\n' : '') + conceptText.trim();
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            closePanel();
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        try { sessionStorage.setItem('kostlim_ai_concept', conceptText.trim()); } catch (e) {}
+        window.location.href = '/order.php';
+    }
+    function attachImageToOrderForm(base64) {
+        var refsInput = document.getElementById('s1_refs');
+        if (refsInput) {
+            fetch(base64).then(function(r) { return r.blob(); }).then(function(blob) {
+                var file = new File([blob], 'ctr-preview.jpg', { type: blob.type || 'image/jpeg' });
+                var dt = new DataTransfer();
+                Array.from(refsInput.files || []).forEach(function(f) { dt.items.add(f); });
+                dt.items.add(file);
+                refsInput.files = dt.files;
+                refsInput.dispatchEvent(new Event('change', { bubbles: true }));
+                closePanel();
+                refsInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }).catch(function() {
+                showAiToast('Не получилось прикрепить фото автоматически — прикрепи вручную в разделе "Референсы"');
+            });
+            return;
+        }
+        try { sessionStorage.setItem('kostlim_ai_ctr_image', base64); } catch (e) {
+            showAiToast('Фото слишком большое для передачи между страницами — прикрепи его в форме заказа вручную');
+            return;
+        }
+        window.location.href = '/order.php';
+    }
+
+    // ── Разбор структурированных ответов ИИ ──
+    // Модель просят (см. промпты ниже) отвечать в строгом построчном
+    // формате с метками — это надёжнее, чем просить настоящий JSON
+    // (модель иногда обрамляет его текстом/markdown, ломая парсинг).
+    // Если разметки нет — парсер вернёт null и сообщение покажется как
+    // обычный текст (без потери ответа).
+    function parseIdeasFormat(text) {
+        var headlines = [];
+        var concepts = [];
+        text.split('\n').forEach(function(line) {
+            var h = line.match(/^\s*ЗАГОЛОВОК\s*:\s*(.+)$/i);
+            if (h) { headlines.push(h[1].trim()); return; }
+            var c = line.match(/^\s*КОНЦЕПТ\s*:\s*(.+)$/i);
+            if (c) {
+                var parts = c[1].split('|');
+                concepts.push({
+                    title: (parts[0] || '').trim(),
+                    desc: (parts.slice(1).join('|') || '').trim(),
+                });
+            }
+        });
+        if (headlines.length === 0 && concepts.length === 0) return null;
+        return { headlines: headlines, concepts: concepts };
+    }
+    function parseCtrFormat(text) {
+        var scoreMatch = text.match(/ОЦЕНКА\s*:\s*([\d.,]+)/i);
+        if (!scoreMatch) return null;
+        var pluses = [], minuses = [], tip = '';
+        text.split('\n').forEach(function(line) {
+            var p = line.match(/^\s*ПЛЮС\s*:\s*(.+)$/i);
+            if (p) { pluses.push(p[1].trim()); return; }
+            var m = line.match(/^\s*МИНУС\s*:\s*(.+)$/i);
+            if (m) { minuses.push(m[1].trim()); return; }
+            var t = line.match(/^\s*СОВЕТ\s*:\s*(.+)$/i);
+            if (t) { tip = t[1].trim(); }
+        });
+        return { score: scoreMatch[1].replace(',', '.'), pluses: pluses, minuses: minuses, tip: tip };
+    }
+
+    function renderIdeasCard(parsed) {
+        var card = document.createElement('div');
+        card.className = 'ai-widget-card';
+
+        if (parsed.headlines.length) {
+            var t1 = document.createElement('div');
+            t1.className = 'ai-widget-card-title';
+            t1.textContent = '💡 Заголовки';
+            card.appendChild(t1);
+            parsed.headlines.forEach(function(h) {
+                var item = document.createElement('div');
+                item.className = 'ai-widget-headline-item';
+                var span = document.createElement('span');
+                span.textContent = h;
+                item.appendChild(span);
+                var cp = document.createElement('button');
+                cp.type = 'button'; cp.className = 'ai-widget-headline-copy'; cp.textContent = '📋';
+                cp.addEventListener('click', function() {
+                    if (navigator.clipboard) navigator.clipboard.writeText(h);
+                    cp.textContent = '✅'; setTimeout(function() { cp.textContent = '📋'; }, 1400);
+                });
+                item.appendChild(cp);
+                card.appendChild(item);
+            });
+        }
+        if (parsed.concepts.length) {
+            var t2 = document.createElement('div');
+            t2.className = 'ai-widget-card-title';
+            t2.style.marginTop = parsed.headlines.length ? '14px' : '0';
+            t2.textContent = '🎨 Визуальные концепты';
+            card.appendChild(t2);
+            parsed.concepts.forEach(function(c) {
+                var item = document.createElement('div');
+                item.className = 'ai-widget-concept-item';
+                var title = document.createElement('div');
+                title.className = 'ai-widget-concept-title';
+                title.textContent = c.title;
+                item.appendChild(title);
+                if (c.desc) {
+                    var desc = document.createElement('div');
+                    desc.className = 'ai-widget-concept-desc';
+                    desc.textContent = c.desc;
+                    item.appendChild(desc);
+                }
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'ai-widget-card-action-btn';
+                btn.textContent = '➕ Вставить в ТЗ заказа';
+                btn.addEventListener('click', function() {
+                    insertConceptIntoTZ(c.title + (c.desc ? '. ' + c.desc : ''));
+                });
+                item.appendChild(btn);
+                card.appendChild(item);
+            });
+        }
+        return card;
+    }
+
+    function renderCtrCard(parsed, imageBase64) {
+        var card = document.createElement('div');
+        card.className = 'ai-widget-card';
+
+        var badge = document.createElement('div');
+        badge.className = 'ai-widget-ctr-badge';
+        badge.textContent = '🎯 Оценка CTR: ' + parsed.score + '/10';
+        card.appendChild(badge);
+
+        parsed.pluses.forEach(function(p) {
+            var row = document.createElement('div');
+            row.className = 'ai-widget-ctr-row plus';
+            row.textContent = '✅ ' + p;
+            card.appendChild(row);
+        });
+        parsed.minuses.forEach(function(m) {
+            var row = document.createElement('div');
+            row.className = 'ai-widget-ctr-row minus';
+            row.textContent = '⚠️ ' + m;
+            card.appendChild(row);
+        });
+        if (parsed.tip) {
+            var tip = document.createElement('div');
+            tip.className = 'ai-widget-ctr-tip';
+            tip.textContent = '💡 ' + parsed.tip;
+            card.appendChild(tip);
+        }
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ai-widget-card-action-btn';
+        btn.textContent = '🎨 Заказать переработку этого превью';
+        btn.addEventListener('click', function() { attachImageToOrderForm(imageBase64); });
+        card.appendChild(btn);
+        return card;
+    }
+
+    var IDEAS_PROMPT = 'Пользователь хочет получить идеи и цепляющие заголовки для превью/тамбнейла. ' +
+        'Если тема ещё не понятна из диалога — сначала спроси, на какую тему нужно превью (игра, влог, гайд и т.д.), ' +
+        'ничего не генерируя в этом сообщении. Если тема уже понятна — сразу выдай результат СТРОГО построчно, ' +
+        'без markdown и звёздочек, каждая строка с новой строки, ровно в таком формате:\n' +
+        'ЗАГОЛОВОК: <текст заголовка>\n(повтори 3-5 раз для разных заголовков)\n' +
+        'КОНЦЕПТ: <короткое название концепта> | <что на переднем плане, какой текст на картинке, какие эмоции — 1-2 предложения>\n' +
+        '(повтори 2-3 раза для разных концептов)';
+    var CTR_PROMPT = 'Пользователь прислал своё превью/тамбнейл и просит оценить его CTR-потенциал (кликабельность). ' +
+        'Проанализируй композицию, читаемость текста, контраст, эмоции на лицах, соответствие теме. ' +
+        'Ответь СТРОГО построчно, без markdown и звёздочек, ровно в таком формате:\n' +
+        'ОЦЕНКА: <число от 1 до 10>\n' +
+        'ПЛЮС: <первый плюс>\nПЛЮС: <второй плюс>\n' +
+        'МИНУС: <первая проблема>\nМИНУС: <вторая проблема>\n' +
+        'СОВЕТ: <краткая рекомендация одним предложением>';
+
     var sending = false;
     function sendMessage(text, opts) {
         opts = opts || {};
         text = (text || '').trim();
-        if (text === '' || sending) return;
+        var image = opts.image || null;
+        if ((text === '' && !image) || sending) return;
         sending = true;
         quick.classList.add('hidden');
+
+        var apiText = opts.apiText || text;
+        var isCtrFlow = !!image;
+        if (isCtrFlow) apiText = CTR_PROMPT + (text ? ('\n\nКомментарий клиента: ' + text) : '');
+
         if (!opts.silent) {
-            addMessage(text, 'user');
+            addMessage(isCtrFlow ? (text || 'Оцени CTR этого превью') : text, 'user', image ? { imageSrc: image } : {});
             input.value = '';
-            showTyping();
+            if (isCtrFlow) addMessage('Картинка получена! Запускаю ИИ-анализ CTR…', 'bot');
+            showTyping(isCtrFlow ? 'KOSTLIM AI анализирует превью…' : 'KOSTLIM AI генерирует ответ…');
         }
+
         fetch('/ai_support.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ message: text }),
+            body: JSON.stringify({ message: apiText, image: image }),
         }).then(function(res) { return res.json(); }).then(function(data) {
             hideTyping();
-            addMessage(data.reply || 'Не удалось получить ответ 😔', 'bot');
+            var reply = data.reply || 'Не удалось получить ответ 😔';
+            var ideas = !isCtrFlow ? parseIdeasFormat(reply) : null;
+            var ctr = isCtrFlow ? parseCtrFormat(reply) : null;
+            if (ideas) {
+                addMessage('', 'bot', { cardEl: renderIdeasCard(ideas) });
+            } else if (ctr) {
+                addMessage('', 'bot', { cardEl: renderCtrCard(ctr, image) });
+            } else {
+                addMessage(reply, 'bot');
+            }
             sending = false;
         }).catch(function() {
             hideTyping();
@@ -411,15 +772,33 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         });
     }
 
-    sendBtn.addEventListener('click', function() { sendMessage(input.value); });
+    function sendFromInput() {
+        var image = pendingImage ? pendingImage.base64 : null;
+        var text = input.value;
+        clearPendingImage();
+        sendMessage(text, image ? { image: image } : {});
+    }
+
+    sendBtn.addEventListener('click', sendFromInput);
     input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') sendMessage(input.value);
+        if (e.key === 'Enter') sendFromInput();
     });
     quick.querySelectorAll('.ai-widget-quick-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() { sendMessage(btn.dataset.q); });
+        btn.addEventListener('click', function() {
+            if (btn.dataset.action === 'ideas') {
+                sendMessage('Хочу идеи и заголовки для превью', { apiText: IDEAS_PROMPT });
+            } else if (btn.dataset.action === 'ctr') {
+                addMessage('Пришли скриншот своего превью — разберу его по CTR 📊', 'bot');
+                quick.classList.add('hidden');
+                photoInput.click();
+            } else {
+                sendMessage(btn.dataset.q);
+            }
+        });
     });
 
     resetBtn.addEventListener('click', function() {
+        clearPendingImage();
         fetch('/ai_support.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

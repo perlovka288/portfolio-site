@@ -53,7 +53,7 @@ if (isset($_GET['check_promo'])) {
 if (!isOrdersAvailable($pdo)) {
     $returnDate = getOrdersReturnDate($pdo);
     ?><!DOCTYPE html>
-    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Приём заказов приостановлен | Kostlim Design</title>
     <style>
         body{background:#0a0a0f;color:#fff;font-family:Montserrat,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center;}
@@ -969,7 +969,7 @@ render_page:
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/notify/fav.png">
@@ -1043,8 +1043,10 @@ body::before {
 .order-title { text-align: center; font-size: 19px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; color: #fff; margin-bottom: 26px; }
 .order-label { display: block; color: #8a8a96; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .order-input, .order-select, .order-textarea {
+    /* font-size 16px, не меньше — иначе iOS Safari при фокусе на поле сам
+       зумит страницу (см. аналогичный фикс в AI-виджете). */
     width: 100%; background: #16161f; border: 1px solid #262633; color: #fff;
-    padding: 12px 14px; border-radius: 9px; font-size: 13px; font-family: inherit;
+    padding: 12px 14px; border-radius: 9px; font-size: 16px; font-family: inherit;
     transition: border-color .2s, box-shadow .2s; outline: none; box-sizing: border-box;
 }
 .order-input:focus, .order-select:focus, .order-textarea:focus {
@@ -1848,6 +1850,42 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Референсы/исходники: drag-and-drop, превью, удаление по одному, лимит 40
     [1,2,3].forEach(function(n) { initRefsDropzone(n); });
+
+    // ── Приём "передачи" из AI-чата (kostlim ai support) ──
+    // Кнопки "➕ Вставить в ТЗ заказа" / "🎨 Заказать переработку" в чате
+    // могли быть нажаты на ДРУГОЙ странице (каталог/профиль), где формы
+    // заказа физически нет в DOM — тогда чат сохраняет данные в
+    // sessionStorage и переходит сюда. Подхватываем это сразу при загрузке.
+    try {
+        var aiConcept = sessionStorage.getItem('kostlim_ai_concept');
+        if (aiConcept) {
+            sessionStorage.removeItem('kostlim_ai_concept');
+            var tzTarget = document.getElementById('s1_details');
+            if (tzTarget) {
+                tzTarget.value = (tzTarget.value ? tzTarget.value.trim() + '\n\n' : '') + aiConcept.trim();
+                tzTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                if (typeof showToastMsg === 'function') showToastMsg('✅ Концепт от AI вставлен в ТЗ', '#22c55e');
+                setTimeout(function() { tzTarget.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 400);
+            }
+        }
+        var aiCtrImage = sessionStorage.getItem('kostlim_ai_ctr_image');
+        if (aiCtrImage) {
+            sessionStorage.removeItem('kostlim_ai_ctr_image');
+            var refsInput = document.getElementById('s1_refs');
+            if (refsInput) {
+                fetch(aiCtrImage).then(function(r) { return r.blob(); }).then(function(blob) {
+                    var file = new File([blob], 'ctr-preview.jpg', { type: blob.type || 'image/jpeg' });
+                    var dt = new DataTransfer();
+                    Array.from(refsInput.files || []).forEach(function(f) { dt.items.add(f); });
+                    dt.items.add(file);
+                    refsInput.files = dt.files;
+                    refsInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (typeof showToastMsg === 'function') showToastMsg('✅ Фото из AI-чата добавлено в референсы', '#22c55e');
+                    setTimeout(function() { refsInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 400);
+                }).catch(function() {});
+            }
+        }
+    } catch (e) {}
 
     // Wizard: показать шаг 1 во всех формах заказа при загрузке
     document.querySelectorAll('form[id^="form-slot-"]').forEach(function(form) {

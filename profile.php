@@ -614,7 +614,7 @@ $editStatus      = $_GET['edit_status'] ?? '';
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Профиль | Kostlim Design</title>
 <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/notify/fav.png">
@@ -751,7 +751,7 @@ body::before {
 .order-edit-form.open { display:block; }
 .order-edit-form textarea {
     width:100%; background:rgba(0,0,0,0.25); border:1px solid var(--border);
-    border-radius:10px; padding:12px 14px; color:#fff; font-size:13px;
+    border-radius:10px; padding:12px 14px; color:#fff; font-size:16px;
     line-height:1.6; font-family:inherit; resize:vertical; margin-bottom:10px;
     transition:border-color .18s;
 }
@@ -775,8 +775,9 @@ body::before {
 .appeal-form-wrap.open { display:block; }
 .appeal-form-wrap label { display:block;color:#d9d9e4;font-size:11px;font-weight:800;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.5px; }
 .appeal-form-wrap input, .appeal-form-wrap textarea {
+    /* font-size 16px — иначе iOS Safari зумит страницу при фокусе */
     width:100%;background:#0e0e14;color:#fff;border:1px solid #2a2a38;border-radius:8px;
-    padding:10px 12px;outline:none;font-family:Montserrat,sans-serif;font-size:13px;transition:.2s;box-sizing:border-box;
+    padding:10px 12px;outline:none;font-family:Montserrat,sans-serif;font-size:16px;transition:.2s;box-sizing:border-box;
 }
 .appeal-form-wrap input:focus, .appeal-form-wrap textarea:focus { border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,0.15); }
 .appeal-form-wrap textarea { min-height:80px;resize:vertical; }

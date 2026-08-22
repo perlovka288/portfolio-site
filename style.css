@@ -49,6 +49,10 @@
    RESET & BASE
    ===================================================== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+/* Защита от того, что WebKit (Safari / встроенный браузер Telegram)
+   сам увеличивает масштаб текста при повороте экрана или фокусе на
+   поле ввода — именно это выглядело как "приближает интерфейс". */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html { height: 100%; }
 body {
     background: var(--bg);
