@@ -83,6 +83,51 @@ if (isset($update['callback_query'])) {
         exit;
     }
 
+    // ── Клиент принимает сданную работу (кнопка под файлом, п.1 ТЗ) ──
+    if (strpos($callback_data, 'work_accept_') === 0) {
+        $order_id = (int)str_replace('work_accept_', '', $callback_data);
+        $pdo->prepare("UPDATE orders SET client_accepted_at = NOW() WHERE id = ?")->execute([$order_id]);
+        // Убираем кнопки из сообщения с файлом — чтобы нельзя было нажать
+        // повторно / случайно запросить правку после уже принятой работы.
+        sendTelegram($token, 'editMessageReplyMarkup', [
+            'chat_id'      => $cal_chat_id,
+            'message_id'   => $msg_id,
+            'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
+        ]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $cal_chat_id,
+            'text'    => "🎉 Спасибо! Заказ #{$order_id} закрыт. Будем рады новому заказу!",
+        ]);
+        $adminId = getenv('ADMIN_ID') ?: '';
+        if ($adminId !== '') {
+            sendTelegram($token, 'sendMessage', ['chat_id' => $adminId, 'text' => "✅ Клиент принял работу по заказу #{$order_id}."]);
+        }
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => '✅ Работа принята']);
+        exit;
+    }
+
+    // ── Клиент запрашивает правку (п.2 ТЗ) ──
+    // Шаг 1: сразу удаляем сообщение с файлом (чтобы не путал финальные и
+    // нефинальные версии) и переводим заказ в режим ожидания текста правки.
+    // Шаг 2 (текст правки) ловится в общем обработчике текстовых сообщений
+    // ниже — см. блок "status === 'revision_pending'".
+    if (strpos($callback_data, 'work_revision_') === 0) {
+        $order_id = (int)str_replace('work_revision_', '', $callback_data);
+        try {
+            $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                CURLOPT_POSTFIELDS => ['chat_id' => $cal_chat_id, 'message_id' => $msg_id]]);
+            curl_exec($ch); curl_close($ch);
+        } catch (Throwable $e) {}
+        $pdo->prepare("UPDATE orders SET status = 'revision_pending', work_message_id = NULL WHERE id = ?")->execute([$order_id]);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id' => $cal_chat_id,
+            'text'    => "✏️ Опиши одним сообщением, что нужно поправить в заказе #{$order_id} — дизайнер это увидит.",
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Жду описание правки ✏️']);
+        exit;
+    }
+
     // ── Только для админа ──
     if ($caller_id !== $admin_id) {
         sendTelegram($token, 'answerCallbackQuery', [
@@ -424,6 +469,24 @@ if (isset($update['message'])) {
     $chat_type = $update['message']['chat']['type'] ?? 'private'; // private | group | supergroup | channel
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
+
+    // ── Текст правки от клиента (п.2 ТЗ) ──
+    // После нажатия "✏️ Отправить на правку" заказ переводится в статус
+    // 'revision_pending' — следующее обычное текстовое сообщение от этого
+    // же клиента ловится здесь как описание правки, а не проверяется на
+    // команды/меню/KostlimAI и т.п. ниже.
+    if ($chat_type === 'private' && $text !== '' && $text[0] !== '/') {
+        try {
+            $revStmt = $pdo->prepare("SELECT id FROM orders WHERE client_chat_id = ? AND status = 'revision_pending' ORDER BY id DESC LIMIT 1");
+            $revStmt->execute([(string)$chat_id]);
+            $revOrderId = (int)($revStmt->fetchColumn() ?: 0);
+            if ($revOrderId > 0) {
+                requestOrderRevision($pdo, $token, $revOrderId, $text, 'telegram');
+                exit;
+            }
+        } catch (Throwable $e) {}
+    }
+
     // --- KostlimAI (Gemini) — реагирует на сообщения, начинающиеся с "KostlimAI" ---
     if (strpos($text, 'KostlimAI') === 0) {
         $userQuery = trim(str_replace('KostlimAI', '', $text));

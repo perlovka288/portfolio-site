@@ -223,6 +223,19 @@ function ensureOrderFlowSchema(PDO $pdo): void
             update_id BIGINT PRIMARY KEY,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
+
+        // Сдача готовой работы дизайнером + цикл правок:
+        // work_file/work_file_name — последний сданный файл (имя в
+        // uploads/orders/ + оригинальное имя для красивого скачивания);
+        // work_message_id — id сообщения с файлом в чате клиента (нужен,
+        // чтобы удалить его при запросе правки — п.2 ТЗ);
+        // client_accepted_at — когда клиент нажал "Принять работу";
+        // revision_count — счётчик пересдач (для истории/статистики).
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_file TEXT DEFAULT NULL");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_file_name TEXT DEFAULT NULL");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_message_id BIGINT DEFAULT NULL");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_accepted_at TIMESTAMP DEFAULT NULL");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_count INT NOT NULL DEFAULT 0");
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
     }
@@ -522,4 +535,99 @@ function uploadReceiptToImgBB(string $tmpPath, string $name = 'receipt'): string
         }
     }
     return '';
+}
+
+/**
+ * Отправляет клиенту готовую работу файлом БЕЗ пережатия (sendDocument, не
+ * sendPhoto — Telegram пережимает фото при sendPhoto, а тут как раз нужен
+ * оригинал в максимальном качестве). Под файлом — кнопки "Принять работу"
+ * / "Отправить на правку". Сохраняет message_id отправленного сообщения —
+ * он понадобится, чтобы удалить его при запросе правки (см. ниже).
+ * Возвращает true при успехе.
+ */
+function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, string $localFilePath, string $storedFileName, string $origFileName): bool
+{
+    $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $chatId = trim((string)$stmt->fetchColumn());
+    if ($chatId === '' || !is_numeric($chatId) || !is_file($localFilePath)) return false;
+
+    $caption = "🎉 <b>Заказ #{$orderId} готов!</b>\n\nПроверь файл и подтверди приём или отправь на правку 👇";
+    $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+        CURLOPT_POSTFIELDS => [
+            'chat_id'      => $chatId,
+            'document'     => new CURLFile($localFilePath, mime_content_type($localFilePath) ?: 'application/octet-stream', $origFileName),
+            'caption'      => $caption,
+            'parse_mode'   => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '✅ Принять работу', 'callback_data' => "work_accept_{$orderId}"],
+                    ['text' => '✏️ Отправить на правку', 'callback_data' => "work_revision_{$orderId}"],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
+        ],
+    ]);
+    $resp = curl_exec($ch);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    $data = json_decode((string)$resp, true);
+    if (empty($data['ok'])) {
+        error_log("[deliverWorkFileToClient] sendDocument failed for order #{$orderId}: " . ($err ?: substr((string)$resp, 0, 300)));
+        return false;
+    }
+    $messageId = (int)($data['result']['message_id'] ?? 0);
+    $pdo->prepare("UPDATE orders SET work_file = ?, work_file_name = ?, work_message_id = ?, status = 'ready', client_accepted_at = NULL WHERE id = ?")
+        ->execute([$storedFileName, $origFileName, $messageId ?: null, $orderId]);
+    return true;
+}
+
+/**
+ * Запрос клиента на правку — общая точка для обоих путей (кнопка в
+ * Telegram ИЛИ кнопка на сайте в профиле, см. п.2 ТЗ): удаляет из чата
+ * клиента предыдущее сообщение с файлом (если оно ещё не удалено — при
+ * заходе через Telegram-кнопку это уже могло произойти раньше), переводит
+ * заказ в статус "на правке", логирует текст правки в переписку заказа и
+ * уведомляет админа.
+ */
+function requestOrderRevision(PDO $pdo, string $token, int $orderId, string $note, string $source = 'site'): void
+{
+    $stmt = $pdo->prepare("SELECT client_chat_id, work_message_id, revision_count FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return;
+
+    $chatId = trim((string)($row['client_chat_id'] ?? ''));
+    $msgId  = (int)($row['work_message_id'] ?? 0);
+
+    // Раньше сообщение с файлом просто оставалось в чате навсегда — теперь
+    // удаляем его, чтобы не путал финальные и нефинальные версии (п.2 ТЗ).
+    if ($chatId !== '' && is_numeric($chatId) && $msgId > 0) {
+        $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+            CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'message_id' => $msgId]]);
+        curl_exec($ch); curl_close($ch);
+    }
+
+    $pdo->prepare("UPDATE orders SET status = 'revision', work_message_id = NULL WHERE id = ?")->execute([$orderId]);
+    addOrderMessage($pdo, $orderId, 'client', 'Запрошена правка: ' . $note);
+
+    if ($chatId !== '' && is_numeric($chatId)) {
+        $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+            CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'parse_mode' => 'HTML',
+                'text' => "🔧 Правки по заказу #{$orderId} приняты в работу — дизайнер уже смотрит."]]);
+        curl_exec($ch); curl_close($ch);
+    }
+
+    $adminId = getenv('ADMIN_ID') ?: '';
+    if ($adminId !== '') {
+        $srcLabel = $source === 'telegram' ? '' : ' (через сайт)';
+        $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+            CURLOPT_POSTFIELDS => ['chat_id' => $adminId, 'parse_mode' => 'HTML',
+                'text' => "✏️ <b>Правка по заказу #{$orderId}</b>{$srcLabel}\n\n" . htmlspecialchars($note)]]);
+        curl_exec($ch); curl_close($ch);
+    }
 }

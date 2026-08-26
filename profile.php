@@ -101,6 +101,45 @@ if (isset($_POST['cancel_order'])) {
     exit;
 }
 
+// ── Клиент принимает сданную работу (п.1/3 ТЗ — кнопка доступна и на сайте) ──
+if (isset($_POST['accept_work'])) {
+    $acceptId = (int)($_POST['order_id'] ?? 0);
+    $row = profileOwnsOrder($pdo, $acceptId, $sid);
+    if ($row && ($row['status'] ?? '') === 'ready') {
+        $pdo->prepare("UPDATE orders SET client_accepted_at = NOW() WHERE id = ?")->execute([$acceptId]);
+        // Убираем кнопки под файлом в Telegram — так же, как при приёме через бота,
+        // чтобы нельзя было случайно запросить правку после уже принятой работы.
+        try {
+            $msgIdStmt = $pdo->prepare("SELECT client_chat_id, work_message_id FROM orders WHERE id = ? LIMIT 1");
+            $msgIdStmt->execute([$acceptId]);
+            $wm = $msgIdStmt->fetch(PDO::FETCH_ASSOC);
+            if ($wm && !empty($wm['work_message_id']) && !empty($wm['client_chat_id'])) {
+                profileSendTelegram($botToken, 'editMessageReplyMarkup', [
+                    'chat_id'      => $wm['client_chat_id'],
+                    'message_id'   => $wm['work_message_id'],
+                    'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
+                ]);
+            }
+        } catch (Throwable $e) {}
+        $adminTgIdLocal = getenv('ADMIN_ID') ?: $adminTgId;
+        profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgIdLocal, 'text' => "✅ Клиент принял работу по заказу #{$acceptId} (через сайт)."]);
+    }
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?order=' . $acceptId);
+    exit;
+}
+
+// ── Клиент запрашивает правку прямо с сайта (п.2 ТЗ — "или на сайте") ──
+if (isset($_POST['request_revision'])) {
+    $revId   = (int)($_POST['order_id'] ?? 0);
+    $revNote = trim((string)($_POST['revision_note'] ?? ''));
+    $row = profileOwnsOrder($pdo, $revId, $sid);
+    if ($row && ($row['status'] ?? '') === 'ready' && $revNote !== '') {
+        requestOrderRevision($pdo, $botToken, $revId, $revNote, 'site');
+    }
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?order=' . $revId);
+    exit;
+}
+
 // ── Редактирование ТЗ заказа клиентом (пока заказ не взят в работу) ──
 $editMsg = '';
 if (isset($_POST['edit_order_details'])) {
@@ -411,8 +450,9 @@ try {
         }
 
         if (!empty($clauses)) {
-            $sql = "SELECT id, service_key, status, details, created_at, screenshot, example_photo, client_chat_id, deadline,
-                           payment_status, payment_receipt, payment_received_at, accepted_at, started_at, declined_reason, is_urgent
+            $sql = "SELECT id, service_key, service_keys_extra, status, details, created_at, screenshot, example_photo, client_chat_id, deadline,
+                           payment_status, payment_receipt, payment_received_at, accepted_at, started_at, declined_reason, is_urgent,
+                           work_file, work_file_name, client_accepted_at, revision_count
                     FROM orders
                     WHERE " . implode(' OR ', $clauses) . "
                     ORDER BY created_at DESC
@@ -873,6 +913,7 @@ body::before {
     #ai-widget-root { bottom: 18px; right: 16px; }
     #ai-widget-fab { width: 54px; height: 54px; }
 }
+.hidden { display: none !important; }
 </style>
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
@@ -1281,6 +1322,38 @@ body::before {
                 </a>
                 <?php endif; ?>
             </div>
+
+            <?php if ($order['status'] === 'ready' && !empty($order['work_file'])): ?>
+            <!-- П.1/3 ТЗ: сданная работа — скачивание + приём/правка прямо на сайте -->
+            <?php $workFileUrl = imgSrc((string)$order['work_file'], 'uploads/orders/'); ?>
+            <div style="display:flex;align-items:center;gap:10px;background:#0e0e15;border:1px solid #232330;border-radius:12px;padding:12px 14px;margin-top:10px;">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:12px;color:#e0e0ec;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📄 <?= htmlspecialchars($order['work_file_name'] ?: 'Готовая работа') ?></div>
+                    <?php if (!empty($order['client_accepted_at'])): ?>
+                    <div style="font-size:11px;color:#4ade80;margin-top:2px;">✅ Принято</div>
+                    <?php elseif ((int)($order['revision_count'] ?? 0) > 0): ?>
+                    <div style="font-size:11px;color:#8a8a96;margin-top:2px;">Правок: <?= (int)$order['revision_count'] ?></div>
+                    <?php endif; ?>
+                </div>
+                <a href="<?= htmlspecialchars($workFileUrl) ?>" download="<?= htmlspecialchars($order['work_file_name'] ?: 'work') ?>" title="Скачать оригинал" style="flex-shrink:0;width:38px;height:38px;border-radius:10px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.35);display:flex;align-items:center;justify-content:center;color:#fdba74;text-decoration:none;">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </a>
+            </div>
+            <?php if (empty($order['client_accepted_at'])): ?>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <form method="POST" style="flex:1;">
+                    <input type="hidden" name="order_id" value="<?= $oid ?>">
+                    <button type="submit" name="accept_work" style="width:100%;background:rgba(74,222,128,.14);border:1px solid rgba(74,222,128,.4);color:#86efac;border-radius:9px;padding:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">✅ Принять работу</button>
+                </form>
+                <button type="button" onclick="document.getElementById('revision-form-<?= $oid ?>').classList.toggle('hidden')" style="flex:1;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);color:#fbbf24;border-radius:9px;padding:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">✏️ На правку</button>
+            </div>
+            <form method="POST" id="revision-form-<?= $oid ?>" class="hidden" style="margin-top:8px;display:grid;gap:8px;">
+                <input type="hidden" name="order_id" value="<?= $oid ?>">
+                <textarea name="revision_note" required minlength="5" rows="3" placeholder="Что нужно поправить?" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:9px;padding:10px 12px;color:#fff;font-size:12.5px;font-family:inherit;resize:vertical;"></textarea>
+                <button type="submit" name="request_revision" style="background:linear-gradient(135deg,#fbbf24,#f59e0b);border:none;color:#1a1200;border-radius:9px;padding:10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">📤 Отправить правку</button>
+            </form>
+            <?php endif; ?>
+            <?php endif; ?>
 
             <!-- Форма обращения — ВНУТРИ expanded, правильно -->
             <div class="appeal-form-wrap" id="appeal-form-<?= $oid ?>">

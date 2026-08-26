@@ -702,7 +702,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 $paidCurrency= in_array($_POST['paid_currency'] ?? '', ['RUB','USD','UAH']) ? $_POST['paid_currency'] : 'RUB';
                 $pdo->prepare("UPDATE orders SET status='ready', payment_method=?, paid_amount=?, paid_currency=? WHERE id=?")
                     ->execute([$payMethod, $paidAmount, $paidCurrency, $orderId]);
-                notifyClientOrderStatus($pdo, $orderId, 'ready');
+
+                // Файл готовой работы (п.1 ТЗ) — если приложен, уходит клиенту
+                // sendDocument'ом (без сжатия) с кнопками "Принять"/"На правку"
+                // ВМЕСТО обычного текстового уведомления о статусе. Если файл
+                // не выбрали — как раньше, просто текст/декоративная картинка.
+                $workDelivered = false;
+                if (!empty($_FILES['work_file']['name']) && ($_FILES['work_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+                    $origName = basename((string)$_FILES['work_file']['name']);
+                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                    $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
+                    $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+                    $workDir = __DIR__ . '/../uploads/orders/';
+                    if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
+                    $destPath = $workDir . $storedName;
+                    if (is_writable($workDir) && move_uploaded_file($_FILES['work_file']['tmp_name'], $destPath)) {
+                        $workDelivered = deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $destPath, $storedName, $origName);
+                    }
+                }
+                if (!$workDelivered) {
+                    notifyClientOrderStatus($pdo, $orderId, 'ready');
+                }
+
                 // Уведомление себе с деталями оплаты
                 $_payLabels = ['donation' => '💳 Донейшен', 'crypto' => '₿ Крипта', 'monobank' => '🏦 Монобанк', 'other' => '💰 Другое'];
                 $_payLabel  = $_payLabels[$payMethod] ?? $payMethod;
@@ -718,7 +739,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
 {$_payLabel}
 💰 Получено: <b>{$_sym}" . number_format($paidAmount, 2, '.', ' ') . "</b>"]]);
                 curl_exec($_ch); curl_close($_ch);
-                $msgAdmin = "✅ Заказ #{$orderId} отмечен как готов.";
+                $msgAdmin = $workDelivered
+                    ? "✅ Заказ #{$orderId} отмечен как готов, файл отправлен клиенту в Telegram."
+                    : "✅ Заказ #{$orderId} отмечен как готов.";
+            } elseif ($action === 'redeliver_work') {
+                // Пересдача после правки (п.2 ТЗ) — платёж уже был записан
+                // раньше, тут только новый файл + новое сообщение с кнопками.
+                if (!empty($_FILES['work_file']['name']) && ($_FILES['work_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+                    $origName = basename((string)$_FILES['work_file']['name']);
+                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                    $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
+                    $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+                    $workDir = __DIR__ . '/../uploads/orders/';
+                    if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
+                    $destPath = $workDir . $storedName;
+                    if (is_writable($workDir) && move_uploaded_file($_FILES['work_file']['tmp_name'], $destPath)) {
+                        if (deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $destPath, $storedName, $origName)) {
+                            $pdo->prepare("UPDATE orders SET revision_count = revision_count + 1 WHERE id = ?")->execute([$orderId]);
+                            $msgAdmin = "📤 Заказ #{$orderId}: исправленный файл отправлен клиенту.";
+                        } else {
+                            $message = '❌ Не удалось отправить файл клиенту в Telegram (проверь, привязан ли у него бот).';
+                        }
+                    } else {
+                        $message = '❌ Не удалось сохранить файл на сервере.';
+                    }
+                } else {
+                    $message = '❌ Выбери файл для пересдачи.';
+                }
             } elseif ($action === 'cooperation') {
                 $deadline = calculateOrderDeadline(false);
                 $pdo->prepare("UPDATE orders SET cooperation = TRUE, status = 'in_progress', payment_status = 'skipped', accepted_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
@@ -1929,6 +1976,7 @@ $statusLabels = [
     'in_progress' => 'В процессе',
     'urgent'      => 'Срочный',
     'ready'       => 'Готов',
+    'revision'    => 'На правке',
     'declined'    => 'Отклонён',
 ];
 
@@ -2118,8 +2166,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
         .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
         .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
+        .status.revision    { background: rgba(251,191,36,.16); color: #fbbf24; }
         .status.declined    { background: rgba(239,68,68,.15); color: #fca5a5; }
         tr.order-row.status-ready td       { background: rgba(34,197,94,.08); }
+        tr.order-row.status-revision td    { background: rgba(251,191,36,.07); }
         tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
         tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
@@ -2149,6 +2199,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.3), 0 8px 24px rgba(239,68,68,.12); }
         .admin-order-card.status-ready { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.06); }
         .admin-order-card.status-ready:hover { border-color: rgba(34,197,94,.65); box-shadow: 0 0 0 1px rgba(34,197,94,.3), 0 8px 24px rgba(34,197,94,.12); background: rgba(34,197,94,.09); }
+        .admin-order-card.status-revision { border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.06); }
+        .admin-order-card.status-revision:hover { border-color: rgba(251,191,36,.65); box-shadow: 0 0 0 1px rgba(251,191,36,.3), 0 8px 24px rgba(251,191,36,.12); background: rgba(251,191,36,.09); }
         .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
         .admin-order-card-main { flex: 1; min-width: 0; }
         .admin-order-card-client { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
@@ -3302,6 +3354,30 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             </form>
                                         </div>
 
+                                        <?php if (($viewOrder['status'] ?? '') === 'revision'): ?>
+                                        <!-- 🔧 Заказ на правке — показываем последнюю правку и форму пересдачи -->
+                                        <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);border-radius:14px;padding:18px;">
+                                            <div style="font-size:11px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🔧 Запрошена правка</div>
+                                            <?php
+                                                $lastRevisionNote = '';
+                                                try {
+                                                    $rnStmt = $pdo->prepare("SELECT message FROM order_messages WHERE order_id = ? AND message LIKE 'Запрошена правка:%' ORDER BY id DESC LIMIT 1");
+                                                    $rnStmt->execute([(int)$viewOrder['id']]);
+                                                    $lastRevisionNote = (string)($rnStmt->fetchColumn() ?: '');
+                                                } catch (Throwable $e) {}
+                                            ?>
+                                            <?php if ($lastRevisionNote !== ''): ?>
+                                            <div style="font-size:12.5px;color:#d8d8e8;background:#0e0e15;border:1px solid #232330;border-radius:10px;padding:10px 12px;margin-bottom:14px;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars(preg_replace('/^Запрошена правка:\s*/u', '', $lastRevisionNote))) ?></div>
+                                            <?php endif; ?>
+                                            <form method="POST" enctype="multipart/form-data" style="display:grid;gap:8px;">
+                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                                <input type="hidden" name="order_action" value="redeliver_work">
+                                                <input type="file" name="work_file" required style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
+                                                <button type="submit" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">📤 Пересдать работу</button>
+                                            </form>
+                                        </div>
+                                        <?php endif; ?>
+
                                         <!-- Написать клиенту -->
                                         <div style="background:#111116;border:1px solid #20202c;border-radius:14px;padding:18px;">
                                             <div style="font-size:11px;color:#555568;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Написать клиенту</div>
@@ -3635,9 +3711,14 @@ document.addEventListener('DOMContentLoaded', () => {
 <div id="ready-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
     <div style="background:#13131a;border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:28px 28px 24px;width:360px;max-width:95vw;box-shadow:0 0 60px rgba(0,0,0,.6);">
         <div style="font-size:18px;font-weight:900;color:#fff;margin-bottom:18px;">✅ Отметить как готово</div>
-        <form method="POST" id="ready-form">
+        <form method="POST" id="ready-form" enctype="multipart/form-data">
             <input type="hidden" name="order_id" id="ready-order-id">
             <input type="hidden" name="order_action" value="status">
+            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📎 Файл готовой работы</label>
+            <div style="margin-bottom:16px;">
+                <input type="file" name="work_file" id="ready-work-file" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
+                <div style="font-size:10.5px;color:#666;margin-top:5px;">Уйдёт клиенту в Telegram файлом без сжатия, с кнопками «Принять» / «На правку». Не выбрал файл — клиент получит только текстовое уведомление, без файла.</div>
+            </div>
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
                 <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#fdba74;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
