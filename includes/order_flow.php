@@ -236,6 +236,13 @@ function ensureOrderFlowSchema(PDO $pdo): void
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_message_id BIGINT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_accepted_at TIMESTAMP DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_count INT NOT NULL DEFAULT 0");
+
+        // Цена правки (п.1 доп. ТЗ): 0 — правка бесплатная, дизайнер просто
+        // переделывает; >0 — клиенту сначала уходят реквизиты на оплату
+        // именно этой правки, пересдача файла возможна только после чека.
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_price_rub NUMERIC DEFAULT 0");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_price_uan NUMERIC DEFAULT 0");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_receipt TEXT DEFAULT NULL");
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
     }
@@ -630,4 +637,42 @@ function requestOrderRevision(PDO $pdo, string $token, int $orderId, string $not
                 'text' => "✏️ <b>Правка по заказу #{$orderId}</b>{$srcLabel}\n\n" . htmlspecialchars($note)]]);
         curl_exec($ch); curl_close($ch);
     }
+}
+
+/**
+ * Дизайнер принял правку и назначил её цену (0 — бесплатно, дизайнер
+ * просто переделывает; >0 — клиенту сначала уходят реквизиты, пересдача
+ * файла возможна только после чека — см. п.1 доп. ТЗ). Реквизиты те же,
+ * что и при оформлении обычного заказа (те же env-переменные).
+ */
+function sendRevisionPaymentRequisites(PDO $pdo, string $token, int $orderId, float $rub, float $uan): bool
+{
+    $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+    $stmt->execute([$orderId]);
+    $chatId = trim((string)$stmt->fetchColumn());
+    if ($chatId === '' || !is_numeric($chatId)) return false;
+
+    $rubDetailsRaw = trim((string)(getenv('PAYMENT_REQUISITES_RUB') ?: 'https://www.donationalerts.com/r/andrewkostdzn'));
+    $uanDetails    = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_UAH') ?: '4874070010369708 (Monobank)')), ENT_QUOTES);
+    $cryptoDetails = htmlspecialchars(trim((string)(getenv('PAYMENT_REQUISITES_CRYPTO') ?: 'THMpgSQAPwEB9brstbD12EKPPTwnGoPxC2')), ENT_QUOTES);
+    $rubLine = preg_match('~^https?://~i', $rubDetailsRaw)
+        ? '<a href="' . htmlspecialchars($rubDetailsRaw, ENT_QUOTES) . '">DonationAlerts</a>'
+        : '<code>' . htmlspecialchars($rubDetailsRaw, ENT_QUOTES) . '</code>';
+
+    $text = "✏️ <b>Правка по заказу #{$orderId} принята в работу.</b>\nТребуется доплата.\n\n"
+        . "💰 <b>К оплате:</b>\n<b>{$rub} ₽ / {$uan} ₴</b>\n\n"
+        . "Реквизиты:\n"
+        . "📍 <b>Рубли:</b> {$rubLine}\n"
+        . "📍 <b>Гривны:</b> <code>{$uanDetails}</code>\n"
+        . "📍 <b>Крипта:</b> <code>{$cryptoDetails}</code>\n\n"
+        . "Скинь сюда чек — как только он придёт, дизайнер сразу вернётся к правке.\n\n"
+        . "❓ @Perlo_ovka";
+
+    $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+        CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'parse_mode' => 'HTML', 'text' => $text]]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    $data = json_decode((string)$resp, true);
+    return !empty($data['ok']);
 }

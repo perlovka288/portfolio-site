@@ -697,11 +697,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 notifyClientOrderStatus($pdo, $orderId, 'urgent');
                 $msgAdmin = "⚡️ Заказ #{$orderId} помечен как срочный.";
             } elseif ($action === 'status') {
-                $payMethod   = $_POST['pay_method']   ?? 'other';
-                $paidAmount  = (float)($_POST['paid_amount'] ?? 0);
-                $paidCurrency= in_array($_POST['paid_currency'] ?? '', ['RUB','USD','UAH']) ? $_POST['paid_currency'] : 'RUB';
-                $pdo->prepare("UPDATE orders SET status='ready', payment_method=?, paid_amount=?, paid_currency=? WHERE id=?")
-                    ->execute([$payMethod, $paidAmount, $paidCurrency, $orderId]);
+                // Поля способа оплаты/суммы убраны из этой модалки (теперь
+                // тут только сдача файла) — записываем просто статус.
+                $pdo->prepare("UPDATE orders SET status='ready' WHERE id=?")->execute([$orderId]);
 
                 // Файл готовой работы (п.1 ТЗ) — если приложен, уходит клиенту
                 // sendDocument'ом (без сжатия) с кнопками "Принять"/"На правку"
@@ -724,21 +722,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                     notifyClientOrderStatus($pdo, $orderId, 'ready');
                 }
 
-                // Уведомление себе с деталями оплаты
-                $_payLabels = ['donation' => '💳 Донейшен', 'crypto' => '₿ Крипта', 'monobank' => '🏦 Монобанк', 'other' => '💰 Другое'];
-                $_payLabel  = $_payLabels[$payMethod] ?? $payMethod;
-                $_currSymbols = ['RUB' => '₽', 'USD' => '$', 'UAH' => '₴'];
-                $_sym = $_currSymbols[$paidCurrency] ?? $paidCurrency;
-                $_adminTg = getenv('ADMIN_ID') ?: '1710365896';
-                $_tok = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
-                $_ch = curl_init("https://api.telegram.org/bot{$_tok}/sendMessage");
-                curl_setopt_array($_ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
-                    CURLOPT_POSTFIELDS => ['chat_id' => $_adminTg, 'parse_mode' => 'HTML',
-                        'text' => "✅ <b>Заказ #{$orderId} выполнен</b>
-
-{$_payLabel}
-💰 Получено: <b>{$_sym}" . number_format($paidAmount, 2, '.', ' ') . "</b>"]]);
-                curl_exec($_ch); curl_close($_ch);
                 $msgAdmin = $workDelivered
                     ? "✅ Заказ #{$orderId} отмечен как готов, файл отправлен клиенту в Telegram."
                     : "✅ Заказ #{$orderId} отмечен как готов.";
@@ -765,6 +748,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                     }
                 } else {
                     $message = '❌ Выбери файл для пересдачи.';
+                }
+            } elseif ($action === 'accept_revision') {
+                // Дизайнер принял правку и назначил её цену (доп. п.1 ТЗ):
+                // 0 — бесплатно, сразу можно пересдавать; >0 — сначала
+                // реквизиты клиенту, пересдача доступна только после чека.
+                $revRub = max(0, (float)($_POST['revision_price_rub'] ?? 0));
+                $revUan = max(0, (float)($_POST['revision_price_uan'] ?? 0));
+                if ($revRub > 0 || $revUan > 0) {
+                    $pdo->prepare("UPDATE orders SET status = 'revision_awaiting_payment', revision_price_rub = ?, revision_price_uan = ? WHERE id = ?")
+                        ->execute([$revRub, $revUan, $orderId]);
+                    if (sendRevisionPaymentRequisites($pdo, TELEGRAM_BOT_TOKEN, $orderId, $revRub, $revUan)) {
+                        $msgAdmin = "✏️ Заказ #{$orderId}: реквизиты на оплату правки отправлены клиенту.";
+                    } else {
+                        $message = '❌ Не удалось отправить реквизиты клиенту в Telegram.';
+                    }
+                } else {
+                    $pdo->prepare("UPDATE orders SET status = 'revision_free', revision_price_rub = 0, revision_price_uan = 0 WHERE id = ?")->execute([$orderId]);
+                    $stClient = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+                    $stClient->execute([$orderId]);
+                    $chatIdRev = trim((string)$stClient->fetchColumn());
+                    if ($chatIdRev !== '' && is_numeric($chatIdRev)) {
+                        $chRev = curl_init("https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/sendMessage");
+                        curl_setopt_array($chRev, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                            CURLOPT_POSTFIELDS => ['chat_id' => $chatIdRev, 'text' => "🔧 Правка по заказу #{$orderId} принята в работу бесплатно — просто жди обновлённый файл."]]);
+                        curl_exec($chRev); curl_close($chRev);
+                    }
+                    $msgAdmin = "✏️ Заказ #{$orderId}: правка принята бесплатно, можно пересдавать файл.";
                 }
             } elseif ($action === 'cooperation') {
                 $deadline = calculateOrderDeadline(false);
@@ -1976,7 +1986,10 @@ $statusLabels = [
     'in_progress' => 'В процессе',
     'urgent'      => 'Срочный',
     'ready'       => 'Готов',
-    'revision'    => 'На правке',
+    'revision'                  => 'На правке',
+    'revision_free'             => 'Правка (бесплатно)',
+    'revision_awaiting_payment' => 'Правка: ждём оплату',
+    'revision_paid'             => 'Правка оплачена',
     'declined'    => 'Отклонён',
 ];
 
@@ -2008,7 +2021,9 @@ if (isset($_GET['view_order'])) {
     }
 }
 
-// ── Базовая цена заказа для калькулятора скидки в модалке "Готово" ──────
+// ── Базовая цена заказа (для отображения цены/промокода в карточке
+// заказа — раньше ещё питала калькулятор скидки в модалке "Готово",
+// но тот убрали) ──────────────────────────────────────────────────
 // Единая функция computeOrderPriceWithPromo() (includes/order_flow.php) —
 // сначала +50% за срочность, потом скидка по промокоду.
 $readyCalcBaseRub = 0; $readyCalcBaseUan = 0; $readyCalcDiscountPct = 0;
@@ -2166,10 +2181,16 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .status.in_progress { background: rgba(59,130,246,.14); color: #60a5fa; }
         .status.urgent      { background: rgba(234,88,12,.18); color: #fb923c; }
         .status.ready       { background: rgba(34,197,94,.16); color: #86efac; }
-        .status.revision    { background: rgba(251,191,36,.16); color: #fbbf24; }
+        .status.revision,
+        .status.revision_free,
+        .status.revision_awaiting_payment,
+        .status.revision_paid    { background: rgba(251,191,36,.16); color: #fbbf24; }
         .status.declined    { background: rgba(239,68,68,.15); color: #fca5a5; }
         tr.order-row.status-ready td       { background: rgba(34,197,94,.08); }
-        tr.order-row.status-revision td    { background: rgba(251,191,36,.07); }
+        tr.order-row.status-revision td,
+        tr.order-row.status-revision_free td,
+        tr.order-row.status-revision_awaiting_payment td,
+        tr.order-row.status-revision_paid td    { background: rgba(251,191,36,.07); }
         tr.order-row.status-in_progress td { background: rgba(59,130,246,.05); }
         tr.order-row.status-urgent td      { background: rgba(234,88,12,.10); outline: 1px solid rgba(239,68,68,.25); }
         tr.order-row.status-declined td    { background: rgba(239,68,68,.06); }
@@ -2199,7 +2220,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         .admin-order-card.status-urgent:hover { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.3), 0 8px 24px rgba(239,68,68,.12); }
         .admin-order-card.status-ready { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.06); }
         .admin-order-card.status-ready:hover { border-color: rgba(34,197,94,.65); box-shadow: 0 0 0 1px rgba(34,197,94,.3), 0 8px 24px rgba(34,197,94,.12); background: rgba(34,197,94,.09); }
-        .admin-order-card.status-revision { border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.06); }
+        .admin-order-card.status-revision,
+        .admin-order-card.status-revision_free,
+        .admin-order-card.status-revision_awaiting_payment,
+        .admin-order-card.status-revision_paid { border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.06); }
         .admin-order-card.status-revision:hover { border-color: rgba(251,191,36,.65); box-shadow: 0 0 0 1px rgba(251,191,36,.3), 0 8px 24px rgba(251,191,36,.12); background: rgba(251,191,36,.09); }
         .admin-order-card-id { font-weight: 900; color: #fff; font-size: 14px; flex-shrink: 0; width: 42px; }
         .admin-order-card-main { flex: 1; min-width: 0; }
@@ -2402,8 +2426,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 
         <div class="admin-content">
             <section class="stats-grid">
-                <div class="stat-card accent"><span>Заработано</span><strong><?= money($revenue['rub']??0) ?> ₽</strong><span><?= money($revenue['uan']??0) ?> ₴</span></div>
-                <div class="stat-card"><span>В активе</span><strong><?= money($activeValue['rub']??0) ?> ₽</strong><span><?= money($activeValue['uan']??0) ?> ₴</span></div>
+                <?php /* Заработано / В активе — денежная статистика, убрана
+                         по просьбе (см. блок "Статистика заработка" ниже —
+                         аналогично if(false), легко вернуть обратно). */ ?>
                 <div class="stat-card"><span>Всего заказов</span><strong><?= (int)($orderStats['total']??0) ?></strong></div>
                 <div class="stat-card"><span>Новые</span><strong><?= (int)($orderStats['pending']??0) ?></strong></div>
                 <div class="stat-card warn"><span>Срочные</span><strong><?= (int)($orderStats['urgent']??0) ?></strong></div>
@@ -2435,6 +2460,12 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             </section>
             <?php endif; ?>
 
+            <?php
+            // ── ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ — скрыто по просьбе ("убери
+            // всю статистику связанную с деньгами, пока") тем же паттерном,
+            // что и блок DonationAlerts выше: код не удалён, просто false.
+            if (false):
+            ?>
             <!-- ── ОСНОВНАЯ СТАТИСТИКА: ЗАРАБОТОК ПО СПОСОБАМ ОПЛАТЫ (ручной ввод при "Готово") ── -->
             <div id="earnings" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="color:#8a8a96;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Статистика заработка</span>
@@ -2533,6 +2564,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     <button type="submit" name="add_manual_earning" style="margin-top:4px;border:0;border-radius:10px;padding:11px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;">Сохранить</button>
                 </form>
             </div>
+            <?php endif; ?>
 
             <!-- ════════════════════════════════════════════════════════════
                  ПРОМОКОДЫ — отдельная вкладка, тот же паттерн: форма → карточки → drawer
@@ -3345,7 +3377,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                                         <button type="submit" name="order_action" value="accept_queue">📥 Просто в очередь</button>
                                                     </div>
                                                 </details>
-                                                <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>, <?= (float)$readyCalcBaseRub ?>, <?= (float)$readyCalcBaseUan ?>, <?= (int)$readyCalcDiscountPct ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
+                                                <button type="button" onclick="openReadyModal(<?= (int)$viewOrder['id'] ?>)" style="border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:rgba(52,211,153,.15);color:#34d399;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;transition:.15s;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">✅ Готово</button>
                                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;width:100%;box-sizing:border-box;">
                                                     <button type="submit" name="order_action" value="decline" onclick="return confirm('Отклонить заказ?')" style="border:1px solid rgba(251,113,133,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(251,113,133,.12);color:#fb7185;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">❌ Отклонить</button>
                                                     <button type="submit" name="order_action" value="ban" onclick="return confirm('Добавить в чёрный список?')" style="border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:11px 12px;width:100%;box-sizing:border-box;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;margin:0;-webkit-appearance:none;appearance:none;">🚫 Бан</button>
@@ -3354,10 +3386,11 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             </form>
                                         </div>
 
-                                        <?php if (($viewOrder['status'] ?? '') === 'revision'): ?>
-                                        <!-- 🔧 Заказ на правке — показываем последнюю правку и форму пересдачи -->
+                                        <?php $revStatus = $viewOrder['status'] ?? ''; ?>
+                                        <?php if (in_array($revStatus, ['revision', 'revision_free', 'revision_awaiting_payment', 'revision_paid'], true)): ?>
+                                        <!-- 🔧 Заказ на правке — показываем последнюю правку + нужное действие по статусу -->
                                         <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);border-radius:14px;padding:18px;">
-                                            <div style="font-size:11px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🔧 Запрошена правка</div>
+                                            <div style="font-size:11px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🔧 Правка по заказу</div>
                                             <?php
                                                 $lastRevisionNote = '';
                                                 try {
@@ -3369,12 +3402,35 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <?php if ($lastRevisionNote !== ''): ?>
                                             <div style="font-size:12.5px;color:#d8d8e8;background:#0e0e15;border:1px solid #232330;border-radius:10px;padding:10px 12px;margin-bottom:14px;white-space:pre-wrap;word-break:break-word;"><?= nl2br(htmlspecialchars(preg_replace('/^Запрошена правка:\s*/u', '', $lastRevisionNote))) ?></div>
                                             <?php endif; ?>
+
+                                            <?php if ($revStatus === 'revision'): ?>
+                                            <!-- Шаг 1: назначить цену правки (0 — бесплатно) -->
+                                            <form method="POST" style="display:grid;gap:8px;">
+                                                <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
+                                                <input type="hidden" name="order_action" value="accept_revision">
+                                                <label style="font-size:11px;color:#9a9aa8;">Цена правки (0 — бесплатно)</label>
+                                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                                    <input type="number" name="revision_price_rub" min="0" step="1" placeholder="₽" value="0" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:9px;padding:10px 12px;color:#fff;font-size:14px;font-weight:800;font-family:Montserrat,sans-serif;">
+                                                    <input type="number" name="revision_price_uan" min="0" step="1" placeholder="₴" value="0" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:9px;padding:10px 12px;color:#fff;font-size:14px;font-weight:800;font-family:Montserrat,sans-serif;">
+                                                </div>
+                                                <button type="submit" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">✅ Принять правку</button>
+                                            </form>
+
+                                            <?php elseif ($revStatus === 'revision_awaiting_payment'): ?>
+                                            <!-- Ждём оплату правки от клиента — пересдача пока недоступна -->
+                                            <div style="font-size:13px;color:#fbbf24;font-weight:800;background:#0e0e15;border:1px solid rgba(251,191,36,.25);border-radius:10px;padding:12px 14px;">
+                                                ⏳ Ждём оплату правки: <?= number_format((float)$viewOrder['revision_price_rub'], 0) ?> ₽ / <?= number_format((float)$viewOrder['revision_price_uan'], 0) ?> ₴
+                                            </div>
+
+                                            <?php else: /* revision_free / revision_paid */ ?>
+                                            <!-- Шаг 2: пересдать исправленный файл -->
                                             <form method="POST" enctype="multipart/form-data" style="display:grid;gap:8px;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <input type="hidden" name="order_action" value="redeliver_work">
                                                 <input type="file" name="work_file" required style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
                                                 <button type="submit" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">📤 Пересдать работу</button>
                                             </form>
+                                            <?php endif; ?>
                                         </div>
                                         <?php endif; ?>
 
@@ -3715,40 +3771,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="hidden" name="order_id" id="ready-order-id">
             <input type="hidden" name="order_action" value="status">
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📎 Файл готовой работы</label>
-            <div style="margin-bottom:16px;">
+            <div style="margin-bottom:20px;">
                 <input type="file" name="work_file" id="ready-work-file" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
                 <div style="font-size:10.5px;color:#666;margin-top:5px;">Уйдёт клиенту в Telegram файлом без сжатия, с кнопками «Принять» / «На правку». Не выбрал файл — клиент получит только текстовое уведомление, без файла.</div>
-            </div>
-            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Способ оплаты</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
-                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="donation" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-donation" onclick="selectPayMethod2('donation')" style="border:1px solid rgba(249,115,22,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#fdba74;background:rgba(249,115,22,.08);cursor:pointer;transition:.15s;">💳<br>Донейшен</div></label>
-                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="crypto" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-crypto" onclick="selectPayMethod2('crypto')" style="border:1px solid rgba(96,165,250,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#93c5fd;background:rgba(96,165,250,.08);cursor:pointer;transition:.15s;">₿<br>Крипта</div></label>
-                <label style="cursor:pointer;"><input type="radio" name="pay_method" value="monobank" style="display:none;" onchange="selectPayMethod(this)"><div class="pay-method-btn" id="pm-monobank" onclick="selectPayMethod2('monobank')" style="border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;font-weight:800;color:#86efac;background:rgba(34,197,94,.08);cursor:pointer;transition:.15s;">🏦<br>Монобанк</div></label>
-            </div>
-            <div id="discount-calc" style="background:#0e0e15;border:1px solid #232330;border-radius:12px;padding:14px;margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🧮 Калькулятор скидки</div>
-                <div id="discount-base-line" style="font-size:12px;color:#9a9aa8;margin-bottom:10px;">Базовая цена (с учётом срочности): <strong id="discount-base-text" style="color:#fff;">—</strong></div>
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                    <input type="range" id="discount-slider" min="1" max="100" value="10" style="flex:1;accent-color:#f97316;">
-                    <span style="min-width:42px;text-align:right;font-weight:900;color:#fdba74;font-size:14px;"><span id="discount-pct-label">10</span>%</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <label style="font-size:11px;color:#888;white-space:nowrap;">Скидка, ₽:</label>
-                    <input type="number" id="discount-amount-input" step="0.01" min="0" style="flex:1;background:#0a0a10;border:1px solid #2a2a38;border-radius:8px;padding:8px 10px;color:#fff;font-size:13px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;">
-                </div>
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid #1e1e28;">
-                    <span style="font-size:12px;color:#9a9aa8;">Итого к оплате: <strong id="discount-final-text" style="color:#4ade80;font-size:15px;">—</strong></span>
-                    <button type="button" onclick="applyDiscountToAmount()" style="border:1px solid rgba(249,115,22,.4);background:rgba(249,115,22,.15);color:#fdba74;font-weight:800;font-size:11px;border-radius:8px;padding:7px 10px;cursor:pointer;">Подставить в сумму</button>
-                </div>
-            </div>
-            <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Сумма получена</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">
-                <input type="number" name="paid_amount" id="ready-amount" step="0.01" min="0" placeholder="Сумма..." style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 16px;color:#fff;font-size:20px;font-weight:900;font-family:Montserrat,sans-serif;outline:none;letter-spacing:1px;width:100%;box-sizing:border-box;">
-                <select name="paid_currency" id="ready-currency" style="background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:14px 14px;color:#fff;font-size:16px;font-weight:800;font-family:Montserrat,sans-serif;outline:none;cursor:pointer;width:100%;box-sizing:border-box;">
-                    <option value="RUB">₽ RUB</option>
-                    <option value="USD">$ USD</option>
-                    <option value="UAH">₴ UAH</option>
-                </select>
             </div>
             <div style="display:flex;gap:10px;">
                 <button type="submit" style="flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;padding:12px;color:#fff;font-size:14px;font-weight:900;cursor:pointer;font-family:Montserrat,sans-serif;">✅ Подтвердить</button>
@@ -3758,90 +3783,20 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
 </div>
 <script>
+function openReadyModal(orderId) {
+    document.getElementById('ready-order-id').value = orderId;
+    document.getElementById('ready-modal').style.display = 'flex';
+}
+function closeReadyModal() {
+    document.getElementById('ready-modal').style.display = 'none';
+    document.getElementById('ready-form').reset();
+}
+</script>
+<script>
 let _selectedPayMethod = 'donation';
 let _discountBaseRub = 0;
 let _discountBaseUan = 0;
 
-function openReadyModal(orderId, baseRub, baseUan, discountPct) {
-    document.getElementById('ready-order-id').value = orderId;
-    document.getElementById('ready-modal').style.display = 'flex';
-    selectPayMethod2('donation');
-
-    _discountBaseRub = Number(baseRub) || 0;
-    _discountBaseUan = Number(baseUan) || 0;
-
-    var slider = document.getElementById('discount-slider');
-    var pct = Number(discountPct) || 0;
-    // Если у заказа уже стоит промокод со скидкой — сразу выставляем её
-    // ползунком, чтобы не сверять руками; если нет — по умолчанию 10%,
-    // просто как отправная точка для расчёта.
-    slider.value = pct > 0 ? pct : 10;
-
-    document.getElementById('discount-base-text').textContent =
-        _discountBaseRub > 0 ? (_discountBaseRub.toFixed(2) + ' ₽ / ' + _discountBaseUan.toFixed(2) + ' ₴') : 'нет данных о цене услуги';
-
-    recalcDiscountFromSlider();
-}
-
-function closeReadyModal() {
-    document.getElementById('ready-modal').style.display = 'none';
-}
-
-// Ползунок -> сумма скидки (двигаем ползунок, поле суммы плавно подстраивается)
-function recalcDiscountFromSlider() {
-    var slider = document.getElementById('discount-slider');
-    var pct = Number(slider.value);
-    document.getElementById('discount-pct-label').textContent = pct;
-    var discountRub = _discountBaseRub * pct / 100;
-    document.getElementById('discount-amount-input').value = discountRub.toFixed(2);
-    updateDiscountFinalText(pct);
-}
-
-// Поле суммы -> процент (вписал сумму руками, ползунок сам встаёт на нужный %)
-function recalcDiscountFromAmount() {
-    var amountInput = document.getElementById('discount-amount-input');
-    var amount = Number(amountInput.value) || 0;
-    var pct = _discountBaseRub > 0 ? Math.min(100, Math.max(0, (amount / _discountBaseRub) * 100)) : 0;
-    var slider = document.getElementById('discount-slider');
-    slider.value = Math.round(pct);
-    document.getElementById('discount-pct-label').textContent = Math.round(pct);
-    updateDiscountFinalText(pct, amount);
-}
-
-function updateDiscountFinalText(pct, exactAmountRub) {
-    var discountRub = (exactAmountRub !== undefined) ? exactAmountRub : (_discountBaseRub * pct / 100);
-    var finalRub = Math.max(0, _discountBaseRub - discountRub);
-    var finalUan = _discountBaseUan > 0 ? Math.max(0, _discountBaseUan * (finalRub / (_discountBaseRub || 1))) : 0;
-    document.getElementById('discount-final-text').textContent =
-        _discountBaseRub > 0 ? (finalRub.toFixed(2) + ' ₽ / ' + finalUan.toFixed(2) + ' ₴') : '—';
-}
-
-function applyDiscountToAmount() {
-    var pct = Number(document.getElementById('discount-slider').value);
-    var discountRub = _discountBaseRub * pct / 100;
-    var finalRub = Math.max(0, _discountBaseRub - discountRub);
-    document.getElementById('ready-amount').value = finalRub.toFixed(2);
-    document.getElementById('ready-currency').value = 'RUB';
-}
-
-document.getElementById('discount-slider').addEventListener('input', recalcDiscountFromSlider);
-document.getElementById('discount-amount-input').addEventListener('input', recalcDiscountFromAmount);
-
-function selectPayMethod(radioEl) {
-    if (radioEl && radioEl.value) selectPayMethod2(radioEl.value);
-}
-function selectPayMethod2(method) {
-    _selectedPayMethod = method;
-    ['donation','crypto','monobank'].forEach(m => {
-        const el = document.getElementById('pm-' + m);
-        if (!el) return;
-        el.style.opacity = m === method ? '1' : '0.45';
-        el.style.transform = m === method ? 'scale(1.05)' : 'scale(1)';
-    });
-    // Set hidden radio
-    const radio = document.querySelector('input[name="pay_method"][value="' + method + '"]');
-    if (radio) radio.checked = true;
-}
 document.getElementById('ready-modal').addEventListener('click', function(e) {
     if (e.target === this) closeReadyModal();
 });

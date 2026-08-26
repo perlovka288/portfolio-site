@@ -568,6 +568,10 @@ function profileStatusLabel(string $s): string {
         'in_progress' => 'В работе',
         'urgent'      => 'Срочный',
         'ready'       => 'Готов',
+        'revision'                  => 'Правка: жди уточнение',
+        'revision_free'             => 'Правка в работе',
+        'revision_awaiting_payment' => 'Правка: ждёт оплаты',
+        'revision_paid'             => 'Правка в работе',
         'declined'    => 'Отклонён',
         default       => ucfirst($s),
     };
@@ -579,6 +583,7 @@ function profileStatusColor(string $s): string {
         'in_progress' => '#60a5fa',
         'urgent'      => '#f43f5e',
         'ready'       => '#4ade80',
+        'revision', 'revision_free', 'revision_awaiting_payment', 'revision_paid' => '#fbbf24',
         'declined'    => '#6b7280',
         default       => '#8a8a96',
     };
@@ -590,6 +595,8 @@ function profileStatusEmoji(string $s): string {
         'in_progress' => '🚀',
         'urgent'      => '⚡',
         'ready'       => '✅',
+        'revision', 'revision_free', 'revision_paid' => '🔧',
+        'revision_awaiting_payment' => '💳',
         'declined'    => '❌',
         default       => '📦',
     };
@@ -632,7 +639,7 @@ $displayName = $profile ? (
     (!empty($profile['tg_username'])  ? '@' . ltrim($profile['tg_username'], '@') : 'Гость')
 ) : 'Гость';
 
-$activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','awaiting_payment','in_progress','urgent']));
+$activeOrders   = array_filter($orders, fn($o) => in_array($o['status'], ['pending','awaiting_payment','in_progress','urgent','revision','revision_free','revision_awaiting_payment','revision_paid']));
 $finishedOrders = array_filter($orders, fn($o) => in_array($o['status'], ['ready','declined']));
 
 $statusPriority = ['urgent' => 0, 'in_progress' => 1, 'awaiting_payment' => 2, 'pending' => 3];
@@ -1168,6 +1175,23 @@ body::before {
                 </div>
                 <?php elseif (!empty($order['payment_receipt'])): ?>
                 <div style="font-size:12px;color:#86efac;margin-bottom:12px;">✅ Чек оплаты прикреплен к заказу.</div>
+                <?php endif; ?>
+
+                <?php if ($order['status'] === 'revision'): ?>
+                <div style="font-size:12px;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;padding:10px 12px;margin-bottom:12px;">🔧 Правка получена, дизайнер сейчас её оценивает.</div>
+                <?php elseif ($order['status'] === 'revision_free'): ?>
+                <div style="font-size:12px;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;padding:10px 12px;margin-bottom:12px;">🔧 Правка принята в работу бесплатно — жди обновлённый файл.</div>
+                <?php elseif ($order['status'] === 'revision_awaiting_payment'): ?>
+                <div class="pay-card">
+                    <div class="pay-card-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+                        Реквизиты на правку отправлены в Telegram
+                    </div>
+                    <div class="pay-card-hint">К оплате: <?= number_format((float)($order['revision_price_rub'] ?? 0), 0) ?> ₽ / <?= number_format((float)($order['revision_price_uan'] ?? 0), 0) ?> ₴. Чек нужно прислать в чат с ботом — как только он придёт, дизайнер сразу вернётся к правке.</div>
+                    <div class="pay-card-support">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank">@Perlo_ovka</a></div>
+                </div>
+                <?php elseif ($order['status'] === 'revision_paid'): ?>
+                <div style="font-size:12px;color:#86efac;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:10px;padding:10px 12px;margin-bottom:12px;">✅ Оплата правки получена — дизайнер уже работает.</div>
                 <?php endif; ?>
 
                 <div class="order-actions-row">

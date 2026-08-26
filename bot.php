@@ -653,6 +653,39 @@ if (isset($update['message'])) {
         $receiptDocFileName = (string)($update['message']['document']['file_name'] ?? '');
     }
 
+    // ── Чек оплаты ПРАВКИ (доп. п.1 ТЗ) — отдельный, более простой поток:
+    // просто пересылаем чек админу и открываем пересдачу файла, без
+    // пересчёта дедлайна/срочности (это не относится к правкам).
+    if ($receiptFileId !== '') {
+        try {
+            $revStmt = $pdo->prepare("SELECT id, revision_price_rub, revision_price_uan FROM orders WHERE client_chat_id = ? AND status = 'revision_awaiting_payment' ORDER BY id DESC LIMIT 1");
+            $revStmt->execute([(string)$chat_id]);
+            $revOrder = $revStmt->fetch(PDO::FETCH_ASSOC);
+            if ($revOrder) {
+                $revOrderId = (int)$revOrder['id'];
+                $pdo->prepare("UPDATE orders SET status = 'revision_paid', revision_receipt = ? WHERE id = ?")->execute([$receiptFileId, $revOrderId]);
+                sendTelegram($token, 'sendMessage', [
+                    'chat_id' => $chat_id,
+                    'text'    => "✅ Чек получен, спасибо! Дизайнер возвращается к правке заказа #{$revOrderId}.",
+                ]);
+                $adminIdRev = getenv('ADMIN_ID') ?: '';
+                if ($adminIdRev !== '') {
+                    $capRev = "💳 Оплата правки по заказу #{$revOrderId} получена ("
+                        . number_format((float)$revOrder['revision_price_rub'], 0) . " ₽ / "
+                        . number_format((float)$revOrder['revision_price_uan'], 0) . " ₴). Можно пересдавать файл.";
+                    if ($receiptIsDocument) {
+                        sendTelegram($token, 'sendDocument', ['chat_id' => $adminIdRev, 'document' => $receiptFileId, 'caption' => $capRev]);
+                    } else {
+                        sendTelegram($token, 'sendPhoto', ['chat_id' => $adminIdRev, 'photo' => $receiptFileId, 'caption' => $capRev]);
+                    }
+                }
+                exit;
+            }
+        } catch (Throwable $e) {
+            error_log('[bot.php] revision receipt handling error: ' . $e->getMessage());
+        }
+    }
+
     // Примечание: раньше здесь стояло условие "$chat_id !== $admin_id", которое
     // полностью блокировало распознавание чека, если админ тестирует весь флоу
     // под своим же Telegram-аккаунтом (в роли клиента). Настоящей защитой от
