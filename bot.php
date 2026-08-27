@@ -57,15 +57,34 @@ if (isset($update['callback_query'])) {
     botLog("callback chat={$cal_chat_id} data={$callback_data}");
 
     // ── Клиентские колбэки (просмотр своего заказа) ──
+    // Переиспользуем текущее сообщение (editMessageText), а не шлём новое —
+    // раньше каждый клик плодил новое сообщение, чат быстро зарастал.
     if (strpos($callback_data, 'cli_view_') === 0) {
         $order_id = (int)str_replace('cli_view_', '', $callback_data);
-        showClientOrderDetails($pdo, $token, $cal_chat_id, $order_id);
+        showClientOrderDetails($pdo, $token, $cal_chat_id, $order_id, $msg_id, $site_url);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
         exit;
     }
 
     if ($callback_data === 'cli_cabinet') {
-        showCabinet($pdo, $token, $cal_chat_id);
+        showCabinet($pdo, $token, $cal_chat_id, $msg_id);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // "Мои заказы" → "У вас пока нет заказов" → кнопка "Сделать заказ"
+    if ($callback_data === 'cli_make_order') {
+        $auto_token = autoLinkGenerateToken($pdo, (int)$cal_chat_id, []);
+        $order_url  = rtrim($site_url, '/') . '/order.php?tg_token=' . $auto_token;
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $cal_chat_id,
+            'text'         => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически. Если Mini App не открывается — жми вторую кнопку:",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode(['inline_keyboard' => [
+                [['text' => '🚀 Заказать через Mini App', 'web_app' => ['url' => $order_url]]],
+                [['text' => '🌐 Заказать на сайте', 'url' => $order_url]],
+            ]], JSON_UNESCAPED_UNICODE),
+        ]);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
         exit;
     }
@@ -1721,50 +1740,71 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
 /**
  * Показывает личный кабинет клиента — список его заказов с кнопками.
  */
-function showCabinet($pdo, $token, $chat_id) {
+/**
+ * Личный кабинет — список заказов клиента компактными inline-кнопками.
+ * $editMessageId — если передан, редактирует ЭТО сообщение (клик по кнопке
+ * "Назад к списку" из карточки заказа), иначе отправляет новое (первый
+ * заход через кнопку "Мои заказы"/команду /cabinet).
+ */
+function showCabinet($pdo, $token, $chat_id, $editMessageId = null) {
     try {
+        // Ищем заказы по client_chat_id — привязывается автоматически при
+        // любом взаимодействии с ботом (оформление заказа, /status_ и т.д.),
+        // руками искать/вводить номер заказа больше не нужно.
         $stmt = $pdo->prepare("
-            SELECT id, service_key, status, created_at
-            FROM orders
-            WHERE client_chat_id = ?
-            ORDER BY created_at DESC
-            LIMIT 10
+            SELECT o.id, o.status, o.is_urgent, o.created_at, p.title AS service_title
+            FROM orders o
+            LEFT JOIN prices p ON p.category_key = o.service_key
+            WHERE o.client_chat_id = ?
+            ORDER BY o.created_at DESC
+            LIMIT 15
         ");
         $stmt->execute([$chat_id]);
         $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (empty($orders)) {
-            sendTelegram($token, 'sendMessage', [
-                'chat_id'    => $chat_id,
-                'text'       => "📂 *Личный кабинет*\n\nУ вас пока нет привязанных заказов.\n\nЧтобы привязать заказ, отправьте команду:\n`/status_НОМЕР_ЗАКАЗА`\n\nНомер заказа вы получили на сайте при оформлении.",
-                'parse_mode' => 'Markdown',
-            ]);
+            $payload = [
+                'chat_id'      => $chat_id,
+                'text'         => "📂 *Мои заказы*\n\nУ вас пока нет активных заказов.",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(['inline_keyboard' => [[
+                    ['text' => '📝 Сделать заказ', 'callback_data' => 'cli_make_order'],
+                ]]], JSON_UNESCAPED_UNICODE),
+            ];
+            if ($editMessageId) {
+                $payload['message_id'] = $editMessageId;
+                sendTelegram($token, 'editMessageText', $payload);
+            } else {
+                sendTelegram($token, 'sendMessage', $payload);
+            }
             return;
         }
 
-        $text     = "📂 *Ваши заказы:*\n\n";
+        $text = "📂 *Мои заказы* (" . count($orders) . ")\n\nВыбери заказ, чтобы посмотреть детали 👇";
         $keyboard = ['inline_keyboard' => []];
-
         foreach ($orders as $o) {
-            $emoji  = statusEmoji($o['status']);
-            $label  = statusLabel($o['status']);
-            $date   = date('d.m.Y', strtotime($o['created_at']));
-            $svc    = $o['service_key'] ?? '?';
-            $text  .= "{$emoji} *Заказ #{$o['id']}* — {$label}\n";
+            $emoji = statusEmoji($o['status']);
+            $label = statusLabel($o['status']);
+            $svc   = $o['service_title'] ?: '—';
+            $numLabel = str_pad((string)$o['id'], 2, '0', STR_PAD_LEFT);
             $keyboard['inline_keyboard'][] = [[
-                'text'          => "{$emoji} Заказ #{$o['id']} • {$svc} • {$date}",
+                'text'          => "{$emoji} Заказ #{$numLabel} — {$svc} ({$label})",
                 'callback_data' => "cli_view_{$o['id']}",
             ]];
         }
 
-        $text .= "\nНажмите на заказ, чтобы увидеть подробности.";
-
-        sendTelegram($token, 'sendMessage', [
+        $payload = [
             'chat_id'      => $chat_id,
             'text'         => $text,
             'parse_mode'   => 'Markdown',
             'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
-        ]);
+        ];
+        if ($editMessageId) {
+            $payload['message_id'] = $editMessageId;
+            sendTelegram($token, 'editMessageText', $payload);
+        } else {
+            sendTelegram($token, 'sendMessage', $payload);
+        }
 
     } catch (Exception $e) {
         botLog("showCabinet error: " . $e->getMessage());
@@ -1777,8 +1817,10 @@ function showCabinet($pdo, $token, $chat_id) {
 
 /**
  * Показывает клиенту детали конкретного заказа.
+ * $editMessageId — редактирует существующее сообщение (клик по заказу из
+ * списка), иначе отправляет новое.
  */
-function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
+function showClientOrderDetails($pdo, $token, $chat_id, $order_id, $editMessageId = null, $site_url = '') {
     try {
         $stmt = $pdo->prepare("
             SELECT id, service_key, status, details, created_at, screenshot, example_photo, cooperation, deadline, payment_status, payment_receipt
@@ -1835,16 +1877,31 @@ function showClientOrderDetails($pdo, $token, $chat_id, $order_id) {
         $text .= "📅 *Создан:* {$date}\n";
         $text .= "{$deadline}\n";
 
-        $keyboard = ['inline_keyboard' => [[
-            ['text' => '◀️ Назад к списку', 'callback_data' => 'cli_cabinet'],
-        ]]];
+        $keyboard = ['inline_keyboard' => []];
+        // Row 1: открыть заказ в Mini App (страница профиля/трекинга заказа
+        // на сайте, но как Mini App — остаётся внутри Telegram)
+        if ($site_url !== '') {
+            $miniAppUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order['id'];
+            try { $miniAppUrl .= '&tg_token=' . autoLinkGenerateToken($pdo, (int)$chat_id, []); } catch (Throwable $e) {}
+            $keyboard['inline_keyboard'][] = [['text' => '📱 Открыть в Mini App', 'web_app' => ['url' => $miniAppUrl]]];
+        }
+        // Row 2: написать дизайнеру напрямую — прямая ссылка на ЛС
+        $keyboard['inline_keyboard'][] = [['text' => '💬 Написать дизайнеру', 'url' => 'https://t.me/Perlo_ovka']];
+        // Row 3: назад к списку
+        $keyboard['inline_keyboard'][] = [['text' => '◀️ Назад к списку', 'callback_data' => 'cli_cabinet']];
 
-        sendTelegram($token, 'sendMessage', [
+        $payload = [
             'chat_id'      => $chat_id,
             'text'         => $text,
             'parse_mode'   => 'Markdown',
             'reply_markup' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
-        ]);
+        ];
+        if ($editMessageId) {
+            $payload['message_id'] = $editMessageId;
+            sendTelegram($token, 'editMessageText', $payload);
+        } else {
+            sendTelegram($token, 'sendMessage', $payload);
+        }
 
         // ── Показываем фото, прикреплённые к заказу (референсы + чек) ──
         // Раньше при просмотре заказа через бота клиент видел только текст —
