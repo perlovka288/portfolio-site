@@ -140,6 +140,54 @@ if (isset($_POST['request_revision'])) {
     exit;
 }
 
+// ── Чек оплаты правки, прикреплённый прямо на сайте ("как уже сделано в
+// обычном заказе" — тот же паттерн, что и upload_payment_receipt выше,
+// только для revision_awaiting_payment) ──
+if (isset($_POST['upload_revision_receipt'])) {
+    $revReceiptOrderId = (int)($_POST['order_id'] ?? 0);
+    $redirect = $_SERVER['PHP_SELF'] . '?order=' . $revReceiptOrderId;
+    try {
+        $orderRow = profileOwnsOrder($pdo, $revReceiptOrderId, $sid);
+        if (!$orderRow || $orderRow['status'] !== 'revision_awaiting_payment') {
+            header('Location: ' . $redirect . '&receipt=bad_order');
+            exit;
+        }
+        if (empty($_FILES['revision_receipt']['tmp_name']) || ($_FILES['revision_receipt']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            header('Location: ' . $redirect . '&receipt=bad_file');
+            exit;
+        }
+
+        $tmp = $_FILES['revision_receipt']['tmp_name'];
+        $ext = strtolower(pathinfo((string)($_FILES['revision_receipt']['name'] ?? ''), PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf'], true)) $ext = 'jpg';
+        $dir = __DIR__ . '/uploads/orders/';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $fileName = 'revreceipt_' . $revReceiptOrderId . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $target = $dir . $fileName;
+        if (!move_uploaded_file($tmp, $target)) {
+            header('Location: ' . $redirect . '&receipt=bad_file');
+            exit;
+        }
+
+        $receiptPath = ($ext !== 'pdf') ? uploadReceiptToImgBB($target, 'revreceipt_' . $revReceiptOrderId) : '';
+        if ($receiptPath === '') $receiptPath = $fileName;
+
+        $pdo->prepare("UPDATE orders SET status = 'revision_paid', revision_receipt = ? WHERE id = ?")->execute([$receiptPath, $revReceiptOrderId]);
+        addOrderMessage($pdo, $revReceiptOrderId, 'client', 'Клиент отправил чек оплаты правки через сайт.', $receiptPath);
+
+        $adminText = "💳 Оплата правки по заказу #{$revReceiptOrderId} получена (через сайт). Можно пересдавать файл.";
+        $absoluteReceiptUrl = str_starts_with($receiptPath, 'http') ? $receiptPath : ($siteUrl . 'uploads/orders/' . ltrim($receiptPath, '/'));
+        if ($ext === 'pdf') {
+            profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $adminTgId, 'text' => $adminText . "\n" . $absoluteReceiptUrl]);
+        } else {
+            profileSendTelegram($botToken, 'sendPhoto', ['chat_id' => $adminTgId, 'photo' => $absoluteReceiptUrl, 'caption' => $adminText]);
+        }
+        profileSendTelegram($botToken, 'sendMessage', ['chat_id' => $orderRow['client_chat_id'] ?? '', 'text' => "✅ Чек получен, спасибо! Дизайнер возвращается к правке заказа #{$revReceiptOrderId}."]);
+    } catch (Throwable $e) {}
+    header('Location: ' . $redirect);
+    exit;
+}
+
 // ── Редактирование ТЗ заказа клиентом (пока заказ не взят в работу) ──
 $editMsg = '';
 if (isset($_POST['edit_order_details'])) {
@@ -1187,7 +1235,19 @@ body::before {
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
                         Реквизиты на правку отправлены в Telegram
                     </div>
-                    <div class="pay-card-hint">К оплате: <?= number_format((float)($order['revision_price_rub'] ?? 0), 0) ?> ₽ / <?= number_format((float)($order['revision_price_uan'] ?? 0), 0) ?> ₴. Чек нужно прислать в чат с ботом — как только он придёт, дизайнер сразу вернётся к правке.</div>
+                    <div class="pay-card-hint">К оплате: <?= number_format((float)($order['revision_price_rub'] ?? 0), 0) ?> ₽ / <?= number_format((float)($order['revision_price_uan'] ?? 0), 0) ?> ₴. Прикрепи чек здесь или пришли в чат с ботом — как только он придёт, дизайнер сразу вернётся к правке.</div>
+                    <form method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="order_id" value="<?= $oid ?>">
+                        <div class="file-picker-row">
+                            <label class="file-picker-label" for="rev-receipt-file-<?= $oid ?>">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                                Выбрать файл
+                                <input type="file" id="rev-receipt-file-<?= $oid ?>" name="revision_receipt" accept="image/*,.pdf" required onchange="document.getElementById('rev-receipt-name-<?= $oid ?>').textContent = this.files[0] ? this.files[0].name : 'Файл не выбран'; var rb=document.getElementById('rev-receipt-submit-<?= $oid ?>'); rb.disabled = !this.files[0]; rb.style.opacity = this.files[0] ? '1' : '.5'; rb.style.cursor = this.files[0] ? 'pointer' : 'not-allowed';">
+                            </label>
+                            <span class="file-picker-name" id="rev-receipt-name-<?= $oid ?>">Файл не выбран</span>
+                        </div>
+                        <button type="submit" name="upload_revision_receipt" id="rev-receipt-submit-<?= $oid ?>" class="btn-appeal-submit" disabled style="opacity:.5;cursor:not-allowed;">💳 Отправить чек</button>
+                    </form>
                     <div class="pay-card-support">По вопросам оплаты пишите - <a href="https://t.me/Perlo_ovka" target="_blank">@Perlo_ovka</a></div>
                 </div>
                 <?php elseif ($order['status'] === 'revision_paid'): ?>
@@ -1348,21 +1408,29 @@ body::before {
             </div>
 
             <?php if ($order['status'] === 'ready' && !empty($order['work_file'])): ?>
-            <!-- П.1/3 ТЗ: сданная работа — скачивание + приём/правка прямо на сайте -->
-            <?php $workFileUrl = imgSrc((string)$order['work_file'], 'uploads/orders/'); ?>
+            <!-- П.1/3 ТЗ: сданная работа (может быть несколько файлов) — скачивание + приём/правка прямо на сайте -->
+            <?php
+                $workFileList     = decodeReceiptList((string)$order['work_file']);
+                $workFileNameList = decodeReceiptList((string)($order['work_file_name'] ?? ''));
+            ?>
+            <?php foreach ($workFileList as $wi => $wf): ?>
+            <?php $workFileUrl = imgSrc((string)$wf, 'uploads/orders/'); $wfName = $workFileNameList[$wi] ?? ('Файл ' . ($wi + 1)); ?>
             <div style="display:flex;align-items:center;gap:10px;background:#0e0e15;border:1px solid #232330;border-radius:12px;padding:12px 14px;margin-top:10px;">
                 <div style="flex:1;min-width:0;">
-                    <div style="font-size:12px;color:#e0e0ec;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📄 <?= htmlspecialchars($order['work_file_name'] ?: 'Готовая работа') ?></div>
-                    <?php if (!empty($order['client_accepted_at'])): ?>
-                    <div style="font-size:11px;color:#4ade80;margin-top:2px;">✅ Принято</div>
-                    <?php elseif ((int)($order['revision_count'] ?? 0) > 0): ?>
-                    <div style="font-size:11px;color:#8a8a96;margin-top:2px;">Правок: <?= (int)$order['revision_count'] ?></div>
+                    <div style="font-size:12px;color:#e0e0ec;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📄 <?= htmlspecialchars($wfName ?: 'Готовая работа') ?></div>
+                    <?php if ($wi === 0): ?>
+                        <?php if (!empty($order['client_accepted_at'])): ?>
+                        <div style="font-size:11px;color:#4ade80;margin-top:2px;">✅ Принято</div>
+                        <?php elseif ((int)($order['revision_count'] ?? 0) > 0): ?>
+                        <div style="font-size:11px;color:#8a8a96;margin-top:2px;">Правок: <?= (int)$order['revision_count'] ?></div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
-                <a href="<?= htmlspecialchars($workFileUrl) ?>" download="<?= htmlspecialchars($order['work_file_name'] ?: 'work') ?>" title="Скачать оригинал" style="flex-shrink:0;width:38px;height:38px;border-radius:10px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.35);display:flex;align-items:center;justify-content:center;color:#fdba74;text-decoration:none;">
+                <a href="<?= htmlspecialchars($workFileUrl) ?>" download="<?= htmlspecialchars($wfName ?: 'work') ?>" title="Скачать оригинал" style="flex-shrink:0;width:38px;height:38px;border-radius:10px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.35);display:flex;align-items:center;justify-content:center;color:#fdba74;text-decoration:none;">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </a>
             </div>
+            <?php endforeach; ?>
             <?php if (empty($order['client_accepted_at'])): ?>
             <div style="display:flex;gap:8px;margin-top:8px;">
                 <form method="POST" style="flex:1;">

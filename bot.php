@@ -89,14 +89,22 @@ if (isset($update['callback_query'])) {
         $pdo->prepare("UPDATE orders SET client_accepted_at = NOW() WHERE id = ?")->execute([$order_id]);
         // Убираем кнопки из сообщения с файлом — чтобы нельзя было нажать
         // повторно / случайно запросить правку после уже принятой работы.
+        // Кнопки прикреплены только к последнему сообщению (текст с
+        // клавиатурой) — остальные сообщения альбома (если файлов было
+        // несколько) кнопок не имеют, их трогать не нужно.
         sendTelegram($token, 'editMessageReplyMarkup', [
             'chat_id'      => $cal_chat_id,
             'message_id'   => $msg_id,
             'reply_markup' => json_encode(['inline_keyboard' => []], JSON_UNESCAPED_UNICODE),
         ]);
         sendTelegram($token, 'sendMessage', [
-            'chat_id' => $cal_chat_id,
-            'text'    => "🎉 Спасибо! Заказ #{$order_id} закрыт. Будем рады новому заказу!",
+            'chat_id'      => $cal_chat_id,
+            'text'         => "🎉 Спасибо! Заказ #{$order_id} закрыт. Будем рады новому заказу!\n\n⭐ Оставьте, пожалуйста, отзыв на сайте — это очень помогает 🙏",
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '⭐ Оставить отзыв', 'url' => rtrim($site_url, '/') . '/review.php?order=' . $order_id],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
         ]);
         $adminId = getenv('ADMIN_ID') ?: '';
         if ($adminId !== '') {
@@ -107,17 +115,26 @@ if (isset($update['callback_query'])) {
     }
 
     // ── Клиент запрашивает правку (п.2 ТЗ) ──
-    // Шаг 1: сразу удаляем сообщение с файлом (чтобы не путал финальные и
-    // нефинальные версии) и переводим заказ в режим ожидания текста правки.
-    // Шаг 2 (текст правки) ловится в общем обработчике текстовых сообщений
-    // ниже — см. блок "status === 'revision_pending'".
+    // Шаг 1: сразу удаляем ВСЕ сообщения со сданными файлами (если файлов
+    // было несколько — это альбом из нескольких сообщений + отдельное
+    // сообщение с кнопками, все id лежат в work_message_id) и переводим
+    // заказ в режим ожидания текста правки. Шаг 2 (текст правки) ловится
+    // в общем обработчике текстовых сообщений ниже — см. блок
+    // "status === 'revision_pending'".
     if (strpos($callback_data, 'work_revision_') === 0) {
         $order_id = (int)str_replace('work_revision_', '', $callback_data);
         try {
-            $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
-            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-                CURLOPT_POSTFIELDS => ['chat_id' => $cal_chat_id, 'message_id' => $msg_id]]);
-            curl_exec($ch); curl_close($ch);
+            $wmStmt = $pdo->prepare("SELECT work_message_id FROM orders WHERE id = ? LIMIT 1");
+            $wmStmt->execute([$order_id]);
+            $msgIdsToDelete = decodeReceiptList((string)($wmStmt->fetchColumn() ?: ''));
+            if (empty($msgIdsToDelete)) $msgIdsToDelete = [$msg_id]; // на всякий случай — старые заказы без JSON
+            foreach ($msgIdsToDelete as $delMsgId) {
+                if ((int)$delMsgId <= 0) continue;
+                $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
+                curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                    CURLOPT_POSTFIELDS => ['chat_id' => $cal_chat_id, 'message_id' => (int)$delMsgId]]);
+                curl_exec($ch); curl_close($ch);
+            }
         } catch (Throwable $e) {}
         $pdo->prepare("UPDATE orders SET status = 'revision_pending', work_message_id = NULL WHERE id = ?")->execute([$order_id]);
         sendTelegram($token, 'sendMessage', [
@@ -141,6 +158,18 @@ if (isset($update['callback_query'])) {
     if ($callback_data === 'adm_show_queue') {
         showAdminQueue($pdo, $token, $admin_id, $site_url);
         sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id]);
+        exit;
+    }
+
+    // ── "✅ Принять" под уведомлением о правке — просим цену командой ──
+    if (strpos($callback_data, 'adm_revaccept_') === 0) {
+        $order_id = (int)str_replace('adm_revaccept_', '', $callback_data);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $admin_id,
+            'text'       => "Напиши цену правки командой (₽,₴ через запятую; 0,0 — бесплатно):\n`/revprice_{$order_id} 200,100`",
+            'parse_mode' => 'Markdown',
+        ]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Жду цену правки']);
         exit;
     }
 
@@ -637,6 +666,35 @@ if (isset($update['message'])) {
         exit;
     }
 
+    // ── Цена правки прямо из Telegram: /revprice_19 200,100 (0,0 — бесплатно) ──
+    // Появляется после нажатия кнопки "✅ Принять" под уведомлением о
+    // правке (см. requestOrderRevision) — та же логика, что и в веб-
+    // админке (accept_revision), просто через команду вместо формы.
+    if ((string)$chat_id === $admin_id && preg_match('/^\/revprice_(\d+)\s+([\d.,]+)\s*[,\/]\s*([\d.,]+)/u', $text, $m)) {
+        $order_id = (int)$m[1];
+        $revRub = max(0, (float)str_replace(',', '.', $m[2]));
+        $revUan = max(0, (float)str_replace(',', '.', $m[3]));
+        if ($revRub > 0 || $revUan > 0) {
+            $pdo->prepare("UPDATE orders SET status = 'revision_awaiting_payment', revision_price_rub = ?, revision_price_uan = ? WHERE id = ?")
+                ->execute([$revRub, $revUan, $order_id]);
+            if (sendRevisionPaymentRequisites($pdo, $token, $order_id, $revRub, $revUan, $site_url)) {
+                sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "✏️ Заказ #{$order_id}: реквизиты на оплату правки отправлены клиенту."]);
+            } else {
+                sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "❌ Не удалось отправить реквизиты клиенту."]);
+            }
+        } else {
+            $pdo->prepare("UPDATE orders SET status = 'revision_free', revision_price_rub = 0, revision_price_uan = 0 WHERE id = ?")->execute([$order_id]);
+            $stClient = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
+            $stClient->execute([$order_id]);
+            $chatIdRev = trim((string)$stClient->fetchColumn());
+            if ($chatIdRev !== '' && is_numeric($chatIdRev)) {
+                sendTelegram($token, 'sendMessage', ['chat_id' => $chatIdRev, 'text' => "🔧 Правка по заказу #{$order_id} принята в работу бесплатно — просто жди обновлённый файл."]);
+            }
+            sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "✏️ Заказ #{$order_id}: правка принята бесплатно, можно пересдавать файл (в веб-админке)."]);
+        }
+        exit;
+    }
+
     $receiptFileId = '';
     $receiptIsDocument = false;
     $receiptDocFileName = '';
@@ -1059,29 +1117,50 @@ if (isset($update['message'])) {
         exit;
     }
 
-    // Сделать заказ — ссылка с автопривязкой TG
+    // Сделать заказ — ссылка с автопривязкой TG.
+    // Mini App в Telegram Web (браузерная версия) у части пользователей не
+    // открывается вообще (баг самого Telegram Web, не сайта) — работает
+    // стабильно только в приложении. Поэтому теперь 2 кнопки: одна как
+    // раньше открывает форму как Mini App (для тех, у кого работает), вторая
+    // открывает ту же форму обычной ссылкой во внешнем браузере — так
+    // пользователи Telegram Web не упираются в нерабочий Mini App.
     if ($text_key === 'сделать заказ' || $text_key === 'заказ') {
         $auto_token  = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
         $order_url   = rtrim($site_url, '/') . '/order.php?tg_token=' . $auto_token;
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $chat_id,
-            'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную:",
+            'text'       => "🤖 *Форма заказа Kostlim Design*\n\nТвой Telegram привяжется к заказу автоматически — не нужно вводить его вручную. Если Mini App не открывается (баг Telegram Web в браузере) — жми вторую кнопку, откроется обычной страницей:",
             'parse_mode' => 'Markdown',
             'reply_markup' => json_encode([
-                'inline_keyboard' => [[
-                    // web_app вместо url — форма открывается прямо внутри Telegram
-                    // (Mini App), а не во внешнем браузере. Имя/username подставляются
-                    // из подписанных initData на странице (см. order.php внизу).
-                    ['text' => '📝 Оформить заказ', 'web_app' => ['url' => $order_url]],
-                ]],
+                'inline_keyboard' => [
+                    [['text' => '🚀 Заказать через Mini App', 'web_app' => ['url' => $order_url]]],
+                    [['text' => '🌐 Заказать на сайте', 'url' => $order_url]],
+                ],
             ], JSON_UNESCAPED_UNICODE),
         ]);
         exit;
     }
 
-    // Личный кабинет — кнопка или команда
+    // Личный кабинет — команда (кнопка на клавиатуре теперь ведёт на
+    // отзывы, см. ниже, но команду /cabinet и текст "мои заказы" оставляем
+    // рабочими для тех, кто их уже использует).
     if ($text_key === 'личный кабинет' || $text_key === 'мои заказы' || $text === '/cabinet') {
         showCabinet($pdo, $token, $chat_id);
+        exit;
+    }
+
+    // ⭐ Отзывы — открыть раздел отзывов на сайте (низ главной страницы)
+    if ($text_key === 'отзывы' || $text === '⭐ Отзывы') {
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $chat_id,
+            'text'         => "⭐ *Отзывы клиентов Kostlim Design*",
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '⭐ Смотреть отзывы', 'url' => rtrim($site_url, '/') . '/index.php#reviews'],
+                ]],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
         exit;
     }
 
@@ -2017,7 +2096,7 @@ function safeNotifyClient($pdo, $token, $order_id, $text, $parseMode = 'Markdown
 function mainKeyboard($isAdmin) {
     $buttons = [
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
-        [['text' => '🤖 Сделать заказ'],      ['text' => '📂 Личный кабинет']],
+        [['text' => '🤖 Сделать заказ'],      ['text' => '⭐ Отзывы']],
     ];
     if ($isAdmin) { $buttons[] = [['text' => '⚙️ Админ-панель']]; }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];

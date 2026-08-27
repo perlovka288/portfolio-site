@@ -110,6 +110,11 @@ if (!defined('PRIVATE_PACK_CHAT_ID')) {
     define('PRIVATE_PACK_CHAT_ID', getSetting($pdo, 'PRIVATE_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
 }
 define('PUBLIC_SITE_URL', rtrim(getSetting($pdo, 'SITE_URL', getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/'), '/') . '/');
+// Публикации портфолио в канал теперь ведут на БОТА, а не на сайт: Mini App
+// в Telegram Web (браузерная версия) у части пользователей не открывается —
+// работает только в приложении, а обычная ссылка на order.php с автопривязкой
+// TG у бота решает это надёжнее для читателей канала.
+define('BOT_ORDER_LINK', 'https://t.me/' . ltrim(getenv('BOT_USERNAME') ?: 'kostlimdznbot', '@'));
 define('ADMIN_EMAIL', getSetting($pdo, 'ADMIN_EMAIL', 'jeffkostlim@gmail.com'));
 define('ADMIN_TELEGRAM_ID', getSetting($pdo, 'ADMIN_TELEGRAM_ID', '1710365896'));
 $telegramLastError = '';
@@ -432,7 +437,7 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
             'avatar_image' => $filename_avatar,
         ]);
         if ($watermarkedPath && is_file($watermarkedPath)) {
-            $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+            $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(BOT_ORDER_LINK, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
             $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
             $postedToChannel = (bool)($result['ok'] ?? false);
         } else {
@@ -701,53 +706,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 // тут только сдача файла) — записываем просто статус.
                 $pdo->prepare("UPDATE orders SET status='ready' WHERE id=?")->execute([$orderId]);
 
-                // Файл готовой работы (п.1 ТЗ) — если приложен, уходит клиенту
-                // sendDocument'ом (без сжатия) с кнопками "Принять"/"На правку"
-                // ВМЕСТО обычного текстового уведомления о статусе. Если файл
-                // не выбрали — как раньше, просто текст/декоративная картинка.
-                $workDelivered = false;
-                if (!empty($_FILES['work_file']['name']) && ($_FILES['work_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-                    $origName = basename((string)$_FILES['work_file']['name']);
-                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-                    $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
-                    $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-                    $workDir = __DIR__ . '/../uploads/orders/';
-                    if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
-                    $destPath = $workDir . $storedName;
-                    if (is_writable($workDir) && move_uploaded_file($_FILES['work_file']['tmp_name'], $destPath)) {
-                        $workDelivered = deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $destPath, $storedName, $origName);
-                    }
-                }
+                // Файл(ы) готовой работы (п.1 ТЗ, можно несколько) — если
+                // приложены, уходят клиенту документом(-ами)/альбомом (без
+                // сжатия) с кнопками "Принять"/"На правку" ВМЕСТО обычного
+                // текстового уведомления о статусе. Ничего не выбрали —
+                // как раньше, просто текст/декоративная картинка.
+                $workFiles = saveUploadedWorkFiles('work_file', $orderId);
+                $workDelivered = !empty($workFiles) && deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $workFiles);
                 if (!$workDelivered) {
                     notifyClientOrderStatus($pdo, $orderId, 'ready');
                 }
 
                 $msgAdmin = $workDelivered
-                    ? "✅ Заказ #{$orderId} отмечен как готов, файл отправлен клиенту в Telegram."
+                    ? "✅ Заказ #{$orderId} отмечен как готов, файл(ы) отправлены клиенту в Telegram."
                     : "✅ Заказ #{$orderId} отмечен как готов.";
             } elseif ($action === 'redeliver_work') {
                 // Пересдача после правки (п.2 ТЗ) — платёж уже был записан
-                // раньше, тут только новый файл + новое сообщение с кнопками.
-                if (!empty($_FILES['work_file']['name']) && ($_FILES['work_file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-                    $origName = basename((string)$_FILES['work_file']['name']);
-                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-                    $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
-                    $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-                    $workDir = __DIR__ . '/../uploads/orders/';
-                    if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
-                    $destPath = $workDir . $storedName;
-                    if (is_writable($workDir) && move_uploaded_file($_FILES['work_file']['tmp_name'], $destPath)) {
-                        if (deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $destPath, $storedName, $origName)) {
-                            $pdo->prepare("UPDATE orders SET revision_count = revision_count + 1 WHERE id = ?")->execute([$orderId]);
-                            $msgAdmin = "📤 Заказ #{$orderId}: исправленный файл отправлен клиенту.";
-                        } else {
-                            $message = '❌ Не удалось отправить файл клиенту в Telegram (проверь, привязан ли у него бот).';
-                        }
+                // раньше, тут только новый файл(ы) + новое сообщение с кнопками.
+                $workFiles = saveUploadedWorkFiles('work_file', $orderId);
+                if (!empty($workFiles)) {
+                    if (deliverWorkFileToClient($pdo, TELEGRAM_BOT_TOKEN, $orderId, $workFiles)) {
+                        $pdo->prepare("UPDATE orders SET revision_count = revision_count + 1 WHERE id = ?")->execute([$orderId]);
+                        $msgAdmin = "📤 Заказ #{$orderId}: исправленный файл(ы) отправлены клиенту.";
                     } else {
-                        $message = '❌ Не удалось сохранить файл на сервере.';
+                        $message = '❌ Не удалось отправить файл клиенту в Telegram (проверь, привязан ли у него бот).';
                     }
                 } else {
-                    $message = '❌ Выбери файл для пересдачи.';
+                    $message = '❌ Выбери файл(ы) для пересдачи.';
                 }
             } elseif ($action === 'accept_revision') {
                 // Дизайнер принял правку и назначил её цену (доп. п.1 ТЗ):
@@ -758,7 +743,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['order_action'])) {
                 if ($revRub > 0 || $revUan > 0) {
                     $pdo->prepare("UPDATE orders SET status = 'revision_awaiting_payment', revision_price_rub = ?, revision_price_uan = ? WHERE id = ?")
                         ->execute([$revRub, $revUan, $orderId]);
-                    if (sendRevisionPaymentRequisites($pdo, TELEGRAM_BOT_TOKEN, $orderId, $revRub, $revUan)) {
+                    if (sendRevisionPaymentRequisites($pdo, TELEGRAM_BOT_TOKEN, $orderId, $revRub, $revUan, PUBLIC_SITE_URL)) {
                         $msgAdmin = "✏️ Заказ #{$orderId}: реквизиты на оплату правки отправлены клиенту.";
                     } else {
                         $message = '❌ Не удалось отправить реквизиты клиенту в Telegram.';
@@ -1236,7 +1221,7 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
     if (str_starts_with($avatarVal, 'http://') || str_starts_with($avatarVal, 'https://')) { $avatarPath = downloadToTemp($avatarVal); $avatarDownloaded = true; }
     else { $avatarPath = $avatarVal !== '' ? $uploadDir . basename($avatarVal) : ''; $avatarDownloaded = false; }
     $photoPath = createWatermarkedImage($mainPath, $avatarPath, (string)($case['title'] ?? ''), $rub, $uan, $category);
-    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+    $caption = "💰 Цена работы: {$rub}₽ | {$uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(BOT_ORDER_LINK, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
     $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($photoPath)]);
     if ($photoPath !== $mainPath && is_file($photoPath)) unlink($photoPath);
     if ($downloaded && is_file($mainPath)) unlink($mainPath);
@@ -1265,6 +1250,41 @@ function uploadToImgBB(string $tmpPath, string $name = 'image'): string
         if ($url !== '') { return $url; }
     }
     return '';
+}
+
+/**
+ * Сохраняет один или несколько файлов, загруженных через
+ * <input type="file" name="{$field}[]" multiple>, в uploads/orders/ и
+ * возвращает массив [['path'=>.., 'stored'=>.., 'orig'=>..], ...] — готов
+ * для передачи в deliverWorkFileToClient(). Понимает и multiple-инпут
+ * (name="field[]", $_FILES[field]['name'] — массив), и одиночный файл
+ * (name="field", $_FILES[field]['name'] — строка) для обратной совместимости.
+ */
+function saveUploadedWorkFiles(string $field, int $orderId): array
+{
+    if (empty($_FILES[$field]['name'])) return [];
+    $names    = $_FILES[$field]['name'];
+    $tmpNames = $_FILES[$field]['tmp_name'];
+    $errors   = $_FILES[$field]['error'];
+    if (!is_array($names)) { $names = [$names]; $tmpNames = [$tmpNames]; $errors = [$errors]; }
+
+    $workDir = __DIR__ . '/../uploads/orders/';
+    if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
+    if (!is_writable($workDir)) return [];
+
+    $result = [];
+    foreach ($names as $i => $origNameRaw) {
+        if ($origNameRaw === '' || ($errors[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+        $origName = basename((string)$origNameRaw);
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
+        $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_' . ($i + 1) . '.' . $ext;
+        $destPath = $workDir . $storedName;
+        if (move_uploaded_file($tmpNames[$i], $destPath)) {
+            $result[] = ['path' => $destPath, 'stored' => $storedName, 'orig' => $origName];
+        }
+    }
+    return $result;
 }
 
 function uploadImage(string $field, string $prefix, string $uploadDir): string
@@ -1524,7 +1544,7 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
                 'image' => $filename_main, 'avatar_image' => $filename_avatar,
             ]);
             if ($watermarkedPath && is_file($watermarkedPath)) {
-                $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(PUBLIC_SITE_URL, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
+                $caption = "💰 Цена работы: {$price_rub}₽ | {$price_uan}₴\n\n💬 Оценить данную работу можно в комментариях.\n\n🚀 Заказать дизайн можно тут - <a href=\"" . htmlspecialchars(BOT_ORDER_LINK, ENT_QUOTES, 'UTF-8') . "\">Kostlim Design</a>";
                 $result = sendTelegramRequest('sendPhoto', ['chat_id' => PORTFOLIO_CHANNEL_CHAT, 'caption' => $caption, 'parse_mode' => 'HTML'], ['photo' => new CURLFile($watermarkedPath)]);
                 $postedToChannel = (bool)($result['ok'] ?? false);
             } else {
@@ -3427,7 +3447,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <form method="POST" enctype="multipart/form-data" style="display:grid;gap:8px;">
                                                 <input type="hidden" name="order_id" value="<?= (int)$viewOrder['id'] ?>">
                                                 <input type="hidden" name="order_action" value="redeliver_work">
-                                                <input type="file" name="work_file" required style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
+                                                <input type="file" name="work_file[]" multiple required style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
                                                 <button type="submit" style="border:none;border-radius:10px;padding:12px 14px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;font-weight:800;cursor:pointer;font-family:Montserrat,sans-serif;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">📤 Пересдать работу</button>
                                             </form>
                                             <?php endif; ?>
@@ -3772,8 +3792,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="hidden" name="order_action" value="status">
             <label style="display:block;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📎 Файл готовой работы</label>
             <div style="margin-bottom:20px;">
-                <input type="file" name="work_file" id="ready-work-file" style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
-                <div style="font-size:10.5px;color:#666;margin-top:5px;">Уйдёт клиенту в Telegram файлом без сжатия, с кнопками «Принять» / «На правку». Не выбрал файл — клиент получит только текстовое уведомление, без файла.</div>
+                <input type="file" name="work_file[]" id="ready-work-file" multiple style="width:100%;box-sizing:border-box;background:#0a0a10;border:1px solid #2a2a38;border-radius:10px;padding:10px 12px;color:#ccc;font-size:12px;font-family:Montserrat,sans-serif;">
+                <div style="font-size:10.5px;color:#666;margin-top:5px;">Можно выбрать несколько файлов сразу — уйдут клиенту в Telegram без сжатия (альбомом, если файлов больше одного) с кнопками «Принять» / «На правку». Ничего не выбрал — клиент получит только текстовое уведомление, без файла.</div>
             </div>
             <div style="display:flex;gap:10px;">
                 <button type="submit" style="flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);border:none;border-radius:10px;padding:12px;color:#fff;font-size:14px;font-weight:900;cursor:pointer;font-family:Montserrat,sans-serif;">✅ Подтвердить</button>

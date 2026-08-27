@@ -225,15 +225,29 @@ function ensureOrderFlowSchema(PDO $pdo): void
         )");
 
         // Сдача готовой работы дизайнером + цикл правок:
-        // work_file/work_file_name — последний сданный файл (имя в
-        // uploads/orders/ + оригинальное имя для красивого скачивания);
-        // work_message_id — id сообщения с файлом в чате клиента (нужен,
-        // чтобы удалить его при запросе правки — п.2 ТЗ);
+        // work_file/work_file_name — сданные файлы (JSON-массивы — можно
+        // прикрепить несколько к одной сдаче: имена в uploads/orders/ +
+        // оригинальные имена для красивого скачивания);
+        // work_message_id — JSON-массив id сообщений с файлами в чате
+        // клиента (альбом может быть из нескольких сообщений + отдельное
+        // сообщение с кнопками) — все они удаляются при запросе правки
+        // (п.2 ТЗ);
         // client_accepted_at — когда клиент нажал "Принять работу";
         // revision_count — счётчик пересдач (для истории/статистики).
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_file TEXT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_file_name TEXT DEFAULT NULL");
-        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_message_id BIGINT DEFAULT NULL");
+        // work_message_id раньше был BIGINT (один id) — теперь тут JSON-
+        // массив нескольких id, нужен TEXT. Миграция типа выполняется
+        // ТОЛЬКО если колонка ещё старого типа (bigint) — иначе при каждом
+        // запуске (ensureOrderFlowSchema дергается часто) JSON заново
+        // оборачивался бы в квадратные скобки и портился ("[5]" → "[[5]]").
+        try {
+            $colType = $pdo->query("SELECT data_type FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'work_message_id'")->fetchColumn();
+            if ($colType && strtolower((string)$colType) === 'bigint') {
+                $pdo->exec("ALTER TABLE orders ALTER COLUMN work_message_id TYPE TEXT USING CASE WHEN work_message_id IS NULL THEN NULL ELSE ('[' || work_message_id::TEXT || ']') END");
+            }
+        } catch (Throwable $e) {}
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS work_message_id TEXT DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_accepted_at TIMESTAMP DEFAULT NULL");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_count INT NOT NULL DEFAULT 0");
 
@@ -545,48 +559,94 @@ function uploadReceiptToImgBB(string $tmpPath, string $name = 'receipt'): string
 }
 
 /**
- * Отправляет клиенту готовую работу файлом БЕЗ пережатия (sendDocument, не
- * sendPhoto — Telegram пережимает фото при sendPhoto, а тут как раз нужен
- * оригинал в максимальном качестве). Под файлом — кнопки "Принять работу"
- * / "Отправить на правку". Сохраняет message_id отправленного сообщения —
- * он понадобится, чтобы удалить его при запросе правки (см. ниже).
- * Возвращает true при успехе.
+ * Отправляет клиенту готовую работу файлом(-ами) БЕЗ пережатия
+ * (sendDocument/sendMediaGroup, не sendPhoto — Telegram пережимает фото при
+ * sendPhoto, а тут как раз нужен оригинал в максимальном качестве).
+ * Несколько файлов уходят одним альбомом (до 10 за раз, Telegram сам не
+ * разрешает больше — при необходимости бьём на несколько альбомов).
+ * Кнопки "Принять работу"/"Отправить на правку" Telegram не разрешает
+ * прикрепить к альбому — поэтому они уходят отдельным сообщением сразу
+ * следом. work_message_id хранит ID ВСЕХ этих сообщений (JSON-массив) —
+ * все они удаляются при запросе правки (см. requestOrderRevision).
+ *
+ * $files — массив вида [['path' => ..., 'stored' => ..., 'orig' => ...], ...]
  */
-function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, string $localFilePath, string $storedFileName, string $origFileName): bool
+function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, array $files): bool
 {
     $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
     $stmt->execute([$orderId]);
     $chatId = trim((string)$stmt->fetchColumn());
-    if ($chatId === '' || !is_numeric($chatId) || !is_file($localFilePath)) return false;
+    $files = array_values(array_filter($files, fn($f) => is_file($f['path'] ?? '')));
+    if ($chatId === '' || !is_numeric($chatId) || empty($files)) return false;
 
-    $caption = "🎉 <b>Заказ #{$orderId} готов!</b>\n\nПроверь файл и подтверди приём или отправь на правку 👇";
-    $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+    $messageIds = [];
+    $batches = array_chunk($files, 10);
+    foreach ($batches as $bi => $batch) {
+        if (count($batch) === 1) {
+            $f = $batch[0];
+            $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+                CURLOPT_POSTFIELDS => [
+                    'chat_id'  => $chatId,
+                    'document' => new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']),
+                ]]);
+            $resp = curl_exec($ch); $err = curl_error($ch); curl_close($ch);
+            $data = json_decode((string)$resp, true);
+            if (!empty($data['ok'])) {
+                $messageIds[] = (int)($data['result']['message_id'] ?? 0);
+            } else {
+                error_log("[deliverWorkFileToClient] sendDocument failed for order #{$orderId}: " . ($err ?: substr((string)$resp, 0, 300)));
+            }
+        } else {
+            $media = [];
+            $postFields = ['chat_id' => $chatId];
+            foreach ($batch as $i => $f) {
+                $attachKey = "file{$bi}_{$i}";
+                $media[] = ['type' => 'document', 'media' => "attach://{$attachKey}"];
+                $postFields[$attachKey] = new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']);
+            }
+            $postFields['media'] = json_encode($media, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $ch = curl_init("https://api.telegram.org/bot{$token}/sendMediaGroup");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90, CURLOPT_POSTFIELDS => $postFields]);
+            $resp = curl_exec($ch); $err = curl_error($ch); curl_close($ch);
+            $data = json_decode((string)$resp, true);
+            if (!empty($data['ok'])) {
+                foreach (($data['result'] ?? []) as $sentMsg) {
+                    $messageIds[] = (int)($sentMsg['message_id'] ?? 0);
+                }
+            } else {
+                error_log("[deliverWorkFileToClient] sendMediaGroup batch " . ($bi + 1) . " failed for order #{$orderId}: " . ($err ?: substr((string)$resp, 0, 300)));
+            }
+        }
+        if ($bi < count($batches) - 1) usleep(400000);
+    }
+    if (empty($messageIds)) return false;
+
+    $filesWord = count($files) > 1 ? (count($files) . ' файла(ов)') : 'файл';
+    $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15,
         CURLOPT_POSTFIELDS => [
             'chat_id'      => $chatId,
-            'document'     => new CURLFile($localFilePath, mime_content_type($localFilePath) ?: 'application/octet-stream', $origFileName),
-            'caption'      => $caption,
             'parse_mode'   => 'HTML',
+            'text'         => "🎉 <b>Заказ #{$orderId} готов!</b> ({$filesWord})\n\nПроверь и подтверди приём или отправь на правку 👇",
             'reply_markup' => json_encode([
                 'inline_keyboard' => [[
                     ['text' => '✅ Принять работу', 'callback_data' => "work_accept_{$orderId}"],
                     ['text' => '✏️ Отправить на правку', 'callback_data' => "work_revision_{$orderId}"],
                 ]],
             ], JSON_UNESCAPED_UNICODE),
-        ],
-    ]);
-    $resp = curl_exec($ch);
-    $err  = curl_error($ch);
-    curl_close($ch);
+        ]]);
+    $resp = curl_exec($ch); curl_close($ch);
     $data = json_decode((string)$resp, true);
-    if (empty($data['ok'])) {
-        error_log("[deliverWorkFileToClient] sendDocument failed for order #{$orderId}: " . ($err ?: substr((string)$resp, 0, 300)));
-        return false;
-    }
-    $messageId = (int)($data['result']['message_id'] ?? 0);
+    if (!empty($data['ok'])) $messageIds[] = (int)($data['result']['message_id'] ?? 0);
+
     $pdo->prepare("UPDATE orders SET work_file = ?, work_file_name = ?, work_message_id = ?, status = 'ready', client_accepted_at = NULL WHERE id = ?")
-        ->execute([$storedFileName, $origFileName, $messageId ?: null, $orderId]);
+        ->execute([
+            encodeReceiptList(array_column($files, 'stored')),
+            encodeReceiptList(array_column($files, 'orig')),
+            encodeReceiptList($messageIds),
+            $orderId,
+        ]);
     return true;
 }
 
@@ -606,15 +666,20 @@ function requestOrderRevision(PDO $pdo, string $token, int $orderId, string $not
     if (!$row) return;
 
     $chatId = trim((string)($row['client_chat_id'] ?? ''));
-    $msgId  = (int)($row['work_message_id'] ?? 0);
+    // work_message_id — JSON-массив (сообщения альбома + сообщение с
+    // кнопками, см. deliverWorkFileToClient) — удаляем их все, а не одно.
+    $msgIds = decodeReceiptList((string)($row['work_message_id'] ?? ''));
 
-    // Раньше сообщение с файлом просто оставалось в чате навсегда — теперь
-    // удаляем его, чтобы не путал финальные и нефинальные версии (п.2 ТЗ).
-    if ($chatId !== '' && is_numeric($chatId) && $msgId > 0) {
-        $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-            CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'message_id' => $msgId]]);
-        curl_exec($ch); curl_close($ch);
+    // Раньше сообщения с файлом просто оставались в чате навсегда — теперь
+    // удаляем их, чтобы не путали финальные и нефинальные версии (п.2 ТЗ).
+    if ($chatId !== '' && is_numeric($chatId)) {
+        foreach ($msgIds as $msgId) {
+            if ((int)$msgId <= 0) continue;
+            $ch = curl_init("https://api.telegram.org/bot{$token}/deleteMessage");
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
+                CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'message_id' => (int)$msgId]]);
+            curl_exec($ch); curl_close($ch);
+        }
     }
 
     $pdo->prepare("UPDATE orders SET status = 'revision', work_message_id = NULL WHERE id = ?")->execute([$orderId]);
@@ -631,10 +696,15 @@ function requestOrderRevision(PDO $pdo, string $token, int $orderId, string $not
     $adminId = getenv('ADMIN_ID') ?: '';
     if ($adminId !== '') {
         $srcLabel = $source === 'telegram' ? '' : ' (через сайт)';
+        $adminUrl = rtrim((string)(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/'), '/') . '/admin/index.php?view_order=' . $orderId;
         $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
             CURLOPT_POSTFIELDS => ['chat_id' => $adminId, 'parse_mode' => 'HTML',
-                'text' => "✏️ <b>Правка по заказу #{$orderId}</b>{$srcLabel}\n\n" . htmlspecialchars($note)]]);
+                'text' => "✏️ <b>Правка по заказу #{$orderId}</b>{$srcLabel}\n\n" . htmlspecialchars($note),
+                'reply_markup' => json_encode(['inline_keyboard' => [
+                    [['text' => '✅ Принять', 'callback_data' => "adm_revaccept_{$orderId}"]],
+                    [['text' => '🌐 Открыть в админке', 'url' => $adminUrl]],
+                ]], JSON_UNESCAPED_UNICODE)]]);
         curl_exec($ch); curl_close($ch);
     }
 }
@@ -645,7 +715,7 @@ function requestOrderRevision(PDO $pdo, string $token, int $orderId, string $not
  * файла возможна только после чека — см. п.1 доп. ТЗ). Реквизиты те же,
  * что и при оформлении обычного заказа (те же env-переменные).
  */
-function sendRevisionPaymentRequisites(PDO $pdo, string $token, int $orderId, float $rub, float $uan): bool
+function sendRevisionPaymentRequisites(PDO $pdo, string $token, int $orderId, float $rub, float $uan, string $siteUrl = ''): bool
 {
     $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
     $stmt->execute([$orderId]);
@@ -665,12 +735,29 @@ function sendRevisionPaymentRequisites(PDO $pdo, string $token, int $orderId, fl
         . "📍 <b>Рубли:</b> {$rubLine}\n"
         . "📍 <b>Гривны:</b> <code>{$uanDetails}</code>\n"
         . "📍 <b>Крипта:</b> <code>{$cryptoDetails}</code>\n\n"
-        . "Скинь сюда чек — как только он придёт, дизайнер сразу вернётся к правке.\n\n"
+        . "Пришли чек — на сайте или прямо сюда 👇\n\n"
         . "❓ @Perlo_ovka";
 
+    // Те же 2 кнопки, что и у обычной оплаты заказа ("Оплатить на сайте" +
+    // "Скинуть чек в ТГ") — переиспользуем paymentKeyboard() как есть, она
+    // не завязана на конкретный тип оплаты, просто открывает сайт/просит чек.
+    $replyMarkup = null;
+    if ($siteUrl !== '') {
+        $payUrl = rtrim($siteUrl, '/') . '/profile.php?order=' . $orderId;
+        // autoLinkGenerateToken() определена в bot.php — при вызове этой
+        // функции из админ-панели (admin/index.php её не подключает) её
+        // может не быть; тогда просто отдаём ссылку без автологин-токена,
+        // а не падаем фаталом.
+        if (function_exists('autoLinkGenerateToken')) {
+            try { $payUrl .= '&tg_token=' . autoLinkGenerateToken($pdo, (int)$chatId, []); } catch (Throwable $e) {}
+        }
+        $replyMarkup = json_encode(paymentKeyboard($orderId, $payUrl), JSON_UNESCAPED_UNICODE);
+    }
+
     $ch = curl_init("https://api.telegram.org/bot{$token}/sendMessage");
-    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10,
-        CURLOPT_POSTFIELDS => ['chat_id' => $chatId, 'parse_mode' => 'HTML', 'text' => $text]]);
+    $fields = ['chat_id' => $chatId, 'parse_mode' => 'HTML', 'text' => $text];
+    if ($replyMarkup !== null) $fields['reply_markup'] = $replyMarkup;
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_POSTFIELDS => $fields]);
     $resp = curl_exec($ch);
     curl_close($ch);
     $data = json_decode((string)$resp, true);
