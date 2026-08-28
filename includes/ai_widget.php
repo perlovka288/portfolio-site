@@ -112,22 +112,37 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 }
 
 .ai-widget-panel {
-    position: fixed; top: 0; right: -420px; height: 100vh; width: 380px; max-width: 92vw;
-    background: #1a1a22; border-left: 2px solid #33333f;
+    /* Правка ТЗ: раньше чат был "выезжающей шторкой" — справа на десктопе
+       и снизу (bottom-sheet) на мобильном. Из-за того, как эта страница
+       рендерится в некоторых предпросмотрах/Mini App-контейнерах, шторка,
+       привязанная к краю экрана, могла показываться не полностью (часть
+       окна оставалась "за кадром"), а снизу неё было видно кусок
+       страницы — выглядело так, будто чат "прилип" к низу страницы, а не
+       всплыл поверх неё. Теперь чат — это единое всплывающее ОКНО по
+       центру экрана (как обычное модальное окно), одинаково на всех
+       размерах экрана: не зависит от прокрутки и не "тянется" ни с какого
+       края. */
+    position: fixed;
+    top: 50%; left: 50%;
+    width: min(94vw, 420px);
+    height: min(86vh, 680px);
+    max-height: 86vh;
+    background: #1a1a22; border: 1px solid #33333f;
+    border-radius: 20px;
     display: flex; flex-direction: column; z-index: 9600;
-    box-shadow: -16px 0 60px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
-    transition: right .32s cubic-bezier(.2,.8,.3,1);
+    box-shadow: 0 24px 70px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
+    opacity: 0; visibility: hidden;
+    transform: translate(-50%, -50%) scale(.94);
+    transition: transform .26s cubic-bezier(.2,.8,.3,1), opacity .22s ease, visibility .26s;
     /* Защита от авто-увеличения текста WebKit при фокусе на поле ввода —
        на случай, если эта разметка когда-нибудь окажется на странице без
        style.css (там такое же правило добавлено на уровне <html>). */
     -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 }
-.ai-widget-panel.open { right: 0; }
-.ai-widget-swipe-hint {
-    width: 40px; height: 4px; border-radius: 3px; background: #3a3a46;
-    margin: 10px auto 0; display: none; flex-shrink: 0;
-}
-@media (max-width: 720px) { .ai-widget-swipe-hint { display: block; } }
+.ai-widget-panel.open { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+/* Хэндл для свайпа больше не нужен — окно не выезжает с края, которое
+   можно было бы "утащить" обратно свайпом. */
+.ai-widget-swipe-hint { display: none !important; }
 
 .ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
@@ -255,33 +270,17 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 #ai-widget-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9550; display: none; }
 #ai-widget-overlay.open { display: block; }
 
-@media (max-width: 720px) {
-    /* Правка ТЗ: раньше порог был 480px, из-за чего в типичной ширине
-       Telegram Mini App (обычно ~500–680px) чат всё ещё считался
-       "десктопным" и выезжал узкой полосой 380px справа, а не на всю
-       ширину/высоту — из-за этого казалось, что окно чата открывается
-       "не полностью". Теперь bottom-sheet (на всю ширину и почти всю
-       высоту экрана) включается на том же брейкпоинте, что и остальной
-       мобильный вид сайта (720px), чтобы чат всегда раскрывался ровно
-       под контент (текст/фото/поле ввода) на всю доступную область. */
-    /* ── Bottom Sheet на мобильных/Mini App ──
-       Выезжает снизу, высота — 92dvh (см. ниже), браузер сам ужимает её
-       при появлении клавиатуры (см. подробности в комментарии у JS). */
+@media (max-width: 480px) {
+    /* На совсем узких экранах модалка занимает почти весь экран по
+       ширине/высоте — но остаётся ЦЕНТРИРОВАННЫМ окном (тот же принцип
+       position:fixed + translate(-50%,-50%)), а не шторкой, приклеенной
+       к нижнему краю. */
     .ai-widget-panel {
-        width: 100%; max-width: 100%;
-        top: auto; right: 0; left: 0; bottom: -100%;
-        /* dvh — "динамическая" высота вьюпорта: браузер сам уменьшает её,
-           когда выезжает клавиатура (как в Telegram), без ручного JS-пересчёта.
-           vh — фолбэк для браузеров без поддержки dvh (игнорируют вторую
-           строку целиком и остаются на первой). */
-        height: 92vh; height: 92dvh;
-        max-height: 92vh; max-height: 92dvh;
-        border-left: none; border-top: 2px solid #33333f;
-        border-radius: 20px 20px 0 0;
-        transition: bottom .32s cubic-bezier(.2,.8,.3,1);
-        box-shadow: 0 -16px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
+        width: 96vw;
+        height: 90vh; height: 90dvh;
+        max-height: 90vh; max-height: 90dvh;
+        border-radius: 18px;
     }
-    .ai-widget-panel.open { bottom: 0; right: 0; }
     #ai-widget-root { bottom: 16px; right: 16px; }
 }
 body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
@@ -294,10 +293,10 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
     // считались height И transform: translateY(-offsetTop) — при открытии
     // клавиатуры это могло на мгновение схлопнуть блок переписки (у него
     // не было min-height:0, теперь есть) и дёргать панель. CSS dvh (см.
-    // "height: 92dvh" в styles) сам корректно ужимает панель под клавиатуру
-    // в обычном Safari — но сайт открывается и во встроенном браузере
-    // Telegram (Mini App), а его WebView может формально уметь в dvh, но
-    // считать его нестабильно. Поэтому JS-подстраховка ниже включена
+    // "height: 90dvh" в мобильном @media выше) сам корректно ужимает окно
+    // под клавиатуру в обычном Safari — но сайт открывается и во встроенном
+    // браузере Telegram (Mini App), а его WebView может формально уметь в
+    // dvh, но считать его нестабильно. Поэтому JS-подстраховка ниже включена
     // ВСЕГДА (не только как фолбэк для старых браузеров) — inline
     // style.height от JS всегда побеждает CSS-класс, так что конфликта с
     // dvh нет, а поведение становится предсказуемым везде одинаково.
@@ -310,11 +309,12 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             if (raf) cancelAnimationFrame(raf);
             raf = requestAnimationFrame(function() {
                 var vv = window.visualViewport;
-                /* Тот же порог 720px, что и в CSS-медиа-запросе выше —
-                   иначе JS и CSS расходятся в том, что считать "мобильным"
-                   видом, и высота панели не совпадает с её же CSS-высотой. */
-                var isMobile = window.innerWidth <= 720;
-                panel.style.height = (isMobile ? Math.round(vv.height * 0.92) : vv.height) + 'px';
+                var isMobile = window.innerWidth <= 480;
+                // Окно теперь центрировано (position:fixed + translate(-50%,-50%)),
+                // поэтому ограничиваем ТОЛЬКО max-height (чтобы клавиатура не
+                // перекрывала поле ввода), а не задаём фиксированную height —
+                // так модалка остаётся ровно по центру видимой области экрана.
+                panel.style.maxHeight = Math.round(vv.height * (isMobile ? 0.9 : 0.86)) + 'px';
             });
         }
         window.visualViewport.addEventListener('resize', apply);
@@ -438,21 +438,9 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
     // клик (даже по полю ввода) считался кликом "мимо", закрывая чат.
     panel.addEventListener('click', function(e) { e.stopPropagation(); });
 
-    // ── Свайп вправо для закрытия на телефоне ──
-    // На мобильном панель занимает весь экран, поэтому "кликнуть мимо"
-    // физически негде — вместо этого закрываем свайпом вправо по панели.
-    var touchStartX = null, touchStartY = null;
-    panel.addEventListener('touchstart', function(e) {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-    panel.addEventListener('touchend', function(e) {
-        if (touchStartX === null) return;
-        var dx = e.changedTouches[0].clientX - touchStartX;
-        var dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
-        if (dx > 80 && dy < 60) closePanel();
-        touchStartX = null;
-    }, { passive: true });
+    // Свайп-закрытие убран вместе с шторкой снизу/справа — теперь окно
+    // центрировано и всегда есть видимый оверлей вокруг, по которому можно
+    // кликнуть/тапнуть, чтобы закрыть чат, плюс кнопка ✕ в шапке.
 
     if (bubble) {
         setTimeout(function() {
