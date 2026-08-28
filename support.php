@@ -150,50 +150,64 @@ body::before {
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
 
-<?php $sectionTabsActive = 'support'; include __DIR__ . '/includes/section_tabs.php'; ?>
-
-<header>
-    <div class="header-left header-icon-row" style="display:flex;align-items:center;gap:10px;">
-        <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-        </a>
-        <?php if ($isAdmin): ?>
-        <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </a>
-        <?php endif; ?>
-    </div>
-
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-
-    <div class="header-right" style="display:flex;align-items:center;gap:10px;">
-        <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
-        <?php if ($isLinked && !empty($tgProfile)): ?>
-        <a href="profile.php" class="tg-user-chip" title="Личный профиль">
-            <?php if (!empty($tgProfile['tg_photo_url'])): ?>
-               <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
-     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-                <span class="tg-user-ava-fallback" style="display:none;">
-                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-                </span>
-            <?php else: ?>
-                <span class="tg-user-ava-fallback">
-                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-                </span>
-            <?php endif; ?>
-            <span class="tg-user-name">
-                <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
-            </span>
-            <?php if ($isAdmin): ?><span class="tg-admin-tag">admin</span><?php endif; ?>
-        </a>
-        <?php else: ?>
-        <a href="index.php" class="nav-link nav-bot">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            Привязать TG
-        </a>
-        <?php endif; ?>
-    </div>
+<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке ══ -->
+<header class="header-compact">
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
+    <?php $sectionTabsActive = 'support'; include __DIR__ . '/includes/section_tabs.php'; ?>
 </header>
+
+<!-- ══ Сетка быстрых кнопок 2×2: Telegram / Настройки / Прайс / Отзывы ══ -->
+<div class="quick-actions-grid">
+    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn" title="Telegram">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+    </a>
+    <a href="<?= $isAdmin ? 'admin/index.php' : 'profile.php' ?>" class="quick-action-btn" title="Настройки">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </a>
+    <a href="price.php" class="quick-action-btn" title="Прайс">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Прайс
+    </a>
+    <a href="index.php#reviews" class="quick-action-btn" title="Отзывы">
+        <svg class="qa-star" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Отзывы
+    </a>
+</div>
+
+<!-- ══ Карточка профиля / привязки TG текущего посетителя — растянута на
+     ширину сетки выше. Раньше на мобильном эта плашка ломалась: картинка
+     аватарки рендерилась без фиксированного размера ДО того, как сработает
+     onerror (из-за чего было видно как "битую" квадратную иконку), а имя
+     и тег admin отображались обычным текстом без пилюли. Теперь используем
+     тот же класс .tg-user-chip, что и на главной, с явными размерами
+     аватарки и настоящим бейджем admin — макет больше не может "сломаться". ══ -->
+<div class="profile-chip-row">
+    <?php if ($isLinked && !empty($tgProfile)): ?>
+    <a href="profile.php" class="tg-user-chip" title="Личный профиль">
+        <?php if (!empty($tgProfile['tg_photo_url'])): ?>
+           <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
+ onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <span class="tg-user-ava-fallback" style="display:none;">
+                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+            </span>
+        <?php else: ?>
+            <span class="tg-user-ava-fallback">
+                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+            </span>
+        <?php endif; ?>
+        <span class="tg-user-name">
+            <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
+        </span>
+        <?php if ($isAdmin): ?><span class="tg-admin-tag">admin</span><?php endif; ?>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
+    </a>
+    <?php else: ?>
+    <a href="index.php" class="nav-link nav-bot">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Привязать TG
+    </a>
+    <?php endif; ?>
+</div>
 
 <div class="support-wrap">
     <div class="support-title">Поддержка</div>
@@ -255,6 +269,6 @@ body::before {
     <div class="container">© <?= date('Y') ?> Kostlim Design</div>
 </footer>
 
-<?php include __DIR__ . '/includes/ai_widget.php'; ?>
+<?php $aiWidgetHideFab = true; include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>

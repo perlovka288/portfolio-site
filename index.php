@@ -560,31 +560,44 @@ body::after {
     box-shadow:0 0 16px rgba(249,115,22,0.35);
 }
 .design-avatar { width:100%; height:100%; object-fit:cover; }
-/* Плашка размера/категории поверх картинки — не зависит от пропорций
-   (16:9 превью, вытянутые баннеры YouTube/VK, квадратные аватарки) —
-   поэтому "адаптируется" под любой новый тип работы автоматически. */
-.portfolio-size-badge {
-    position:absolute; top:10px; left:10px; z-index:3;
-    background:rgba(8,8,8,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    border:1px solid rgba(255,255,255,0.12); border-radius:20px;
-    padding:4px 11px; font-size:10px; font-weight:800; letter-spacing:.4px;
-    color:var(--text2); text-transform:uppercase; pointer-events:none;
-}
+/* Плашка размера/категории поверх картинки — убрана из вёрстки карточки
+   (цена теперь показывается отдельно над превью), но правило оставлено
+   на случай, если где-то ещё используется старый маркап. */
+.portfolio-size-badge { display: none; }
+
 .portfolio-meta { padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px; }
 .portfolio-title { color:var(--text); font-size:14px; font-weight:700; }
+
+/* Цена — теперь над превью, крупным оранжевым шрифтом */
+.portfolio-price-top {
+    text-align:center; color:var(--accent); font-size:20px; font-weight:900;
+    letter-spacing:.3px; padding:2px 6px 4px;
+}
 .portfolio-price { color:var(--accent3); font-size:15px; font-weight:900; }
-.portfolio-actions-row { display:flex; align-items:center; gap:8px; }
+
+/* ═══ Новый подвал карточки: комментарии / лайк / «ЗАКАЗАТЬ» (контур) ══ */
+.portfolio-actions-row {
+    display:flex; align-items:stretch; gap:8px;
+}
+.card-icon-btn {
+    flex:0 0 auto;
+    width:44px; height:44px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--card2); border:1px solid var(--border);
+    border-radius:12px; color:var(--text2);
+    transition:all .2s; cursor:pointer; font-family:inherit;
+}
+.card-icon-btn:hover { border-color:var(--border-accent); color:var(--accent2); background:var(--accent-dim); }
 .order-pill {
     flex:1 1 auto;
     display:inline-flex; align-items:center; justify-content:center;
-    background:linear-gradient(135deg,var(--accent2),var(--accent));
-    color:#fff; border:none; padding:11px 22px; border-radius:30px;
+    background:transparent;
+    color:var(--accent); border:1.5px solid var(--border-accent); padding:11px 22px; border-radius:12px;
     font-size:12px; font-weight:900; letter-spacing:1.5px; text-transform:uppercase;
     text-decoration:none; cursor:pointer;
-    box-shadow:inset 0 1px rgba(255,255,255,.22), 0 0 16px rgba(249,115,22,0.3);
-    transition:opacity .2s, transform .2s, box-shadow .2s;
+    transition:all .2s;
 }
-.order-pill:hover { opacity:.9; transform:translateY(-2px); box-shadow:0 0 28px rgba(249,115,22,0.5); }
+.order-pill:hover { background:var(--accent-dim); border-color:var(--accent); color:#fff; }
 /* .tabs-container дублировался здесь без justify-content:center и без
    @media — тем же образом перебивал версию из style.css (которая уже
    центрирует теги и на мобильном превращает их в горизонтальную
@@ -714,15 +727,18 @@ body::after {
     .tg-user-name { max-width: 70px; }
 }
 
-/* ══ Лайки ══ */
+/* ══ Лайки — центральная кнопка нового подвала карточки ══ */
 .like-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    background: rgba(249,115,22,0.08);
-    border: 1px solid rgba(249,115,22,0.2);
-    border-radius: 20px;
-    padding: 6px 14px;
+    flex: 0 0 auto;
+    height: 44px;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0 16px;
     color: #8a8a96;
     font-size: 12px;
     font-weight: 700;
@@ -730,16 +746,15 @@ body::after {
     font-family: inherit;
     transition: all .2s;
     vertical-align: middle;
-    flex-shrink: 0;
 }
 .like-btn:hover {
-    background: rgba(249,115,22,0.18);
-    border-color: rgba(249,115,22,0.45);
+    border-color: var(--border-accent);
+    background: var(--accent-dim);
     color: #fb923c;
 }
 .like-btn.liked {
-    background: rgba(249,115,22,0.18);
-    border-color: rgba(249,115,22,0.55);
+    border-color: var(--border-accent);
+    background: var(--accent-dim);
     color: #fb923c;
 }
 .like-btn.liked .like-heart {
@@ -826,58 +841,60 @@ body::after {
 </div>
 <?php endif; ?>
 
-<?php $sectionTabsActive = 'home'; include __DIR__ . '/includes/section_tabs.php'; ?>
-
-<header>
-    <div class="header-left header-icon-row" style="display:flex;align-items:center;gap:10px;">
-        <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-        </a>
-
-        <?php if ($isAdmin): ?>
-        <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </a>
-        <?php endif; ?>
-    </div>
-
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-
-    <div class="header-right" style="display:flex;align-items:center;gap:10px;">
-        <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>
-        <a href="#reviews" class="nav-link nav-reviews" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});"><span class="icon"></span>Отзывы</a>
-
-        <?php if ($isLinked && !empty($tgProfile)): ?>
-        <!-- ── TG ПРОФИЛЬ (привязан) ── -->
-        <a href="profile.php" class="tg-user-chip" title="Личный профиль">
-            <?php if (!empty($tgProfile['tg_photo_url'])): ?>
-               <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
-     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-                <span class="tg-user-ava-fallback" style="display:none;">
-                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-                </span>
-            <?php else: ?>
-                <span class="tg-user-ava-fallback">
-                    <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-                </span>
-            <?php endif; ?>
-            <span class="tg-user-name">
-                <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
-            </span>
-            <?php if ($isAdmin): ?>
-                <span class="tg-admin-tag">admin</span>
-            <?php endif; ?>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
-        </a>
-        <?php else: ?>
-        <!-- ── КНОПКА ПРИВЯЗКИ ── -->
-        <button class="nav-link nav-bot tg-link-trigger-btn" onclick="openTgModal()" title="Привязать Telegram">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            Привязать TG
-        </button>
-        <?php endif; ?>
-    </div>
+<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке ══ -->
+<header class="header-compact">
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
+    <?php $sectionTabsActive = 'home'; include __DIR__ . '/includes/section_tabs.php'; ?>
 </header>
+
+<!-- ══ Сетка быстрых кнопок 2×2: Telegram / Настройки / Прайс / Отзывы ══ -->
+<div class="quick-actions-grid">
+    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn" title="Telegram">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+    </a>
+    <a href="<?= $isAdmin ? 'admin/index.php' : 'profile.php' ?>" class="quick-action-btn" title="Настройки">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </a>
+    <a href="price.php" class="quick-action-btn" title="Прайс">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Прайс
+    </a>
+    <a href="#reviews" class="quick-action-btn" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});" title="Отзывы">
+        <svg class="qa-star" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Отзывы
+    </a>
+</div>
+
+<!-- ══ Карточка профиля / привязки TG — растянута на ширину сетки выше ══ -->
+<div class="profile-chip-row">
+    <?php if ($isLinked && !empty($tgProfile)): ?>
+    <a href="profile.php" class="tg-user-chip" title="Личный профиль">
+        <?php if (!empty($tgProfile['tg_photo_url'])): ?>
+           <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
+ onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <span class="tg-user-ava-fallback" style="display:none;">
+                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+            </span>
+        <?php else: ?>
+            <span class="tg-user-ava-fallback">
+                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
+            </span>
+        <?php endif; ?>
+        <span class="tg-user-name">
+            <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
+        </span>
+        <?php if ($isAdmin): ?>
+            <span class="tg-admin-tag">admin</span>
+        <?php endif; ?>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
+    </a>
+    <?php else: ?>
+    <button class="nav-link nav-bot tg-link-trigger-btn" onclick="openTgModal()" title="Привязать Telegram">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Привязать TG
+    </button>
+    <?php endif; ?>
+</div>
 
 <main class="container portfolio-stage">
 
@@ -906,18 +923,21 @@ body::after {
             $ratioStyle = (!$isDesign && $width > 0 && $height > 0) ? "--card-ratio:{$width}/{$height};" : '';
             $sizeText   = ($width > 0 && $height > 0) ? "{$width}x{$height}" : '';
         ?>
+        <?php
+            // Цену теперь показываем НАД превью, поэтому считаем её до вёрстки карточки.
+            $plPrice  = $priceListMap[$key] ?? null;
+            $showRub  = (int)($plPrice['price_rub'] ?? $work['price_rub'] ?? 0);
+            $showUan  = (int)($plPrice['price_uan'] ?? $work['price_uan'] ?? 0);
+        ?>
         <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
+            <div class="portfolio-price-top"><?= number_format($showRub, 0, '', ' ') ?> ₽ / <?= number_format($showUan, 0, '', ' ') ?> ₴</div>
             <div class="portfolio-media">
                 <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
                      class="<?= $isDesign ? 'design-banner' : '' ?>"
                      alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
                      draggable="false"
                      onerror="this.style.opacity='0.3'">
-                <?php if ($sizeText !== ''): ?>
-                    <span class="portfolio-size-badge"><?= htmlspecialchars($sizeText) ?> px</span>
-                <?php elseif ($category !== null && !empty($category['title'])): ?>
-                    <span class="portfolio-size-badge"><?= htmlspecialchars($category['title']) ?></span>
-                <?php endif; ?>
+                <!-- Плашка с размером/категорией поверх превью убрана по ТЗ. -->
                 <?php if ($isDesign && $ava_file !== ''): ?>
                     <div class="design-avatar-frame">
                         <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
@@ -925,21 +945,13 @@ body::after {
                 <?php endif; ?>
             </div>
             <div class="portfolio-meta">
+                <?php if (!$isDesign): ?>
                 <div class="portfolio-title"><?= htmlspecialchars($work['title'] ?? 'Без названия') ?></div>
-                <?php
-                    // Берём цену из прайс-листа по категории работы (например
-                    // "Превью"), а не из price_rub/price_uan самой записи —
-                    // так цена на главной всегда совпадает с ценой в /price.php.
-                    $plPrice  = $priceListMap[$key] ?? null;
-                    $showRub  = (int)($plPrice['price_rub'] ?? $work['price_rub'] ?? 0);
-                    $showUan  = (int)($plPrice['price_uan'] ?? $work['price_uan'] ?? 0);
-                ?>
-                <div class="portfolio-price"><?= $showRub ?>₽ / <?= $showUan ?>₴</div>
-                <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
+                <?php endif; ?>
+                <!-- Подвал карточки: комментарии слева, лайк по центру, «ЗАКАЗАТЬ» (контур) справа -->
                 <div class="portfolio-actions-row">
-                <button class="order-pill"
-                    onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
-                    ЗАКАЗАТЬ
+                <button type="button" class="card-icon-btn" title="Комментарии" onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 </button>
                 <?php
                     $wId      = (int)$work['id'];
@@ -951,6 +963,11 @@ body::after {
                         onclick="toggleLike(<?= $wId ?>, this)">
                     <span class="like-heart"><?= $wLiked ? '🧡' : '🤍' ?></span>
                     <span class="like-count" id="like-count-<?= $wId ?>"><?= $wLikeCnt ?></span>
+                </button>
+                <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
+                <button class="order-pill"
+                    onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
+                    ЗАКАЗАТЬ
                 </button>
                 </div>
             </div>
@@ -1442,6 +1459,6 @@ function toggleLike(workId, btn) {
     } catch (e) {}
 })();
 </script>
-<?php include __DIR__ . '/includes/ai_widget.php'; ?>
+<?php $aiWidgetHideFab = true; include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>
