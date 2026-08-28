@@ -403,9 +403,17 @@ header.header-compact .section-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    max-width: 620px;
+    /* Правка ТЗ: раньше сетка была искусственно сужена (max-width:620px),
+       из-за чего на широких экранах кнопки Telegram/Настройки/Прайс/Отзывы
+       "плавали" по центру, а не занимали всю ширину карточки/контейнера
+       сайта. Теперь ширина = 100% контейнера, паддинги синхронизированы с
+       .container, чтобы левый/правый край кнопок совпадал с краями
+       остального контента страницы. */
+    width: 100%;
+    max-width: 1400px;
+    box-sizing: border-box;
     margin: 18px auto 0;
-    padding: 0 12px;
+    padding: 0 30px;
 }
 .quick-action-btn {
     display: flex;
@@ -441,9 +449,13 @@ header.header-compact .section-tabs {
    на ширину сетки быстрых кнопок.
    ===================================================== */
 .profile-chip-row {
-    max-width: 620px;
+    /* Синхронизировано с .quick-actions-grid (см. правку ширины выше) —
+       чипка профиля должна тянуться вровень с кнопками над ней. */
+    width: 100%;
+    max-width: 1400px;
+    box-sizing: border-box;
     margin: 10px auto 0;
-    padding: 0 12px;
+    padding: 0 30px;
 }
 .profile-chip-row .tg-user-chip {
     display: flex;
@@ -1071,6 +1083,7 @@ body.theme-snow {
     .price-grid-local { grid-template-columns: 1fr; }
     .form-container { padding: 24px 18px; margin: 24px auto; }
     .container { padding: 0 16px; }
+    .quick-actions-grid, .profile-chip-row { padding: 0 16px; }
 }
 @media (max-width: 480px) {
     .tabs-container, .portfolio-tabs { gap: 7px; }
