@@ -163,10 +163,15 @@ header {
     display: block;
     margin-top: 4px;
 }
-/* Логотип-картинка вместо текста KOSTLIM DESIGN */
+/* Логотип-картинка вместо текста KOSTLIM DESIGN.
+   Файл сам по себе 1000×1000px — без явного ограничения высоты он рвёт
+   вёрстку шапки на весь экран. !important, чтобы точно не перебилось
+   ничем другим. */
 .brand-logo-img {
-    height: 40px;
-    width: auto;
+    height: 40px !important;
+    width: auto !important;
+    max-width: 160px !important;
+    max-height: 40px !important;
     display: block;
     user-select: none;
     -webkit-user-drag: none;

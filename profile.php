@@ -985,7 +985,7 @@ body::before {
         </a>
         <?php endif; ?>
     </div>
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design"></a></div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
         <a href="price.php" class="nav-link nav-price">Прайс</a>
         <?php if ($profile): ?>

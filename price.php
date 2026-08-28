@@ -143,7 +143,7 @@ body::before {
         </a>
     </div>
 
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design"></a></div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
 
     <div class="header-right">
         <?php if ($isAdmin): ?>
