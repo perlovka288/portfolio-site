@@ -525,10 +525,18 @@ body::after {
 @media (prefers-reduced-motion: reduce) {
     .scroll-reveal, .scroll-reveal.in-view { opacity:1; transform:none; filter:none; transition:none; }
 }
-.portfolio-card { background:transparent; display:flex; flex-direction:column; gap:12px; }
+.portfolio-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    display: flex; flex-direction: column; gap: 0;
+    overflow: hidden;
+    transition: border-color var(--t), box-shadow var(--t), transform var(--t);
+}
+.portfolio-card:hover { transform: translateY(-4px); }
 .portfolio-media {
     position:relative; width:100%; aspect-ratio:16/9; overflow:hidden;
-    border-radius:22px; background:var(--card); border:1px solid var(--border);
+    background:var(--card2); border-bottom:1px solid var(--border);
     transition:border-color var(--t),box-shadow var(--t);
 }
 .portfolio-media::after {
@@ -539,8 +547,9 @@ body::after {
     transition:transform .5s cubic-bezier(.4,0,.2,1);
     pointer-events:none; user-select:none; -webkit-user-select:none; -webkit-user-drag:none; -moz-user-select:none;
 }
-.portfolio-card:hover .portfolio-media { border-color:var(--border-accent); box-shadow:0 0 32px rgba(249,115,22,0.22); }
-.portfolio-card:hover .portfolio-media img { transform:scale(1.04); }
+.portfolio-card:hover .portfolio-media { box-shadow:0 0 32px rgba(249,115,22,0.22); }
+.portfolio-card:hover { border-color:var(--border-accent); }
+.portfolio-card:hover .portfolio-media img { transform:scale(1.06); }
 .design-card .portfolio-media { aspect-ratio:16/7; min-height:160px; }
 .custom-ratio .portfolio-media { aspect-ratio: var(--card-ratio, 16/9); }
 .design-banner { object-fit:cover; object-position:center top; }
@@ -551,16 +560,28 @@ body::after {
     box-shadow:0 0 16px rgba(249,115,22,0.35);
 }
 .design-avatar { width:100%; height:100%; object-fit:cover; }
-.portfolio-meta { padding:0 4px; }
-.portfolio-title { color:var(--text); font-size:13px; font-weight:700; margin-bottom:6px; }
-.portfolio-price { color:var(--text2); font-size:12px; margin-bottom:10px; }
+/* Плашка размера/категории поверх картинки — не зависит от пропорций
+   (16:9 превью, вытянутые баннеры YouTube/VK, квадратные аватарки) —
+   поэтому "адаптируется" под любой новый тип работы автоматически. */
+.portfolio-size-badge {
+    position:absolute; top:10px; left:10px; z-index:3;
+    background:rgba(8,8,8,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,0.12); border-radius:20px;
+    padding:4px 11px; font-size:10px; font-weight:800; letter-spacing:.4px;
+    color:var(--text2); text-transform:uppercase; pointer-events:none;
+}
+.portfolio-meta { padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px; }
+.portfolio-title { color:var(--text); font-size:14px; font-weight:700; }
+.portfolio-price { color:var(--accent3); font-size:15px; font-weight:900; }
+.portfolio-actions-row { display:flex; align-items:center; gap:8px; }
 .order-pill {
+    flex:1 1 auto;
     display:inline-flex; align-items:center; justify-content:center;
     background:linear-gradient(135deg,var(--accent2),var(--accent));
-    color:#fff; border:none; padding:9px 22px; border-radius:30px;
+    color:#fff; border:none; padding:11px 22px; border-radius:30px;
     font-size:12px; font-weight:900; letter-spacing:1.5px; text-transform:uppercase;
     text-decoration:none; cursor:pointer;
-    box-shadow:0 0 16px rgba(249,115,22,0.3);
+    box-shadow:inset 0 1px rgba(255,255,255,.22), 0 0 16px rgba(249,115,22,0.3);
     transition:opacity .2s, transform .2s, box-shadow .2s;
 }
 .order-pill:hover { opacity:.9; transform:translateY(-2px); box-shadow:0 0 28px rgba(249,115,22,0.5); }
@@ -708,8 +729,8 @@ body::after {
     cursor: pointer;
     font-family: inherit;
     transition: all .2s;
-    margin-left: 8px;
     vertical-align: middle;
+    flex-shrink: 0;
 }
 .like-btn:hover {
     background: rgba(249,115,22,0.18);
@@ -805,8 +826,10 @@ body::after {
 </div>
 <?php endif; ?>
 
+<?php $sectionTabsActive = 'home'; include __DIR__ . '/includes/section_tabs.php'; ?>
+
 <header>
-    <div class="header-left" style="display:flex;align-items:center;gap:10px;">
+    <div class="header-left header-icon-row" style="display:flex;align-items:center;gap:10px;">
         <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </a>
@@ -890,6 +913,11 @@ body::after {
                      alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
                      draggable="false"
                      onerror="this.style.opacity='0.3'">
+                <?php if ($sizeText !== ''): ?>
+                    <span class="portfolio-size-badge"><?= htmlspecialchars($sizeText) ?> px</span>
+                <?php elseif ($category !== null && !empty($category['title'])): ?>
+                    <span class="portfolio-size-badge"><?= htmlspecialchars($category['title']) ?></span>
+                <?php endif; ?>
                 <?php if ($isDesign && $ava_file !== ''): ?>
                     <div class="design-avatar-frame">
                         <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
@@ -897,12 +925,7 @@ body::after {
                 <?php endif; ?>
             </div>
             <div class="portfolio-meta">
-                <div class="portfolio-title">
-                    <?= htmlspecialchars($work['title'] ?? 'Без названия') ?>
-                    <?php if ($sizeText !== ''): ?>
-                        <span style="display:block;color:var(--text2);font-size:11px;margin-top:3px;"><?= htmlspecialchars($sizeText) ?> px</span>
-                    <?php endif; ?>
-                </div>
+                <div class="portfolio-title"><?= htmlspecialchars($work['title'] ?? 'Без названия') ?></div>
                 <?php
                     // Берём цену из прайс-листа по категории работы (например
                     // "Превью"), а не из price_rub/price_uan самой записи —
@@ -911,9 +934,9 @@ body::after {
                     $showRub  = (int)($plPrice['price_rub'] ?? $work['price_rub'] ?? 0);
                     $showUan  = (int)($plPrice['price_uan'] ?? $work['price_uan'] ?? 0);
                 ?>
-                <div class="portfolio-price"><?= $showRub ?>₽/<?= $showUan ?>грн</div>
+                <div class="portfolio-price"><?= $showRub ?>₽ / <?= $showUan ?>₴</div>
                 <!-- Кнопка ЗАКАЗАТЬ — открывает модалку если не привязан, иначе сразу order.php -->
-                <div class="portfolio-actions-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+                <div class="portfolio-actions-row">
                 <button class="order-pill"
                     onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
                     ЗАКАЗАТЬ

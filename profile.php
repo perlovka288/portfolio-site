@@ -973,8 +973,10 @@ body::before {
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
 
+<?php $sectionTabsActive = 'orders'; include __DIR__ . '/includes/section_tabs.php'; ?>
+
 <header>
-    <div class="header-left" style="display:flex;align-items:center;gap:10px;">
+    <div class="header-left header-icon-row" style="display:flex;align-items:center;gap:10px;">
         <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </a>
@@ -1085,7 +1087,7 @@ body::before {
 </div>
 
 <!-- ── АКТИВНЫЕ ЗАКАЗЫ ── -->
-<div class="orders-section">
+<div class="orders-section" id="orders-section">
     <div class="orders-section-title"><span>⚡ Активные заказы</span></div>
     <?php if (empty($activeOrders)): ?>
     <div class="empty-state">

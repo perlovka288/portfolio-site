@@ -249,6 +249,63 @@ header {
 }
 
 /* =====================================================
+   SECTION TABS — Главная / Заказы / Поддержка
+   ===================================================== */
+.section-tabs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    max-width: 460px;
+    margin: 0 auto 14px;
+    padding: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r3);
+}
+.section-tab {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 10px 12px;
+    border-radius: var(--r3);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    color: var(--text2);
+    transition: all var(--t);
+    white-space: nowrap;
+}
+.section-tab:hover { color: var(--accent3); }
+.section-tab.active {
+    background: linear-gradient(135deg, var(--accent), #ea580c);
+    color: #fff;
+    box-shadow: var(--shadow-accent);
+}
+@media (max-width: 720px) {
+    .section-tabs { max-width: none; width: 100%; }
+    .section-tab { font-size: 11px; padding: 11px 8px; }
+}
+
+/* =====================================================
+   HEADER ICON ROW — Telegram / Настройки
+   Кнопки делят ширину поровну; если админ-кнопка (шестерёнка)
+   отсутствует (не админ), Telegram-кнопка растягивается на всю
+   ширину ряда сама, без дополнительной разметки.
+   ===================================================== */
+.header-icon-row { gap: 10px; }
+.header-icon-row .tg-glow-btn { flex: 1 1 auto; }
+@media (max-width: 720px) {
+    .header-icon-row { width: 100%; }
+    .header-icon-row .tg-glow-btn {
+        width: auto;
+        height: 52px;
+        border-radius: 16px;
+        background: var(--card);
+    }
+}
+
+/* =====================================================
    TABS
    ===================================================== */
 .tabs-container, .portfolio-tabs {
@@ -836,15 +893,12 @@ body.theme-snow {
     }
     .header-right .tg-user-name { max-width: none; flex: 1; text-align: left; }
     .portfolio-grid { grid-template-columns: 1fr; gap: 20px; }
-    .portfolio-media { border-radius: 16px; }
+    .portfolio-card { border-radius: 18px; }
     .portfolio-title, .portfolio-price { font-size: 14px; }
-    /* ── П.2.4: карточка превью — всё центрировано, кнопка шире, лайк под ней ── */
-    .portfolio-meta { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 12px; }
-    .portfolio-meta .portfolio-title { width: 100%; }
-    .portfolio-meta .portfolio-price { order: 2; font-size: 16px; }
-    .portfolio-meta .portfolio-actions-row { order: 3; width: 100%; flex-direction: column !important; align-items: center !important; }
-    .order-pill { width: 100%; min-height: 46px; font-size: 13px; letter-spacing: 1px; padding: 13px 20px; }
-    .like-btn { margin-left: 0; }
+    /* ── П.2.4: карточка превью — заголовок/цена по центру, действия в один ряд ── */
+    .portfolio-meta { text-align: center; }
+    .portfolio-actions-row { width: 100%; }
+    .order-pill { min-height: 46px; font-size: 12px; letter-spacing: 1px; padding: 12px 16px; }
     .design-card .portfolio-media { aspect-ratio: 16/7; min-height: 140px; }
     .design-card .portfolio-meta { grid-template-columns: 1fr; }
     .design-avatar-frame { right: 12px; width: 70px; height: 70px; border-width: 2px; }
