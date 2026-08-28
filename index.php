@@ -586,6 +586,7 @@ body::after {
     background:var(--card2); border:1px solid var(--border);
     border-radius:12px; color:var(--text2);
     transition:all .2s; cursor:pointer; font-family:inherit;
+    text-decoration:none; /* теперь это ссылка на Telegram, а не <button> */
 }
 .card-icon-btn:hover { border-color:var(--border-accent); color:var(--accent2); background:var(--accent-dim); }
 .order-pill {
@@ -952,9 +953,12 @@ body::after {
                      покупка игр") не нужен. -->
                 <!-- Подвал карточки: комментарии слева, лайк по центру, «ЗАКАЗАТЬ» (контур) справа -->
                 <div class="portfolio-actions-row">
-                <button type="button" class="card-icon-btn" title="Задать вопрос ИИ-помощнику" data-open-ai-chat onclick="(function(o){function t(){if(window.openAiWidgetPanel){window.openAiWidgetPanel();}else if(o.__aiChatTries<20){o.__aiChatTries=(o.__aiChatTries||0)+1;setTimeout(t,100);}}t();})(this)">
+                <!-- Правка: значок 💬 раньше открывал ИИ-чат, теперь ведёт прямо
+                     в Telegram (тот же адрес, что и основная кнопка Telegram
+                     в шапке), без ИИ-посредника. -->
+                <a href="https://t.me/designkostlim" target="_blank" rel="noopener" class="card-icon-btn" title="Написать в Telegram">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                </button>
+                </a>
                 <?php
                     $wId      = (int)$work['id'];
                     $wLiked   = in_array($wId, $myLikes, true);

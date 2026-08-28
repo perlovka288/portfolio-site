@@ -127,7 +127,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     width: 40px; height: 4px; border-radius: 3px; background: #3a3a46;
     margin: 10px auto 0; display: none; flex-shrink: 0;
 }
-@media (max-width: 480px) { .ai-widget-swipe-hint { display: block; } }
+@media (max-width: 720px) { .ai-widget-swipe-hint { display: block; } }
 
 .ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
@@ -255,8 +255,16 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 #ai-widget-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9550; display: none; }
 #ai-widget-overlay.open { display: block; }
 
-@media (max-width: 480px) {
-    /* ── Bottom Sheet на мобильных ──
+@media (max-width: 720px) {
+    /* Правка ТЗ: раньше порог был 480px, из-за чего в типичной ширине
+       Telegram Mini App (обычно ~500–680px) чат всё ещё считался
+       "десктопным" и выезжал узкой полосой 380px справа, а не на всю
+       ширину/высоту — из-за этого казалось, что окно чата открывается
+       "не полностью". Теперь bottom-sheet (на всю ширину и почти всю
+       высоту экрана) включается на том же брейкпоинте, что и остальной
+       мобильный вид сайта (720px), чтобы чат всегда раскрывался ровно
+       под контент (текст/фото/поле ввода) на всю доступную область. */
+    /* ── Bottom Sheet на мобильных/Mini App ──
        Выезжает снизу, высота — 92dvh (см. ниже), браузер сам ужимает её
        при появлении клавиатуры (см. подробности в комментарии у JS). */
     .ai-widget-panel {
@@ -302,7 +310,10 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             if (raf) cancelAnimationFrame(raf);
             raf = requestAnimationFrame(function() {
                 var vv = window.visualViewport;
-                var isMobile = window.innerWidth <= 480;
+                /* Тот же порог 720px, что и в CSS-медиа-запросе выше —
+                   иначе JS и CSS расходятся в том, что считать "мобильным"
+                   видом, и высота панели не совпадает с её же CSS-высотой. */
+                var isMobile = window.innerWidth <= 720;
                 panel.style.height = (isMobile ? Math.round(vv.height * 0.92) : vv.height) + 'px';
             });
         }
