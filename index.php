@@ -847,14 +847,16 @@ body::after {
     <?php $sectionTabsActive = 'home'; include __DIR__ . '/includes/section_tabs.php'; ?>
 </header>
 
-<!-- ══ Сетка быстрых кнопок 2×2: Telegram / Настройки / Прайс / Отзывы ══ -->
+<!-- ══ Сетка быстрых кнопок: Telegram (+ Настройки — только для админа) / Прайс / Отзывы ══ -->
 <div class="quick-actions-grid">
-    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn" title="Telegram">
+    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn<?= $isAdmin ? '' : ' quick-action-btn-wide' ?>" title="Telegram">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
     </a>
-    <a href="<?= $isAdmin ? 'admin/index.php' : 'profile.php' ?>" class="quick-action-btn" title="Настройки">
+    <?php if ($isAdmin): ?>
+    <a href="admin/index.php" class="quick-action-btn" title="Настройки">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </a>
+    <?php endif; ?>
     <a href="price.php" class="quick-action-btn" title="Прайс">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         Прайс
@@ -950,7 +952,7 @@ body::after {
                      покупка игр") не нужен. -->
                 <!-- Подвал карточки: комментарии слева, лайк по центру, «ЗАКАЗАТЬ» (контур) справа -->
                 <div class="portfolio-actions-row">
-                <button type="button" class="card-icon-btn" title="Задать вопрос ИИ-помощнику" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel()">
+                <button type="button" class="card-icon-btn" title="Задать вопрос ИИ-помощнику" data-open-ai-chat onclick="(function(o){function t(){if(window.openAiWidgetPanel){window.openAiWidgetPanel();}else if(o.__aiChatTries<20){o.__aiChatTries=(o.__aiChatTries||0)+1;setTimeout(t,100);}}t();})(this)">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 </button>
                 <?php

@@ -413,6 +413,15 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
     closeBtn.addEventListener('click', closePanel);
     overlay.addEventListener('click', closePanel);
 
+    // Подстраховка: любая кнопка с data-open-ai-chat открывает панель, даже
+    // если по какой-то причине не сработал inline-обработчик (например,
+    // клик случился раньше, чем этот скрипт успел выполниться на медленном
+    // соединении) — делегирование на document ловит клик в любом случае.
+    document.addEventListener('click', function (e) {
+        var trigger = e.target.closest('[data-open-ai-chat]');
+        if (trigger) openPanel();
+    });
+
     // Клики внутри самой панели никогда не должны закрывать чат — раньше
     // из-за бага со стэком z-index оверлей "перекрывал" панель, и любой
     // клик (даже по полю ввода) считался кликом "мимо", закрывая чат.
