@@ -714,7 +714,7 @@ $editStatus      = $_GET['edit_status'] ?? '';
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
 <link rel="shortcut icon" href="/assets/img/logo.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <style>
 body::before {
     content:'';position:fixed;top:-120px;left:50%;transform:translateX(-50%);

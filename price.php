@@ -50,7 +50,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <title>Kostlim Design | Прайс-лист</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <style>
 body::before {
     content: '';
