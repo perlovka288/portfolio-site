@@ -269,9 +269,9 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Kostlim Design | Портфолио</title>
-<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/notify/fav.png">
-<link rel="shortcut icon" href="/assets/notify/fav.png">
+<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo.png">
+<link rel="shortcut icon" href="/assets/img/logo.png">
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {
@@ -807,12 +807,6 @@ body::after {
 
 <header>
     <div class="header-left" style="display:flex;align-items:center;gap:10px;">
-        <?php if ($avatar !== ''): ?>
-            <img src="<?= htmlspecialchars(imgSrc($avatar)) ?>" class="avatar-mini" alt="Kostlim">
-        <?php else: ?>
-            <img src="https://i.imgur.com/w9NThbA.png" class="avatar-mini" alt="Kostlim">
-        <?php endif; ?>
-
         <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </a>
@@ -824,7 +818,7 @@ body::after {
         <?php endif; ?>
     </div>
 
-    <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design"></a></div>
 
     <div class="header-right" style="display:flex;align-items:center;gap:10px;">
         <a href="price.php" class="nav-link nav-price"><span class="icon"></span>Прайс</a>

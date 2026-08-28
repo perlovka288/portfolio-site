@@ -971,8 +971,8 @@ render_page:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
-<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/notify/fav.png">
+<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo.png">
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script>

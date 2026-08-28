@@ -163,6 +163,14 @@ header {
     display: block;
     margin-top: 4px;
 }
+/* Логотип-картинка вместо текста KOSTLIM DESIGN */
+.brand-logo-img {
+    height: 40px;
+    width: auto;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
 
 /* =====================================================
    NAV LINKS — иконки через SVG data-uri (оранжевые)

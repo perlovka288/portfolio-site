@@ -48,7 +48,8 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Kostlim Design | Прайс-лист</title>
-<link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
+<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo.png">
 <link rel="stylesheet" href="style.css">
 <style>
 body::before {
@@ -142,7 +143,7 @@ body::before {
         </a>
     </div>
 
-    <div class="brand-title"><h1>KOSTLIM</h1><span>DESIGN</span></div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design"></a></div>
 
     <div class="header-right">
         <?php if ($isAdmin): ?>
