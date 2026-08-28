@@ -24,6 +24,12 @@ $siteUrl   = rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.c
 
 $isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
 
+// Раздел «ЗАКАЗЫ» в верхнем меню ведёт сюда с ?view=orders — в этом режиме
+// карточку профиля (аватар/имя/ADMIN) НЕ показываем, страница открывается
+// сразу с активными заказами. Полная карточка профиля видна только при
+// прямом переходе на profile.php (клик по плашке профиля).
+$viewOrders = (($_GET['view'] ?? '') === 'orders');
+
 $sid     = session_id();
 $profile = null;
 $orders  = [];
@@ -758,6 +764,8 @@ body::before {
 .btn-bot { background:rgba(0,136,204,0.15);border:1px solid rgba(0,136,204,0.3);color:#60c8f5; }
 .btn-bot:hover { background:rgba(0,136,204,0.25); }
 
+.orders-page-title { display:flex;align-items:center;gap:9px;font-size:19px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#fff;margin:4px 0 20px; }
+.orders-page-title svg { color:var(--accent); }
 .orders-section { margin-bottom:28px; }
 .orders-section-title { font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:var(--text2);margin:0 0 14px;display:flex;align-items:center;gap:8px; }
 .orders-section-title::after { content:'';flex:1;height:1px;background:var(--border); }
@@ -973,36 +981,44 @@ body::before {
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
 
-<?php $sectionTabsActive = 'orders'; include __DIR__ . '/includes/section_tabs.php'; ?>
-
-<header>
-    <div class="header-left header-icon-row" style="display:flex;align-items:center;gap:10px;">
-        <a href="https://t.me/designkostlim" target="_blank" class="tg-glow-btn" title="Telegram">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-        </a>
-
-        <?php if ($isAdmin): ?>
-        <a href="admin/index.php" class="tg-glow-btn" title="Админ-панель">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </a>
-        <?php endif; ?>
-    </div>
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-    <div class="header-right" style="display:flex;align-items:center;gap:10px;">
-        <a href="price.php" class="nav-link nav-price">Прайс</a>
-        <?php if ($profile): ?>
-        <span class="tg-user-chip" style="cursor:default;">
-            <?php if (!empty($profile['tg_photo_url'])): ?>
-                <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-                <span class="tg-user-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
-            <?php else: ?>
-                <span class="tg-user-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
-            <?php endif; ?>
-            <span class="tg-user-name"><?= htmlspecialchars($displayName) ?></span>
-        </span>
-        <?php endif; ?>
-    </div>
+<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке —
+     та же структура, что и на index.php / support.php, чтобы меню
+     отображалось ровно и синхронно на всех страницах. ══ -->
+<header class="header-compact">
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
+    <?php $sectionTabsActive = 'orders'; include __DIR__ . '/includes/section_tabs.php'; ?>
 </header>
+
+<!-- ══ Сетка быстрых кнопок — тот же стиль, что и на других страницах ══ -->
+<div class="quick-actions-grid">
+    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn" title="Telegram">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+    </a>
+    <?php if ($isAdmin): ?>
+    <a href="admin/index.php" class="quick-action-btn" title="Админ-панель">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </a>
+    <?php endif; ?>
+    <a href="price.php" class="quick-action-btn" title="Прайс">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Прайс
+    </a>
+</div>
+
+<?php if ($profile): ?>
+<!-- ══ Плашка текущего профиля — не кликабельна (мы уже на этой странице) ══ -->
+<div class="profile-chip-row">
+    <span class="tg-user-chip" style="cursor:default;">
+        <?php if (!empty($profile['tg_photo_url'])): ?>
+            <img src="<?= htmlspecialchars(imgSrc($profile['tg_photo_url'] ?? '')) ?>" class="tg-user-ava" alt="аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <span class="tg-user-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
+        <?php else: ?>
+            <span class="tg-user-ava-fallback"><?= mb_strtoupper(mb_substr($displayName, 0, 1)) ?></span>
+        <?php endif; ?>
+        <span class="tg-user-name"><?= htmlspecialchars($displayName) ?></span>
+    </span>
+</div>
+<?php endif; ?>
 
 <div class="profile-wrap">
 
@@ -1039,7 +1055,11 @@ body::before {
 <div class="profile-notice err">❌ Не удалось отправить обращение. Заполни все поля.</div>
 <?php endif; ?>
 
-<!-- ── HERO-КАРТОЧКА ── -->
+<!-- ── HERO-КАРТОЧКА ──
+     Не показываем, если пришли с вкладки «ЗАКАЗЫ» (?view=orders) — там
+     нужны сразу заказы, без карточки профиля. Полная карточка видна только
+     при заходе на profile.php напрямую (клик по плашке профиля). -->
+<?php if (!$viewOrders): ?>
 <div class="profile-hero">
     <div class="profile-ava-wrap">
         <?php if (!empty($profile['tg_photo_url'])): ?>
@@ -1085,6 +1105,12 @@ body::before {
         </a>
     </div>
 </div>
+<?php else: ?>
+<div class="orders-page-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+    Заказы
+</div>
+<?php endif; ?>
 
 <!-- ── АКТИВНЫЕ ЗАКАЗЫ ── -->
 <div class="orders-section" id="orders-section">

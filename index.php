@@ -945,12 +945,12 @@ body::after {
                 <?php endif; ?>
             </div>
             <div class="portfolio-meta">
-                <?php if (!$isDesign): ?>
-                <div class="portfolio-title"><?= htmlspecialchars($work['title'] ?? 'Без названия') ?></div>
-                <?php endif; ?>
+                <!-- Подпись-название под превью убрана по ТЗ: цена уже показана
+                     сверху карточки, дублирующий текст (например "Превью
+                     покупка игр") не нужен. -->
                 <!-- Подвал карточки: комментарии слева, лайк по центру, «ЗАКАЗАТЬ» (контур) справа -->
                 <div class="portfolio-actions-row">
-                <button type="button" class="card-icon-btn" title="Комментарии" onclick="handleOrder('<?= htmlspecialchars($work['category_key'] ?? 'preview') ?>')">
+                <button type="button" class="card-icon-btn" title="Задать вопрос ИИ-помощнику" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel()">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 </button>
                 <?php
