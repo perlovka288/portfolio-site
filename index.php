@@ -1465,6 +1465,10 @@ function toggleLike(workId, btn) {
     } catch (e) {}
 })();
 </script>
-<?php $aiWidgetHideFab = true; include __DIR__ . '/includes/ai_widget.php'; ?>
+<?php /* Правка: плавающая ИИ-иконка + подсказка-пузырь теперь показывается
+        и на Главной тоже (раньше была скрыта, включалась только по клику
+        на 💬 под превью — теперь тот значок ведёт в Telegram, а этот FAB
+        отдельно доступен всегда, как на разделе Заказы). */
+      include __DIR__ . '/includes/ai_widget.php'; ?>
 </body>
 </html>
