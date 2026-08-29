@@ -764,7 +764,7 @@ body::before {
 .btn-bot { background:rgba(0,136,204,0.15);border:1px solid rgba(0,136,204,0.3);color:#60c8f5; }
 .btn-bot:hover { background:rgba(0,136,204,0.25); }
 
-.orders-page-title { display:flex;align-items:center;justify-content:space-between;gap:9px;font-size:19px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#fff;margin:4px 0 20px; }
+.orders-page-title { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:19px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#fff;margin:4px 0 20px;text-align:center; }
 .orders-page-title-left { display:flex;align-items:center;gap:9px; }
 .orders-page-title svg { color:var(--accent); }
 .orders-new-btn {
@@ -775,7 +775,6 @@ body::before {
     box-shadow:0 0 16px rgba(249,115,22,0.3);white-space:nowrap;
 }
 @media (max-width:480px) {
-    .orders-page-title { flex-wrap:wrap; }
     .orders-new-btn { font-size:11px;padding:9px 14px; }
 }
 .orders-section { margin-bottom:28px; }
@@ -1089,15 +1088,15 @@ body::before {
     </div>
 </div>
 <?php else: ?>
+<!-- Правка ТЗ: заголовок «Заказы» (с иконкой корзины) зафиксирован по
+     центру, кнопка «Оформить заказ» — под ним, тоже по центру. Кнопка
+     всегда на виду, независимо от того, есть уже заказы или нет — поэтому
+     дублирующую кнопку из пустого состояния ниже убрали. -->
 <div class="orders-page-title">
     <span class="orders-page-title-left">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
         Заказы
     </span>
-    <!-- Правка ТЗ: кнопка "Оформить заказ" раньше показывалась только в
-         пустом состоянии (когда активных заказов нет) — теперь она всегда
-         на виду в шапке раздела, независимо от того, есть уже заказы или
-         нет. -->
     <a href="order.php" class="orders-new-btn">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
         Оформить заказ
@@ -1112,10 +1111,6 @@ body::before {
     <div class="empty-state">
         <div class="empty-state-icon">📭</div>
         <p>Нет активных заказов</p>
-        <a href="order.php">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-            Оформить заказ
-        </a>
     </div>
     <?php else: ?>
         <?php foreach ($activeOrders as $order):

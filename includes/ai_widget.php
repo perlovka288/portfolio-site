@@ -309,12 +309,19 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             if (raf) cancelAnimationFrame(raf);
             raf = requestAnimationFrame(function() {
                 var vv = window.visualViewport;
+                // Правка: раньше здесь не было нижней границы — если
+                // visualViewport.height в момент открытия отдавал заниженное
+                // значение (бывает в WebView Telegram Mini App до того, как
+                // приложение окончательно "устаканит" размеры), inline
+                // max-height мог схлопнуть окно чата почти до нуля — из-за
+                // этого пропадала видимая часть с полем ввода. Теперь есть
+                // жёсткий пол в 420px (шапка + немного сообщений + подвал с
+                // вводом всегда помещаются), а сама подстройка под клавиатуру
+                // работает только когда есть реальный смысл ужимать — то
+                // есть высота вьюпорта заметно меньше высоты окна.
                 var isMobile = window.innerWidth <= 480;
-                // Окно теперь центрировано (position:fixed + translate(-50%,-50%)),
-                // поэтому ограничиваем ТОЛЬКО max-height (чтобы клавиатура не
-                // перекрывала поле ввода), а не задаём фиксированную height —
-                // так модалка остаётся ровно по центру видимой области экрана.
-                panel.style.maxHeight = Math.round(vv.height * (isMobile ? 0.9 : 0.86)) + 'px';
+                var target = Math.round(vv.height * (isMobile ? 0.9 : 0.86));
+                panel.style.maxHeight = Math.max(target, 420) + 'px';
             });
         }
         window.visualViewport.addEventListener('resize', apply);

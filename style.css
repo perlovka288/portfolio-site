@@ -90,9 +90,19 @@ input, textarea, select { font-family: inherit; }
    переключении между разделами (Главная / Заказы / Поддержка / Профиль).
    ===================================================== */
 @keyframes pageFadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
+/* Правка: раньше здесь была ещё "transform: translateY(...)" — из-за
+   animation-fill-mode "both" этот transform навсегда оставался применённым
+   к <body> и после окончания анимации (даже translateY(0) всё равно
+   считается "заданным transform"). А любой transform на предке превращает
+   его в containing block для ВСЕХ потомков с position:fixed — из-за этого
+   плавающая ИИ-иконка и окно чата позиционировались не от экрана, а от
+   нижнего края body, то есть от низа ВСЕЙ страницы целиком (поэтому
+   иконка "уезжала в конец страницы", а не сидела сбоку как настоящий
+   fixed-элемент). Теперь body анимируется только через opacity — transform
+   на нём больше никогда не появляется. */
 body { animation: pageFadeIn .32s ease both; }
 
 /* Оверлей с 3 пульсирующими точками — показывается сразу по клику на
