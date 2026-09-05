@@ -1,6 +1,74 @@
 <?php
 
 /**
+ * Загружает файл в Cloudinary (постоянное облачное хранилище) и
+ * возвращает публичный https-URL, либо '' при любой ошибке/если не
+ * настроены переменные окружения CLOUDINARY_CLOUD_NAME / API_KEY /
+ * API_SECRET.
+ *
+ * ПОЧЕМУ ЭТО ВАЖНО (см. также saveUploadedWorkFiles() в admin/index.php):
+ * Диск сервера, на котором крутится сайт (папка uploads/), НЕ хранится
+ * в git и НЕ переживает деплой — при каждом пуше/передеплое хостинг
+ * поднимает файлы заново из репозитория, а в репозитории эта папка
+ * пустая (там лежит только .gitkeep для служебных целей). Поэтому любой
+ * файл, сохранённый ТОЛЬКО локально (move_uploaded_file в uploads/...),
+ * пропадает при следующем деплое — ссылка в базе остаётся, а самого
+ * файла на диске уже нет. Это НЕ баг конкретного пуша и не "чистая
+ * папка вместо файлов" со стороны git — так работает любой обычный
+ * git-деплой без persistent-диска. Единственное надёжное решение —
+ * хранить файлы во внешнем облаке (Cloudinary), а не на локальном диске
+ * сайта. Локальное сохранение (uploadLocalFallback в order.php,
+ * saveUploadedWorkFiles здесь) остаётся только как ВРЕМЕННЫЙ запасной
+ * вариант на случай, если Cloudinary недоступен/не настроен.
+ */
+if (!function_exists('uploadToCloudinary')) {
+function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
+    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
+    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
+    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
+    if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
+        error_log('[uploadToCloudinary] CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET env vars are not set — upload skipped.');
+        return '';
+    }
+    if (!is_file($filePath)) {
+        error_log("[uploadToCloudinary] tmp file not found: {$filePath}");
+        return '';
+    }
+    $timestamp = time();
+    $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
+    // resource_type=auto — чтобы не только картинки, но и исходники (psd/ai/zip/pdf и т.п.) грузились корректно
+    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/auto/upload");
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_POSTFIELDS     => [
+            'file'      => new CURLFile($filePath),
+            'api_key'   => $apiKey,
+            'timestamp' => $timestamp,
+            'signature' => $sig,
+            'folder'    => $folder,
+        ],
+    ]);
+    $resp = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($resp === false) {
+        error_log("[uploadToCloudinary] curl error: {$curlErr}");
+        return '';
+    }
+    $data = json_decode($resp, true);
+    if (!isset($data['secure_url'])) {
+        error_log("[uploadToCloudinary] Cloudinary API error (HTTP {$httpCode}): " . substr($resp, 0, 500));
+        return '';
+    }
+    return $data['secure_url'];
+}
+}
+
+/**
  * Промокоды: таблица + колонка на заказе, куда сохраняется применённый код.
  */
 function ensurePromoSchema(PDO $pdo): void
@@ -24,6 +92,172 @@ function ensurePromoSchema(PDO $pdo): void
         }
     } catch (Throwable $e) {
         error_log('ensurePromoSchema error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * РЕФЕРАЛЬНАЯ ПРОГРАММА (удержание клиентов / повторные продажи).
+ *
+ * Как это работает:
+ * - У каждого клиента, который хоть раз написал боту, есть личный код
+ *   вида "REF-AB12CD" — он же ссылка-приглашение (t.me/бот?start=ref_КОД),
+ *   он же личный промокод (можно ввести прямо в поле "Промокод" на форме
+ *   заказа — переиспользуем готовую систему промокодов, ничего в форме
+ *   менять не нужно).
+ * - Когда по ссылке приходит новый человек — сохраняем, кто кого позвал
+ *   (referred_by_chat_id).
+ * - Когда приглашённый друг оформляет и ОПЛАЧИВАЕТ свой первый заказ —
+ *   пригласившему начисляется бонус: скидка +N% на промокод (по
+ *   умолчанию +5%, максимум 30%, оба числа настраиваются в site_settings).
+ *   Бонус начисляется только один раз за каждого приглашённого друга —
+ *   это гарантирует таблица referral_awards (UNIQUE по referred_chat_id).
+ */
+function ensureReferralSchema(PDO $pdo): void
+{
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS referral_users (
+            chat_id VARCHAR(64) PRIMARY KEY,
+            ref_code VARCHAR(20) NOT NULL,
+            referred_by_chat_id VARCHAR(64) DEFAULT NULL,
+            invited_count INT NOT NULL DEFAULT 0,
+            bonus_percent INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            CONSTRAINT uniq_referral_ref_code UNIQUE (ref_code)
+        )");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS referral_awards (
+            id SERIAL PRIMARY KEY,
+            referrer_chat_id VARCHAR(64) NOT NULL,
+            referred_chat_id VARCHAR(64) NOT NULL,
+            order_id INT DEFAULT NULL,
+            awarded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            CONSTRAINT uniq_referral_award_friend UNIQUE (referred_chat_id)
+        )");
+    } catch (Throwable $e) {
+        error_log('ensureReferralSchema error: ' . $e->getMessage());
+    }
+}
+
+/** Генерирует непересекающийся личный код REF-XXXXXX для клиента. */
+function generateReferralCode(PDO $pdo): string
+{
+    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // без похожих букв/цифр (0/O, 1/I)
+    for ($attempt = 0; $attempt < 20; $attempt++) {
+        $code = 'REF-';
+        for ($i = 0; $i < 6; $i++) $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        try {
+            $chk = $pdo->prepare("SELECT 1 FROM referral_users WHERE ref_code = ? LIMIT 1");
+            $chk->execute([$code]);
+            if (!$chk->fetch()) return $code;
+        } catch (Throwable $e) {
+            return $code; // таблицы ещё нет / ошибка — код всё равно почти наверняка уникален
+        }
+    }
+    return 'REF-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+}
+
+/**
+ * Возвращает (создавая при необходимости) реферальную запись клиента и
+ * его личный промокод (промокод создаётся/обновляется в promo_codes,
+ * чтобы им можно было воспользоваться прямо в форме заказа как обычным
+ * промокодом — без каких-либо изменений на стороне order.php).
+ */
+function getOrCreateReferralUser(PDO $pdo, string $chatId, ?string $referredByChatId = null): array
+{
+    ensurePromoSchema($pdo);
+    ensureReferralSchema($pdo);
+
+    $stmt = $pdo->prepare("SELECT * FROM referral_users WHERE chat_id = ? LIMIT 1");
+    $stmt->execute([$chatId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row) return $row;
+
+    $code = generateReferralCode($pdo);
+    // Само-приглашение (человек перешёл по собственной ссылке) не считаем.
+    if ($referredByChatId === $chatId) $referredByChatId = null;
+
+    try {
+        $pdo->prepare("
+            INSERT INTO referral_users (chat_id, ref_code, referred_by_chat_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT (chat_id) DO NOTHING
+        ")->execute([$chatId, $code, $referredByChatId]);
+    } catch (Throwable $e) {
+        error_log('getOrCreateReferralUser insert error: ' . $e->getMessage());
+    }
+
+    // Личный промокод — пока без скидки (0%), скидка появится после того,
+    // как приглашённый друг оплатит первый заказ (см. awardReferralBonus).
+    try {
+        $pdo->prepare("
+            INSERT INTO promo_codes (code, discount_percent, bonus_text, active)
+            VALUES (?, 0, 'Личный реферальный бонус', TRUE)
+            ON CONFLICT (code) DO NOTHING
+        ")->execute([$code]);
+    } catch (Throwable $e) {
+        error_log('getOrCreateReferralUser promo insert error: ' . $e->getMessage());
+    }
+
+    $stmt->execute([$chatId]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['chat_id' => $chatId, 'ref_code' => $code, 'referred_by_chat_id' => $referredByChatId, 'invited_count' => 0, 'bonus_percent' => 0];
+}
+
+/**
+ * Начисляет бонус пригласившему за то, что приглашённый друг оплатил свой
+ * первый заказ. Ничего не делает и возвращает null, если у клиента нет
+ * пригласившего или бонус за него уже был начислен раньше (см. UNIQUE в
+ * referral_awards) — то есть безопасно вызывать на каждый чек оплаты.
+ * Возвращает данные для уведомления пригласившего или null.
+ */
+function awardReferralBonusIfApplicable(PDO $pdo, string $referredChatId, ?int $orderId = null): ?array
+{
+    ensureReferralSchema($pdo);
+    try {
+        $stmt = $pdo->prepare("SELECT referred_by_chat_id FROM referral_users WHERE chat_id = ? LIMIT 1");
+        $stmt->execute([$referredChatId]);
+        $referrerChatId = $stmt->fetchColumn();
+        if (!$referrerChatId) return null;
+
+        // UNIQUE (referred_chat_id) в referral_awards гарантирует, что даже
+        // если этот заказ — не первый (или функция вызвана повторно на
+        // 2-й/3-й чек того же заказа), бонус уйдёт максимум один раз.
+        $ins = $pdo->prepare("INSERT INTO referral_awards (referrer_chat_id, referred_chat_id, order_id) VALUES (?, ?, ?) ON CONFLICT (referred_chat_id) DO NOTHING");
+        $ins->execute([$referrerChatId, $referredChatId, $orderId]);
+        if ($ins->rowCount() < 1) return null; // уже было начислено раньше
+
+        $step = (int)(getSiteSetting($pdo, 'referral_bonus_percent') ?: 5);
+        $cap  = (int)(getSiteSetting($pdo, 'referral_bonus_cap_percent') ?: 30);
+        if ($step <= 0) $step = 5;
+        if ($cap <= 0) $cap = 30;
+
+        $referrer = getOrCreateReferralUser($pdo, (string)$referrerChatId);
+        $newPercent = min($cap, (int)($referrer['bonus_percent'] ?? 0) + $step);
+
+        $pdo->prepare("UPDATE referral_users SET bonus_percent = ?, invited_count = invited_count + 1 WHERE chat_id = ?")
+            ->execute([$newPercent, $referrerChatId]);
+        $pdo->prepare("UPDATE promo_codes SET discount_percent = ?, active = TRUE WHERE code = ?")
+            ->execute([$newPercent, $referrer['ref_code']]);
+
+        return [
+            'referrer_chat_id' => (string)$referrerChatId,
+            'ref_code'         => $referrer['ref_code'],
+            'bonus_percent'    => $newPercent,
+        ];
+    } catch (Throwable $e) {
+        error_log('awardReferralBonusIfApplicable error: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/** Простой хелпер чтения одной настройки из site_settings (см. ensureOrderFlowSchema). */
+function getSiteSetting(PDO $pdo, string $key): ?string
+{
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $val = $stmt->fetchColumn();
+        return $val === false ? null : (string)$val;
+    } catch (Throwable $e) {
+        return null;
     }
 }
 
@@ -55,19 +289,28 @@ function checkPromoCode(PDO $pdo, string $codeInput, ?int $clientChatId, string 
         return ['valid' => false, 'reason' => 'maxed_out'];
     }
 
-    try {
-        $usedStmt = $pdo->prepare("
-            SELECT id FROM orders
-            WHERE UPPER(promo_code) = UPPER(?)
-              AND status IN ('in_progress','urgent','ready')
-              AND ((client_chat_id IS NOT NULL AND client_chat_id = ?) OR (session_id IS NOT NULL AND session_id = ?))
-            LIMIT 1
-        ");
-        $usedStmt->execute([$promo['code'], $clientChatId ?: 0, $sessionId]);
-        if ($usedStmt->fetch()) {
-            return ['valid' => false, 'reason' => 'already_used'];
-        }
-    } catch (Throwable $e) {}
+    // Личные реферальные промокоды (формат "REF-XXXXXX", см. getOrCreateReferralUser)
+    // — это накопительная постоянная скидка владельца кода за приглашённых
+    // друзей, а не одноразовый акционный код. Правило "один раз на
+    // человека" ниже для них не действует — иначе после первого же заказа
+    // свой собственный бонус было бы больше не применить.
+    $isPersonalReferralCode = (bool)preg_match('/^REF-[A-Z0-9]{4,10}$/i', $promo['code']);
+
+    if (!$isPersonalReferralCode) {
+        try {
+            $usedStmt = $pdo->prepare("
+                SELECT id FROM orders
+                WHERE UPPER(promo_code) = UPPER(?)
+                  AND status IN ('in_progress','urgent','ready')
+                  AND ((client_chat_id IS NOT NULL AND client_chat_id = ?) OR (session_id IS NOT NULL AND session_id = ?))
+                LIMIT 1
+            ");
+            $usedStmt->execute([$promo['code'], $clientChatId ?: 0, $sessionId]);
+            if ($usedStmt->fetch()) {
+                return ['valid' => false, 'reason' => 'already_used'];
+            }
+        } catch (Throwable $e) {}
+    }
 
     return ['valid' => true, 'promo' => $promo];
 }
@@ -257,6 +500,12 @@ function ensureOrderFlowSchema(PDO $pdo): void
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_price_rub NUMERIC DEFAULT 0");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_price_uan NUMERIC DEFAULT 0");
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS revision_receipt TEXT DEFAULT NULL");
+
+        // Удержание клиентов: когда клиенту отправлено мягкое напоминание
+        // "как дела с оформлением / нужно что-то свежее" (см.
+        // cron_client_followup.php) — запоминаем сюда, чтобы не слать
+        // повторно один и тот же заказ.
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS followup_sent_at TIMESTAMP DEFAULT NULL");
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
     }
@@ -576,7 +825,16 @@ function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, array $f
     $stmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
     $stmt->execute([$orderId]);
     $chatId = trim((string)$stmt->fetchColumn());
-    $files = array_values(array_filter($files, fn($f) => is_file($f['path'] ?? '')));
+    // Файл теперь может быть либо путём на локальном диске (старый
+    // fallback-способ), либо готовым https-URL из Cloudinary (см.
+    // saveUploadedWorkFiles() в admin/index.php) — раньше is_file()
+    // на Cloudinary-ссылке всегда возвращал false и файл тихо
+    // отбрасывался, поэтому доставка клиенту молча ничего не отправляла.
+    $files = array_values(array_filter($files, function ($f) {
+        $p = (string)($f['path'] ?? '');
+        if ($p === '') return false;
+        return str_starts_with($p, 'http://') || str_starts_with($p, 'https://') || is_file($p);
+    }));
     if ($chatId === '' || !is_numeric($chatId) || empty($files)) return false;
 
     $messageIds = [];
@@ -584,11 +842,14 @@ function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, array $f
     foreach ($batches as $bi => $batch) {
         if (count($batch) === 1) {
             $f = $batch[0];
+            $isUrl = str_starts_with($f['path'], 'http://') || str_starts_with($f['path'], 'https://');
             $ch = curl_init("https://api.telegram.org/bot{$token}/sendDocument");
             curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
                 CURLOPT_POSTFIELDS => [
                     'chat_id'  => $chatId,
-                    'document' => new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']),
+                    // Ссылку Cloudinary передаём напрямую строкой — Telegram
+                    // сам её скачает, грузить файл с нашего сервера не нужно.
+                    'document' => $isUrl ? $f['path'] : new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']),
                 ]]);
             $resp = curl_exec($ch); $err = curl_error($ch); curl_close($ch);
             $data = json_decode((string)$resp, true);
@@ -601,9 +862,15 @@ function deliverWorkFileToClient(PDO $pdo, string $token, int $orderId, array $f
             $media = [];
             $postFields = ['chat_id' => $chatId];
             foreach ($batch as $i => $f) {
-                $attachKey = "file{$bi}_{$i}";
-                $media[] = ['type' => 'document', 'media' => "attach://{$attachKey}"];
-                $postFields[$attachKey] = new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']);
+                $isUrl = str_starts_with($f['path'], 'http://') || str_starts_with($f['path'], 'https://');
+                if ($isUrl) {
+                    // Ссылка Cloudinary — Telegram сам скачает, вложение не нужно.
+                    $media[] = ['type' => 'document', 'media' => $f['path']];
+                } else {
+                    $attachKey = "file{$bi}_{$i}";
+                    $media[] = ['type' => 'document', 'media' => "attach://{$attachKey}"];
+                    $postFields[$attachKey] = new CURLFile($f['path'], mime_content_type($f['path']) ?: 'application/octet-stream', $f['orig']);
+                }
             }
             $postFields['media'] = json_encode($media, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $ch = curl_init("https://api.telegram.org/bot{$token}/sendMediaGroup");

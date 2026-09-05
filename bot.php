@@ -7,6 +7,30 @@ require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fa
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
+ensureReferralSchema($pdo);
+
+/**
+ * Username бота (без @) — нужен, чтобы собрать персональную реферальную
+ * ссылку вида t.me/<username>?start=ref_КОД. Спрашивать это в env лениво,
+ * поэтому один раз получаем через getMe и кешируем в site_settings —
+ * повторные вызовы читают уже из кеша, лишний запрос к Telegram не летит.
+ */
+function getBotUsername(PDO $pdo, string $token): string
+{
+    $cached = getSiteSetting($pdo, 'bot_username');
+    if ($cached) return $cached;
+    try {
+        $res  = sendTelegram($token, 'getMe', []);
+        $data = json_decode((string)$res, true);
+        $uname = (string)($data['result']['username'] ?? '');
+        if ($uname !== '') {
+            $pdo->prepare("INSERT INTO site_settings (setting_key, value) VALUES ('bot_username', ?) ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value")->execute([$uname]);
+        }
+        return $uname;
+    } catch (Throwable $e) {
+        return '';
+    }
+}
 
 /**
  * ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
@@ -827,6 +851,25 @@ if (isset($update['message'])) {
                     $newStatus  = $isUrgent ? 'urgent' : 'in_progress';
                     $pdo->prepare("UPDATE orders SET status = ?, payment_status = 'receipt_received', payment_receipt = ?, payment_receipt_count = ?, payment_received_at = NOW(), started_at = NOW(), deadline = ? WHERE id = ?")
                         ->execute([$newStatus, encodeReceiptList($receiptList), $receiptCount, $deadline, $order_id]);
+
+                    // Реферальная программа: это первая оплата ЭТОГО заказа —
+                    // если клиента когда-то пригласил друг и бонус за него ещё
+                    // не начислялся (см. UNIQUE в referral_awards — начислится
+                    // максимум один раз за всё время), начисляем пригласившему
+                    // скидку и уведомляем его. Клиента это никак не касается,
+                    // ничего в его сообщениях не меняется.
+                    try {
+                        $refAward = awardReferralBonusIfApplicable($pdo, (string)$chat_id, $order_id);
+                        if ($refAward) {
+                            sendTelegram($token, 'sendMessage', [
+                                'chat_id'    => $refAward['referrer_chat_id'],
+                                'text'       => "🎉 *Твой друг оплатил первый заказ!*\n\nТвоя скидка по промокоду `{$refAward['ref_code']}` выросла до *{$refAward['bonus_percent']}%*. Введи его в следующем заказе в поле «Промокод».",
+                                'parse_mode' => 'Markdown',
+                            ]);
+                        }
+                    } catch (Throwable $e) {
+                        botLog('referral award error: ' . $e->getMessage());
+                    }
                 } else {
                     // Доп. фото чека (2-е / 3-е) — прикрепляем, дедлайн не пересчитываем
                     $deadlineStmt = $pdo->prepare("SELECT deadline FROM orders WHERE id = ? LIMIT 1");
@@ -969,6 +1012,32 @@ if (isset($update['message'])) {
             exit;
         }
 
+        // /start ref_АБ12CD — пользователь перешёл по реферальной ссылке друга.
+        if (preg_match('/^ref_([A-Z0-9\-]{4,20})$/i', $param, $m)) {
+            $refCode = strtoupper($m[1]);
+            if (strpos($refCode, 'REF-') !== 0) $refCode = 'REF-' . $refCode; // ссылка могла быть без REF- в start-параметре
+            try {
+                $refOwner = $pdo->prepare("SELECT chat_id FROM referral_users WHERE ref_code = ? LIMIT 1");
+                $refOwner->execute([$refCode]);
+                $referrerChatId = $refOwner->fetchColumn();
+            } catch (Throwable $e) { $referrerChatId = false; }
+
+            // getOrCreateReferralUser сам не даст записать себя же как
+            // пригласившего и не перезапишет referred_by, если запись уже
+            // была создана раньше (см. ON CONFLICT DO NOTHING внутри).
+            getOrCreateReferralUser($pdo, (string)$chat_id, $referrerChatId ? (string)$referrerChatId : null);
+
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'      => $chat_id,
+                'text'         => $referrerChatId
+                    ? "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nТебя пригласил друг — а значит, когда ты оформишь и оплатишь первый заказ, ему начислится бонусная скидка 🎁\n\nЗдесь можно посмотреть портфолио, узнать прайс и отправить ТЗ на заказ."
+                    : "👋 *Привет! Добро пожаловать в Kostlim Design!*\n\nЗдесь можно посмотреть портфолио, узнать актуальный прайс, отправить ТЗ и проверить статус заказа.",
+                'parse_mode'   => 'Markdown',
+                'reply_markup' => json_encode(mainKeyboard((string)$chat_id === $admin_id), JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+
         // /start order_22 — клиент пришёл по ссылке из уведомления о заказе
         if (preg_match('/^order_(\d+)$/', $param, $m)) {
             $order_id = (int)$m[1];
@@ -1009,6 +1078,11 @@ if (isset($update['message'])) {
                 botLog("/start auto-linked chat_id={$chat_id} username={$start_uname}");
             } catch (Throwable $e) {}
         }
+
+        // Заводим реферальную запись (личный код появится сразу, даже если
+        // человек пришёл не по реферальной ссылке — понадобится для кнопки
+        // "Пригласить друга").
+        getOrCreateReferralUser($pdo, (string)$chat_id);
 
         // AUTO-LINK: generate a signed site URL with tg_id so when client visits - TG is auto-linked
         $auto_tg_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
@@ -1179,6 +1253,40 @@ if (isset($update['message'])) {
                     ['text' => '⭐ Смотреть отзывы', 'url' => rtrim($site_url, '/') . '/index.php#reviews'],
                 ]],
             ], JSON_UNESCAPED_UNICODE),
+        ]);
+        exit;
+    }
+
+    // 👥 Пригласить друга — реферальная программа (удержание клиентов).
+    // Показываем личную ссылку-приглашение, личный промокод (тот же код,
+    // им можно ввести на форме заказа) и текущий накопленный бонус.
+    if ($text_key === 'пригласить друга' || $text === '👥 Пригласить друга' || $text === '/invite') {
+        $refUser  = getOrCreateReferralUser($pdo, (string)$chat_id);
+        $botUname = getBotUsername($pdo, $token);
+        $inviteLink = $botUname !== ''
+            ? 'https://t.me/' . $botUname . '?start=ref_' . strtoupper(str_replace('REF-', '', $refUser['ref_code']))
+            : '';
+
+        $bonusPct   = (int)($refUser['bonus_percent'] ?? 0);
+        $invited    = (int)($refUser['invited_count'] ?? 0);
+
+        $msg  = "👥 *Приглашай друзей — получай скидку!*\n\n";
+        $msg .= "Как это работает:\n";
+        $msg .= "1️⃣ Отправляешь другу свою ссылку (или код) ниже\n";
+        $msg .= "2️⃣ Он переходит и оформляет заказ\n";
+        $msg .= "3️⃣ Как только он оплатит первый заказ — тебе начисляется +5% к скидке (максимум 30%)\n\n";
+        if ($inviteLink !== '') {
+            $msg .= "🔗 Твоя ссылка:\n{$inviteLink}\n\n";
+        }
+        $msg .= "🎟 Твой личный промокод (введи его в поле «Промокод» в форме заказа): `{$refUser['ref_code']}`\n\n";
+        $msg .= $bonusPct > 0
+            ? "🎁 Твоя текущая скидка по этому коду: *{$bonusPct}%*\n👥 Приглашено друзей, оплативших заказ: *{$invited}*"
+            : "Пока скидки нет — она появится, как только первый приглашённый друг оплатит заказ.";
+
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'    => $chat_id,
+            'text'       => $msg,
+            'parse_mode' => 'Markdown',
         ]);
         exit;
     }
@@ -2154,6 +2262,7 @@ function mainKeyboard($isAdmin) {
     $buttons = [
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
         [['text' => '🤖 Сделать заказ'],      ['text' => '⭐ Отзывы']],
+        [['text' => '👥 Пригласить друга']],
     ];
     if ($isAdmin) { $buttons[] = [['text' => '⚙️ Админ-панель']]; }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];

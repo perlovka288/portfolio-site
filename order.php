@@ -84,50 +84,9 @@ try {
 
 define('ADMIN_TG_ID', '1710365896');
 
-function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
-    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
-    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
-    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
-    if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
-        error_log('[uploadToCloudinary] CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET env vars are not set — upload skipped.');
-        return '';
-    }
-    if (!is_file($filePath)) {
-        error_log("[uploadToCloudinary] tmp file not found: {$filePath}");
-        return '';
-    }
-    $timestamp = time();
-    $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
-    // resource_type=auto — чтобы не только картинки, но и исходники (psd/ai/zip/pdf и т.п.) грузились корректно
-    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/auto/upload");
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 60,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_POSTFIELDS     => [
-            'file'      => new CURLFile($filePath),
-            'api_key'   => $apiKey,
-            'timestamp' => $timestamp,
-            'signature' => $sig,
-            'folder'    => $folder,
-        ],
-    ]);
-    $resp = curl_exec($ch);
-    $curlErr = curl_error($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($resp === false) {
-        error_log("[uploadToCloudinary] curl error: {$curlErr}");
-        return '';
-    }
-    $data = json_decode($resp, true);
-    if (!isset($data['secure_url'])) {
-        error_log("[uploadToCloudinary] Cloudinary API error (HTTP {$httpCode}): " . substr($resp, 0, 500));
-        return '';
-    }
-    return $data['secure_url'];
-}
+// uploadToCloudinary() перенесена в includes/order_flow.php — теперь это
+// общая функция (используется и здесь, и в admin/index.php для доставки
+// готовых исходников клиенту, см. saveUploadedWorkFiles()).
 
 /**
  * Локальный запасной вариант сохранения файла, если Cloudinary не настроен
@@ -2002,11 +1961,22 @@ function initRefsDropzone(slot) {
     var previewEl = document.getElementById('s' + slot + '_refs_preview');
     if (!input || !dropzone || !previewEl) return;
 
-    function currentFiles() { return Array.from(input.files || []); }
+    // Собственный накопленный список файлов — источник истины, НЕ
+    // завязанный на input.files. Нативный <input type="file"> при
+    // каждом повторном открытии "проводника" полностью заменяет свой
+    // список выбранными файлами (так работают браузеры) — поэтому если
+    // просто читать input.files после выбора, получалось: выбрал фото 1
+    // → открыл проводник ещё раз → выбрал фото 2 → фото 1 пропадало,
+    // оставалось только последнее. Храним список сами и при каждом
+    // новом выборе ДОБАВЛЯЕМ файлы к уже накопленным (см. addFiles ниже).
+    var storedFiles = [];
+
+    function currentFiles() { return storedFiles.slice(); }
 
     function setInputFiles(files) {
+        storedFiles = files.slice(0, REFS_MAX_FILES);
         var dt = new DataTransfer();
-        files.slice(0, REFS_MAX_FILES).forEach(function(f) { dt.items.add(f); });
+        storedFiles.forEach(function(f) { dt.items.add(f); });
         input.files = dt.files;
     }
 
@@ -2082,14 +2052,18 @@ function initRefsDropzone(slot) {
     }
 
     input.addEventListener('change', function() {
-        var picked = currentFiles();
-        if (picked.length > REFS_MAX_FILES) {
-            showToastMsg('⚠️ Максимум ' + REFS_MAX_FILES + ' файлов, лишние не добавлены', '#ef4444');
-            picked = picked.slice(0, REFS_MAX_FILES);
-            setInputFiles(picked);
+        // В этот момент input.files содержит ТОЛЬКО ту порцию файлов,
+        // которую пользователь только что выбрал в проводнике — не всё,
+        // что было выбрано раньше (см. комментарий у storedFiles выше).
+        // Поэтому добавляем новую порцию к уже накопленным, а не
+        // заменяем ими накопленный список.
+        var newlyPicked = Array.from(input.files || []);
+        if (newlyPicked.length) {
+            addFiles(newlyPicked);
+        } else {
+            refreshLabel();
+            renderPreview();
         }
-        refreshLabel();
-        renderPreview();
     });
 
     ['dragenter','dragover'].forEach(function(evt) {
@@ -2115,7 +2089,10 @@ function initRefsDropzone(slot) {
     var ownerForm = input.closest('form');
     if (ownerForm) {
         ownerForm.addEventListener('reset', function() {
-            setTimeout(function() { refreshLabel(); renderPreview(); }, 0);
+            // Нативный reset формы очищает input.files сам, но НЕ трогает
+            // наш собственный storedFiles — без явной очистки здесь старые
+            // файлы "воскресали" бы в предпросмотре после сброса формы.
+            setTimeout(function() { setInputFiles([]); refreshLabel(); renderPreview(); }, 0);
         });
     }
 }

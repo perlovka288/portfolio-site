@@ -1254,11 +1254,22 @@ function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 
 /**
  * Сохраняет один или несколько файлов, загруженных через
- * <input type="file" name="{$field}[]" multiple>, в uploads/orders/ и
- * возвращает массив [['path'=>.., 'stored'=>.., 'orig'=>..], ...] — готов
- * для передачи в deliverWorkFileToClient(). Понимает и multiple-инпут
- * (name="field[]", $_FILES[field]['name'] — массив), и одиночный файл
- * (name="field", $_FILES[field]['name'] — строка) для обратной совместимости.
+ * <input type="file" name="{$field}[]" multiple>, и возвращает массив
+ * [['path'=>.., 'stored'=>.., 'orig'=>..], ...] — готов для передачи в
+ * deliverWorkFileToClient(). Понимает и multiple-инпут (name="field[]",
+ * $_FILES[field]['name'] — массив), и одиночный файл (name="field",
+ * $_FILES[field]['name'] — строка) для обратной совместимости.
+ *
+ * ВАЖНО (см. подробный комментарий у uploadToCloudinary() в
+ * includes/order_flow.php): раньше эта функция сохраняла готовые
+ * исходники ТОЛЬКО на локальный диск сайта (uploads/orders/), а эта
+ * папка не хранится в git и стирается при каждом деплое — из-за этого
+ * доставленные клиенту исходники "слетали" после следующего пуша.
+ * Теперь сначала пробуем загрузить в Cloudinary (постоянное хранилище,
+ * не зависит от деплоев) — 'path' в результате в этом случае содержит
+ * ГОТОВЫЙ https-URL. На локальный диск сохраняем, только если Cloudinary
+ * не настроен/недоступен — тогда 'path' содержит локальный путь на
+ * диске, как и раньше (это временный fallback, а не решение проблемы).
  */
 function saveUploadedWorkFiles(string $field, int $orderId): array
 {
@@ -1270,17 +1281,27 @@ function saveUploadedWorkFiles(string $field, int $orderId): array
 
     $workDir = __DIR__ . '/../uploads/orders/';
     if (!is_dir($workDir)) @mkdir($workDir, 0777, true);
-    if (!is_writable($workDir)) return [];
 
     $result = [];
     foreach ($names as $i => $origNameRaw) {
         if ($origNameRaw === '' || ($errors[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
         $origName = basename((string)$origNameRaw);
+        $tmpPath  = $tmpNames[$i];
+
+        // 1) Пробуем Cloudinary — постоянное хранилище, переживает деплои.
+        $cloudUrl = uploadToCloudinary($tmpPath, 'orders/work');
+        if ($cloudUrl !== '') {
+            $result[] = ['path' => $cloudUrl, 'stored' => $cloudUrl, 'orig' => $origName];
+            continue;
+        }
+
+        // 2) Fallback — локальный диск (см. предупреждение в докблоке выше).
+        if (!is_dir($workDir) || !is_writable($workDir)) continue;
         $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
         $ext = preg_match('/^[a-z0-9]{1,10}$/', $ext) ? $ext : 'bin';
         $storedName = 'work_' . $orderId . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_' . ($i + 1) . '.' . $ext;
         $destPath = $workDir . $storedName;
-        if (move_uploaded_file($tmpNames[$i], $destPath)) {
+        if (move_uploaded_file($tmpPath, $destPath)) {
             $result[] = ['path' => $destPath, 'stored' => $storedName, 'orig' => $origName];
         }
     }
