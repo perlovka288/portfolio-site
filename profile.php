@@ -19,7 +19,7 @@ if (!function_exists('imgSrc')) {
 }
 
 $adminTgId = getenv('ADMIN_ID') ?: '1710365896';
-$botToken  = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+$botToken  = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '';
 $siteUrl   = rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/';
 
 $isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
@@ -430,7 +430,7 @@ if (isset($_POST['send_appeal'])) {
         $appealMsg = 'ok';
 
         // ── Уведомление админу в Telegram ──
-        $_tgToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_tgToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
         $_adminId = getenv('ADMIN_ID') ?: '1710365896';
         $_siteUrl = 'https://portfolio-site-boo5.onrender.com/admin/index.php?view_order=' . $appealOrderId;
         $_tgText  = "📩 <b>Новое обращение по заказу!</b>\n\n"

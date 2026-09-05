@@ -166,9 +166,9 @@ function _persistAvatarToCloudinary(string $rawUrl, string $tg_id): string
 
         $tmpFile = tempnam(sys_get_temp_dir(), 'tgava_');
         file_put_contents($tmpFile, $imgData);
-        $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
-        $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
-        $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+        $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
+        $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
+        $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
         $ts  = time();
         $sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$ts}{$cloudSecret}");
         $cch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
@@ -289,7 +289,7 @@ function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $curre
     } catch (Throwable $e) {}
 
     try {
-        $botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
 
         $ch = curl_init("https://api.telegram.org/bot{$botToken}/getUserProfilePhotos?user_id={$tg_id}&limit=1");
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_SSL_VERIFYPEER => false]);
@@ -318,9 +318,9 @@ function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $curre
 
         if ($imgData !== false && strlen((string)$imgData) > 100) {
             file_put_contents($tmpFile, $imgData);
-            $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: 'ds6buwmpj';
-            $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '146292462848227';
-            $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: 'Kx5xzQOIbjzLa4bWUUl11IBx0Ok';
+            $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
+            $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
+            $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
             $ts  = time();
             $sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$ts}{$cloudSecret}");
             $cch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");

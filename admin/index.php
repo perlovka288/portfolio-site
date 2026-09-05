@@ -104,7 +104,7 @@ if (isset($_POST['save_api_keys']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
 
 $message = '';
 $uploadDir = '../uploads/';
-define('TELEGRAM_BOT_TOKEN', getSetting($pdo, 'BOT_TOKEN', getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg'));
+define('TELEGRAM_BOT_TOKEN', getSetting($pdo, 'BOT_TOKEN', getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: ''));
 define('PORTFOLIO_CHANNEL_CHAT', getSetting($pdo, 'PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim'));
 if (!defined('PRIVATE_PACK_CHAT_ID')) {
     define('PRIVATE_PACK_CHAT_ID', getSetting($pdo, 'PRIVATE_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
@@ -242,7 +242,7 @@ if (isset($_POST['save_bot_commands'])) {
 
     // Синхронизируем с Telegram (setMyCommands)
     try {
-        $_botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg';
+        $_botToken = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
         $_allCmds  = $pdo->query("SELECT command, description FROM bot_commands ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
         $_tgCmds   = array_map(fn($c) => ['command' => ltrim($c['command'],'/'), 'description' => ($c['description'] ?: $c['command'])], $_allCmds);
         if (!empty($_tgCmds)) {

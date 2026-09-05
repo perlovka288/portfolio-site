@@ -30,7 +30,7 @@ if (php_sapi_name() !== 'cli') {
 
 require_once __DIR__ . '/config/db.php';
 
-$token    = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$token    = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
 
 // Выбираем все активные заказы (pending, in_progress, urgent)

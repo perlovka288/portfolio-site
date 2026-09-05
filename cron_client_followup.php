@@ -41,7 +41,7 @@ require_once __DIR__ . '/includes/order_flow.php';
 // автомиграция внутри bot.php — гарантируем, что нужная колонка есть.
 ensureOrderFlowSchema($pdo);
 
-$token       = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: "8919210171:AAHOgiJUeqtrGA3Vh8V6PCuxEeT261i7Xeg";
+$token       = getenv('BOT_TOKEN') ?: getenv('TELEGRAM_BOT_TOKEN') ?: '';
 $site_url    = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
 $followupDays = (int)(getenv('FOLLOWUP_DAYS') ?: 45);
 if ($followupDays < 14) $followupDays = 45; // защита от случайной опечатки в env (слишком рано слать)
