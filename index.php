@@ -12,10 +12,12 @@ require_once 'includes/session.php';
 
 require_once 'config/db.php';
 require_once 'includes/order_flow.php';
+require_once 'includes/pack_role.php';
 
 // AUTO-LINK: Если клиент перешёл с TG по нашей ссылке — привязываем его TG автоматически
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
+ensurePackRoleSchema($pdo);
 
 // ── Защищённый импорт donationalerts (не должен валить страницу) ──────────
 try {
@@ -150,6 +152,19 @@ $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === tru
 if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
     $isAdmin = true;
     $_SESSION['admin_logged'] = true;
+}
+
+// ── Роль "Designer PPK" (Блок 2 ТЗ) ───────────────────────────────────────
+// Проверяется заново на КАЖДОЙ загрузке главной страницы для авторизованных
+// через Telegram посетителей (кэш внутри checkPackMembership бережёт от
+// лишних запросов к Telegram API при частых заходах одного человека).
+// chat_id приватной группы и токен бота настраиваются в админке (вкладка
+// "Ключи и API") — их можно поменять без деплоя.
+$isPackDesigner = false;
+if (!empty($tgProfile['tg_id'])) {
+    $botTokenForRoleCheck = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
+    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)$tgProfile['tg_id'], $isAdmin);
 }
 
 // Удаление отзыва (теперь $isAdmin определен корректно)
@@ -858,6 +873,11 @@ body::after {
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </a>
     <?php endif; ?>
+    <?php if ($isPackDesigner): ?>
+    <a href="resources.php" class="quick-action-btn" title="Закрытый раздел">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </a>
+    <?php endif; ?>
     <a href="price.php" class="quick-action-btn" title="Прайс">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         Прайс
@@ -888,6 +908,8 @@ body::after {
         </span>
         <?php if ($isAdmin): ?>
             <span class="tg-admin-tag">admin</span>
+        <?php elseif ($isPackDesigner): ?>
+            <span class="tg-admin-tag" title="Designer PPK">PPK</span>
         <?php endif; ?>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
     </a>

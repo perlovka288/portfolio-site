@@ -2,12 +2,14 @@
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
+require_once __DIR__ . '/includes/pack_role.php';
 require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fatal error on every request
 
 // Автоматическая миграция таблиц для новых функций
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
 ensureReferralSchema($pdo);
+ensurePackRoleSchema($pdo);
 
 /**
  * Username бота (без @) — нужен, чтобы собрать персональную реферальную
@@ -39,6 +41,22 @@ define('BOT_ADMIN_ID', '1710365896');
 $token    = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: "";
 $admin_id = getenv('ADMIN_ID')  ?: "1710365896";
 $site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
+
+// chat_id приватной группы пака читается из той же настройки, что
+// редактируется в админке (вкладка "Ключи и API" → "Приватный чат для
+// PSD-паков") — группу можно сменить без деплоя, бот подхватит на лету.
+$packGroupChatId = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+
+/**
+ * Обновляет кэш роли "Designer PPK" для этого пользователя (см.
+ * includes/pack_role.php) — вызывается при каждом /start, чтобы роль не
+ * "зависала" устаревшей надолго после вступления/выхода из группы.
+ */
+function syncPackRole(PDO $pdo, string $token, string $packGroupChatId, string $tgId): bool
+{
+    if ($packGroupChatId === '' || $tgId === '') return false;
+    return checkPackMembership($pdo, $token, $packGroupChatId, $tgId);
+}
 
 /**
  * Уведомление админа о новом отзыве
@@ -547,7 +565,26 @@ if (isset($update['message'])) {
     // 'revision_pending' — следующее обычное текстовое сообщение от этого
     // же клиента ловится здесь как описание правки, а не проверяется на
     // команды/меню/KostlimAI и т.п. ниже.
-    if ($chat_type === 'private' && $text !== '' && $text[0] !== '/') {
+    //
+    // FIX: раньше это ловило АБСОЛЮТНО ЛЮБОЙ текст, включая нажатия на
+    // кнопки постоянного меню ("👥 Пригласить друга" и т.п.) — если у
+    // человека где-то в истории завис один незакрытый заказ в статусе
+    // revision_pending, каждое его нажатие на любую кнопку меню беззвучно
+    // уходило в правку заказа вместо своего обработчика ("кнопка не
+    // работает, ничего не происходит"). Теперь известные тексты кнопок
+    // меню исключены — они всегда обрабатываются как команды меню, а не
+    // как текст правки.
+    static $reservedMenuTexts = [
+        'смотреть portfolio', 'прайс-лист', 'сделать заказ', 'отзывы',
+        'пригласить друга', 'admin panel', 'админ панель', 'личный кабинет',
+        'мои заказы', 'главное меню', 'назад в меню', 'отмена рассылки',
+        'начать рассылку', 'статистика', 'рассылка клиентам',
+        'привязки / настройки', 'управление бд', 'бэкап бд',
+        'диагностика бд', 'починить бд', 'логи ошибок', 'очистить все заказы',
+    ];
+    $isReservedMenuText = ($text_key !== '' && in_array($text_key, $reservedMenuTexts, true))
+        || strpos($text, 'KostlimAI') === 0;
+    if ($chat_type === 'private' && $text !== '' && $text[0] !== '/' && !$isReservedMenuText) {
         try {
             $revStmt = $pdo->prepare("SELECT id FROM orders WHERE client_chat_id = ? AND status = 'revision_pending' ORDER BY id DESC LIMIT 1");
             $revStmt->execute([(string)$chat_id]);
@@ -1026,6 +1063,7 @@ if (isset($update['message'])) {
             // пригласившего и не перезапишет referred_by, если запись уже
             // была создана раньше (см. ON CONFLICT DO NOTHING внутри).
             getOrCreateReferralUser($pdo, (string)$chat_id, $referrerChatId ? (string)$referrerChatId : null);
+            syncPackRole($pdo, $token, $packGroupChatId, (string)$chat_id);
 
             sendTelegram($token, 'sendMessage', [
                 'chat_id'      => $chat_id,
@@ -1083,6 +1121,12 @@ if (isset($update['message'])) {
         // человек пришёл не по реферальной ссылке — понадобится для кнопки
         // "Пригласить друга").
         getOrCreateReferralUser($pdo, (string)$chat_id);
+
+        // Синхронизация роли "Designer PPK" (Блок 2 ТЗ) — при каждом /start
+        // перепроверяем участие в приватной группе пака, чтобы роль не
+        // "зависала" устаревшей, если человек вступил/вышел из группы, а на
+        // сайт после этого не заходил.
+        syncPackRole($pdo, $token, $packGroupChatId, (string)$chat_id);
 
         // AUTO-LINK: generate a signed site URL with tg_id so when client visits - TG is auto-linked
         $auto_tg_token = autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
@@ -1266,6 +1310,15 @@ if (isset($update['message'])) {
         $inviteLink = $botUname !== ''
             ? 'https://t.me/' . $botUname . '?start=ref_' . strtoupper(str_replace('REF-', '', $refUser['ref_code']))
             : '';
+        if ($inviteLink === '') {
+            // FIX: раньше при неудачном getBotUsername() (например, ещё не
+            // закэширован username и getMe временно недоступен) ссылка молча
+            // пропадала из сообщения без всякого следа в логах — снаружи это
+            // выглядело так, будто кнопка "ничего не делает". Теперь причина
+            // видна во вкладке "Логи" админки, а пользователь всё равно
+            // получает промокод (им можно пользоваться и без ссылки).
+            botLog('Пригласить друга: getBotUsername() вернул пусто — реферальная ссылка не собрана, отдаём только промокод');
+        }
 
         $bonusPct   = (int)($refUser['bonus_percent'] ?? 0);
         $invited    = (int)($refUser['invited_count'] ?? 0);
@@ -1283,10 +1336,30 @@ if (isset($update['message'])) {
             ? "🎁 Твоя текущая скидка по этому коду: *{$bonusPct}%*\n👥 Приглашено друзей, оплативших заказ: *{$invited}*"
             : "Пока скидки нет — она появится, как только первый приглашённый друг оплатит заказ.";
 
+        // Кнопки "Скопировать" / "Переслать другу" (п.1 ТЗ) — появляются
+        // только если ссылку удалось собрать (нужен известный username бота).
+        $inviteKeyboard = null;
+        if ($inviteLink !== '') {
+            $shareText = 'Присоединяйся к Kostlim Design — по моей ссылке будет скидка на первый заказ!';
+            $inviteKeyboard = [
+                'inline_keyboard' => [
+                    [[
+                        'text'      => '📋 Скопировать ссылку',
+                        'copy_text' => ['text' => $inviteLink],
+                    ]],
+                    [[
+                        'text' => '↗️ Переслать другу',
+                        'url'  => 'https://t.me/share/url?url=' . rawurlencode($inviteLink) . '&text=' . rawurlencode($shareText),
+                    ]],
+                ],
+            ];
+        }
+
         sendTelegram($token, 'sendMessage', [
-            'chat_id'    => $chat_id,
-            'text'       => $msg,
-            'parse_mode' => 'Markdown',
+            'chat_id'      => $chat_id,
+            'text'         => $msg,
+            'parse_mode'   => 'Markdown',
+            'reply_markup' => $inviteKeyboard ? json_encode($inviteKeyboard, JSON_UNESCAPED_UNICODE) : null,
         ]);
         exit;
     }

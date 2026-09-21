@@ -65,7 +65,8 @@ $API_KEY_FIELDS = [
     'core' => [
         ['key' => 'BOT_TOKEN',              'label' => '🤖 Токен Telegram-бота',                 'secret' => true],
         ['key' => 'PORTFOLIO_CHANNEL_CHAT', 'label' => '📣 Канал портфолио (chat_id/@username)', 'secret' => false],
-        ['key' => 'PRIVATE_CHAT_ID',        'label' => '🔒 Приватный чат для PSD-паков',         'secret' => false],
+        ['key' => 'PRIVATE_CHAT_ID',        'label' => '🔒 Приватный чат для PSD-паков (chat_id)', 'secret' => false],
+        ['key' => 'PRIVATE_CHAT_INVITE_LINK','label' => '🔗 Пригласительная ссылка на приватный чат', 'secret' => false],
         ['key' => 'SITE_URL',               'label' => '🌐 Публичный URL сайта',                 'secret' => false],
         ['key' => 'IMGBB_API_KEY',          'label' => '🖼 ImgBB — ключ №1',                     'secret' => true],
         ['key' => 'IMGBB_API_KEY2',         'label' => '🖼 ImgBB — ключ №2 (резерв)',            'secret' => true],
@@ -108,6 +109,9 @@ define('TELEGRAM_BOT_TOKEN', getSetting($pdo, 'BOT_TOKEN', getenv('BOT_TOKEN') ?
 define('PORTFOLIO_CHANNEL_CHAT', getSetting($pdo, 'PORTFOLIO_CHANNEL_CHAT', getenv('PORTFOLIO_CHANNEL_CHAT') ?: '@designkostlim'));
 if (!defined('PRIVATE_PACK_CHAT_ID')) {
     define('PRIVATE_PACK_CHAT_ID', getSetting($pdo, 'PRIVATE_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
+}
+if (!defined('PRIVATE_PACK_INVITE_LINK')) {
+    define('PRIVATE_PACK_INVITE_LINK', getSetting($pdo, 'PRIVATE_CHAT_INVITE_LINK', getenv('PRIVATE_CHAT_INVITE_LINK') ?: ''));
 }
 define('PUBLIC_SITE_URL', rtrim(getSetting($pdo, 'SITE_URL', getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/'), '/') . '/');
 // Публикации портфолио в канал теперь ведут на БОТА, а не на сайт: Mini App
