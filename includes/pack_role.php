@@ -32,10 +32,16 @@ function ensurePackRoleSchema(PDO $pdo): void
 
 /**
  * Проверяет участие пользователя в приватной группе пака через getChatMember,
- * с кэшем на $ttlSeconds (по умолчанию 10 минут). Если Telegram недоступен —
- * отдаёт последнее известное значение из кэша, а не молча сбрасывает роль.
+ * с кэшем на $ttlSeconds. Если Telegram недоступен — отдаёт последнее
+ * известное значение из кэша, а не молча сбрасывает роль.
+ *
+ * TTL короткий (2 минуты) — это подстраховка на случай, если человек ни
+ * разу не попал в кэш через мгновенное событие "chat_member" (см. bot.php):
+ * например, только что вступил, а бот ещё не успел это обработать, либо
+ * вебхук временно не подписан на chat_member. Основная синхронизация в
+ * реальном времени идёт именно через это событие, а не через TTL-опрос.
  */
-function checkPackMembership(PDO $pdo, string $token, string $groupChatId, string $tgId, int $ttlSeconds = 600): bool
+function checkPackMembership(PDO $pdo, string $token, string $groupChatId, string $tgId, int $ttlSeconds = 120): bool
 {
     if ($tgId === '' || $groupChatId === '' || $token === '') return false;
     ensurePackRoleSchema($pdo);

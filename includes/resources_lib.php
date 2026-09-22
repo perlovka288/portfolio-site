@@ -92,3 +92,24 @@ function deletePackResource(PDO $pdo, int $id): void
 {
     $pdo->prepare("DELETE FROM pack_resources WHERE id = ?")->execute([$id]);
 }
+
+/**
+ * Простая локальная загрузка картинки-превью (для ручного добавления PSD-
+ * поста прямо на сайте) — без внешнего хостинга, аналогично uploads/psd/.
+ */
+function uploadPackResourcePreview(string $field, string $uploadDir): string
+{
+    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return '';
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) return '';
+    $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed, true)) return '';
+    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
+    if (!is_writable($uploadDir)) return '';
+    $filename = 'psdres_' . time() . '_' . uniqid() . '.' . $ext;
+    if (move_uploaded_file($_FILES[$field]['tmp_name'], $uploadDir . $filename)) {
+        return 'pack_resources/' . $filename;
+    }
+    return '';
+}

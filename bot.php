@@ -76,6 +76,31 @@ if (!$update) {
     exit;
 }
 
+// ── РЕАЛТАЙМ-СИНХРОНИЗАЦИЯ РОЛИ "Designer PPK" ──────────────────────────
+// Telegram сам присылает это событие СРАЗУ, как только кто-то вступает в
+// приватную группу пака или покидает её (при условии что бот — админ
+// группы и вебхук подписан на "chat_member" — см. заметку в конце файла).
+// Благодаря этому сайт узнаёт об изменении мгновенно, а не только когда
+// у кэша (checkPackMembership, TTL) истечёт срок на следующей загрузке
+// страницы.
+if (isset($update['chat_member'])) {
+    $cm = $update['chat_member'];
+    $cmChatId = (string)($cm['chat']['id'] ?? '');
+    $cmUserId = (string)($cm['new_chat_member']['user']['id'] ?? '');
+    $cmStatus = (string)($cm['new_chat_member']['status'] ?? '');
+    if ($cmChatId !== '' && $cmChatId === $packGroupChatId && $cmUserId !== '') {
+        $cmIsMember = in_array($cmStatus, ['member', 'administrator', 'creator', 'restricted'], true);
+        try {
+            ensurePackRoleSchema($pdo);
+            $pdo->prepare("
+                INSERT INTO pack_membership_cache (tg_id, is_member, checked_at) VALUES (?, ?, NOW())
+                ON CONFLICT (tg_id) DO UPDATE SET is_member = EXCLUDED.is_member, checked_at = NOW()
+            ")->execute([$cmUserId, $cmIsMember ? 1 : 0]);
+        } catch (Throwable $e) {}
+    }
+    exit;
+}
+
 // Защита от повторной доставки одного и того же апдейта Telegram (webhook
 // retry) — если наш ответ не успел вернуться вовремя (например, пока шла
 // фоновая заливка чека на ImgBB), Telegram присылает СТРОГО ТОТ ЖЕ update_id
