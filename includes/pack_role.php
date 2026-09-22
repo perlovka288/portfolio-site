@@ -40,6 +40,17 @@ function checkPackMembership(PDO $pdo, string $token, string $groupChatId, strin
     if ($tgId === '' || $groupChatId === '' || $token === '') return false;
     ensurePackRoleSchema($pdo);
 
+    // Частая ошибка настройки: в поле вставили пригласительную ссылку
+    // (t.me/+xxxx или t.me/joinchat/xxxx) вместо числового chat_id.
+    // getChatMember с такой строкой не работает — Telegram вернёт ошибку
+    // "chat not found". Ловим это заранее и пишем понятную причину в лог,
+    // а не молча проваливаем проверку.
+    if (preg_match('~^https?://t\.me/(\+|joinchat/)~i', $groupChatId)) {
+        $msg = 'checkPackMembership: в PRIVATE_CHAT_ID указана пригласительная ссылка, а нужен числовой chat_id (например -1001234567890). Узнать его: напишите /id прямо в этой группе.';
+        function_exists('botLog') ? botLog($msg) : error_log($msg);
+        return false;
+    }
+
     $cached = null;
     try {
         $stmt = $pdo->prepare("SELECT is_member, checked_at FROM pack_membership_cache WHERE tg_id = ? LIMIT 1");

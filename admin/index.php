@@ -65,8 +65,10 @@ $API_KEY_FIELDS = [
     'core' => [
         ['key' => 'BOT_TOKEN',              'label' => '🤖 Токен Telegram-бота',                 'secret' => true],
         ['key' => 'PORTFOLIO_CHANNEL_CHAT', 'label' => '📣 Канал портфолио (chat_id/@username)', 'secret' => false],
-        ['key' => 'PRIVATE_CHAT_ID',        'label' => '🔒 Приватный чат для PSD-паков (chat_id)', 'secret' => false],
-        ['key' => 'PRIVATE_CHAT_INVITE_LINK','label' => '🔗 Пригласительная ссылка на приватный чат', 'secret' => false],
+        ['key' => 'PRIVATE_CHAT_ID',        'label' => '🔒 Приватный чат для PSD-паков (chat_id)', 'secret' => false,
+            'hint' => 'Только числовой ID вида -1001234567890 — НЕ пригласительная ссылка. Напиши команду /id прямо в этой группе (бот должен уже быть её участником) — он пришлёт точный ID.'],
+        ['key' => 'PRIVATE_CHAT_INVITE_LINK','label' => '🔗 Пригласительная ссылка на приватный чат', 'secret' => false,
+            'hint' => 'А сюда, наоборот, можно вставлять именно ссылку (t.me/+...) — она используется только для показа/отправки клиентам, не для проверки участников.'],
         ['key' => 'SITE_URL',               'label' => '🌐 Публичный URL сайта',                 'secret' => false],
         ['key' => 'IMGBB_API_KEY',          'label' => '🖼 ImgBB — ключ №1',                     'secret' => true],
         ['key' => 'IMGBB_API_KEY2',         'label' => '🖼 ImgBB — ключ №2 (резерв)',            'secret' => true],
@@ -1577,7 +1579,7 @@ if (isset($_POST['add_portfolio']) && empty($_SERVER['HTTP_X_REQUESTED_WITH'])) 
             }
         }
         if ($publish_tg && !empty($psdResult['has_files'])) {
-            publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $watermarkedPath);
+            publishPortfolioToPrivatePack($pdo, TELEGRAM_BOT_TOKEN, $portfolioId, $title, $price_rub, $price_uan, $watermarkedPath, $filename_main);
         }
         if ($watermarkedPath && str_contains($watermarkedPath, sys_get_temp_dir()) && is_file($watermarkedPath)) {
             @unlink($watermarkedPath);
@@ -2463,6 +2465,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <button type="button" class="admin-tab"        data-tab="commands"   onclick="activateAdminTab('commands')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Команды</button>
             <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
             <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
+            <a href="resources.php" class="admin-tab" style="text-decoration:none;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Ресурсы пака</a>
 
             <div class="admin-tab-group-label">Система</div>
             <button type="button" class="admin-tab"        data-tab="keys"       onclick="activateAdminTab('keys')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> Ключи и API</button>
@@ -3020,6 +3023,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                             <button type="button" onclick="const i=document.getElementById('key-<?= htmlspecialchars($f['key']) ?>'); i.type = i.type==='password'?'text':'password';" class="mini-file-btn" style="flex-shrink:0;">👁</button>
                                             <?php endif; ?>
                                         </div>
+                                        <?php if (!empty($f['hint'])): ?>
+                                        <p style="color:#6a6a78;font-size:11px;margin:4px 0 0;"><?= htmlspecialchars($f['hint']) ?></p>
+                                        <?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>
                             </div>

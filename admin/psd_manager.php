@@ -3,7 +3,13 @@
  * psd_manager.php — Управление PSD файлами портфолио и публикация в приват-пак
  */
 
-define('PRIVATE_PACK_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510');
+require_once __DIR__ . '/../includes/resources_lib.php';
+ensureResourcesSchema($pdo);
+
+// FIX: раньше PRIVATE_PACK_CHAT_ID читался только из переменной окружения и
+// никогда не видел значение, заданное в админке (вкладка "Ключи и API") —
+// смена группы там на этот файл не влияла. Теперь читаем ту же настройку.
+define('PRIVATE_PACK_CHAT_ID', getResSetting($pdo, 'PRIVATE_CHAT_ID', getenv('PRIVATE_CHAT_ID') ?: '-1003781426510'));
 define('TELEGRAM_DOC_MAX_BYTES', 45 * 1024 * 1024); // Максимальный размер документа для Telegram
 require_once __DIR__ . '/google_drive_helper.php';
 
@@ -118,7 +124,8 @@ function publishPortfolioToPrivatePack(
     string $title,
     int $priceRub,
     int $priceUan,
-    ?string $watermarkedPhotoPath = null
+    ?string $watermarkedPhotoPath = null,
+    string $sitePreviewImage = ''
 ): array {
     $chatId = PRIVATE_PACK_CHAT_ID;
     $psdFiles = getPortfolioPsdFiles($pdo, $portfolio_id);
@@ -156,6 +163,11 @@ function publishPortfolioToPrivatePack(
             error_log('[PSD Pack] Photo send failed: ' . json_encode($resp));
         }
     }
+
+    // Прямая ссылка на конкретное сообщение в приватном канале (Блок 3 ТЗ) —
+    // для приватных супергрупп это t.me/c/<id без "-100">/<message_id>,
+    // открывается у любого, кто уже состоит в группе.
+    $postedMessageId = $photoSent ? (int)($resp['result']['message_id'] ?? 0) : 0;
 
     if (!$photoSent && !empty($psdFiles)) {
         sendTelegramPlain($token, $chatId, $caption);
@@ -229,6 +241,23 @@ function publishPortfolioToPrivatePack(
 
     if ($needLinks && !empty($keyboard['inline_keyboard'])) {
         sendTelegramPlain($token, $chatId, "📥 *Скачать исходники:*\n_{$title}_", $keyboard);
+    }
+
+    // Регистрируем пост в закрытом разделе сайта (Блок 3 ТЗ), чтобы
+    // Designer PPK видели его в каталоге с превью и ссылкой на сообщение —
+    // без этого посты были видны только внутри самого Telegram-чата.
+    if ($postedMessageId > 0 && preg_match('~^-100(\d+)$~', (string)$chatId, $m)) {
+        $messageLink = 'https://t.me/c/' . $m[1] . '/' . $postedMessageId;
+        try {
+            createPackResource($pdo, [
+                'type'          => 'psd',
+                'title'         => $title,
+                'preview_image' => $sitePreviewImage,
+                'telegram_url'  => $messageLink,
+            ]);
+        } catch (Throwable $e) {
+            error_log('[PSD Pack] Не удалось зарегистрировать ресурс на сайте: ' . $e->getMessage());
+        }
     }
 
     return ['success' => true, 'message' => '📦 Опубликовано в приват-пак'];

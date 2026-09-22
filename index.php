@@ -161,10 +161,15 @@ if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === 
 // chat_id приватной группы и токен бота настраиваются в админке (вкладка
 // "Ключи и API") — их можно поменять без деплоя.
 $isPackDesigner = false;
-if (!empty($tgProfile['tg_id'])) {
+// FIX: раньше проверка запускалась только если был привязан Telegram
+// ($tgProfile['tg_id']) — админ, зашедший без TG-привязки (через
+// ?tg_id=ADMIN_TG_ID), из-за этого не получал ни бейдж, ни кнопку.
+// isPackDesigner() и так пропускает админа без проверки группы — просто
+// не блокируем сам вызов условием на tg_id.
+if ($isAdmin || !empty($tgProfile['tg_id'])) {
     $botTokenForRoleCheck = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
     $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)$tgProfile['tg_id'], $isAdmin);
+    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)($tgProfile['tg_id'] ?? ''), $isAdmin);
 }
 
 // Удаление отзыва (теперь $isAdmin определен корректно)

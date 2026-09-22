@@ -560,6 +560,23 @@ if (isset($update['message'])) {
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
 
+    // ── /id — узнать numeric chat_id текущего чата (нужен для настройки
+    // "Приватный чат для PSD-паков" в админке: getChatMember принимает
+    // ТОЛЬКО числовой id вида -1001234567890, а не пригласительную ссылку
+    // t.me/+xxxx). Работает в любом чате, включая группу пака — просто
+    // напиши /id прямо в этой группе.
+    if ($text === '/id') {
+        $chatTitle = $update['message']['chat']['title'] ?? '';
+        $idMsg  = "🆔 chat\\_id этого чата: `{$chat_id}`\n";
+        $idMsg .= "📌 Тип: {$chat_type}";
+        if ($chatTitle !== '') $idMsg .= "\n📛 Название: " . mdEscape($chatTitle);
+        if ($chat_type !== 'private') {
+            $idMsg .= "\n\nСкопируй именно это число (со знаком «−») в поле «Приватный чат для PSD-паков» в админке — не ссылку-приглашение.";
+        }
+        sendTelegram($token, 'sendMessage', ['chat_id' => $chat_id, 'text' => $idMsg, 'parse_mode' => 'Markdown']);
+        exit;
+    }
+
     // ── Текст правки от клиента (п.2 ТЗ) ──
     // После нажатия "✏️ Отправить на правку" заказ переводится в статус
     // 'revision_pending' — следующее обычное текстовое сообщение от этого
@@ -1355,12 +1372,24 @@ if (isset($update['message'])) {
             ];
         }
 
-        sendTelegram($token, 'sendMessage', [
+        $inviteSendResult = sendTelegram($token, 'sendMessage', [
             'chat_id'      => $chat_id,
             'text'         => $msg,
             'parse_mode'   => 'Markdown',
             'reply_markup' => $inviteKeyboard ? json_encode($inviteKeyboard, JSON_UNESCAPED_UNICODE) : null,
         ]);
+        // Страховка: если Telegram отклонил сообщение из-за инлайн-кнопок
+        // (например, клиент со старой версией приложения/edge-case формата) —
+        // не оставляем человека совсем без ответа, шлём тот же текст без
+        // кнопок. Ошибка первой попытки при этом всё равно уже в "Логах".
+        $inviteSendOk = json_decode((string)$inviteSendResult, true)['ok'] ?? false;
+        if (!$inviteSendOk && $inviteKeyboard) {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id'    => $chat_id,
+                'text'       => $msg . "\n\n(скопируй ссылку выше вручную)",
+                'parse_mode' => 'Markdown',
+            ]);
+        }
         exit;
     }
 
