@@ -1,5 +1,39 @@
 <?php
 
+// ── Глобальный перехват фатальных ошибок ────────────────────────────────
+// FIX: раньше необработанное исключение ИЛИ фатальная ошибка ГДЕ УГОДНО в
+// этом файле (не обязательно в конкретном обработчике) убивали скрипт
+// молча — вебхук просто не отвечал, а во вкладке "Логи" админки ничего не
+// появлялось (она пишется только через botLog(), который до этого места
+// исполнение не доходило). Со стороны это выглядело как "нажал кнопку —
+// ничего не произошло" без единой зацепки, что произошло на самом деле.
+// Теперь при любом падении: (1) пишем в серверный лог, (2) шлём админу
+// сообщение прямо в Telegram с текстом ошибки — не нужно лезть в логи
+// хостинга, чтобы понять, что случилось.
+function notifyBotCrash(string $summary): void
+{
+    error_log($summary);
+    if (function_exists('botLog')) {
+        try { botLog($summary); } catch (Throwable $ignored) {}
+    }
+    $crashToken   = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '';
+    $crashAdminId = getenv('ADMIN_ID') ?: '1710365896';
+    if ($crashToken === '') return;
+    @file_get_contents('https://api.telegram.org/bot' . $crashToken . '/sendMessage?' . http_build_query([
+        'chat_id' => $crashAdminId,
+        'text'    => "⚠️ Бот упал с ошибкой:\n" . mb_substr($summary, 0, 600),
+    ]));
+}
+set_exception_handler(function (Throwable $e) {
+    notifyBotCrash('[FATAL] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+});
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        notifyBotCrash('[FATAL SHUTDOWN] ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line']);
+    }
+});
+
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
 require_once __DIR__ . '/includes/pack_role.php';
