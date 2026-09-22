@@ -127,7 +127,15 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
         .res-tab-btn:hover { border-color: rgba(249,115,22,.35); color: var(--accent); }
         .res-tab-btn.active { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-color: transparent; box-shadow: 0 0 16px rgba(249,115,22,.3); }
         .res-panel { display:none; } .res-panel.active { display:block; }
-        .res-panel-head { display:flex; align-items:center; justify-content:flex-end; margin-bottom:14px; }
+        .res-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+        .res-panel-head h2 { margin:0; font-size:16px; }
+        .res-add-btn {
+            width:38px; height:38px; border-radius:50%; border:none; flex-shrink:0;
+            background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff;
+            font-size:22px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+            box-shadow: 0 4px 14px rgba(249,115,22,.35); transition: transform .15s;
+        }
+        .res-add-btn:hover { transform: scale(1.08); }
         .res-add-form { display:none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 22px; }
         .res-add-form.show { display:block; }
         .res-add-form input[type=text], .res-add-form textarea, .res-add-form input[type=file] {
@@ -178,8 +186,8 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 
     <!-- PSD -->
     <div class="res-panel active" id="panel-psd">
+        <div class="res-panel-head"><h2>📁 PSD-паки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить PSD-пост" onclick="document.getElementById('form-psd').classList.toggle('show')">+</button><?php endif; ?></div>
         <?php if ($isAdmin): ?>
-        <div class="res-panel-head"><button type="button" class="edit-mode-btn" onclick="document.getElementById('form-psd').classList.toggle('show')">+ Добавить</button></div>
         <form class="res-add-form" id="form-psd" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="psd">
             <input type="text" name="title" placeholder="Название поста" required>
@@ -213,8 +221,8 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 
     <!-- Fonts -->
     <div class="res-panel" id="panel-fonts">
+        <div class="res-panel-head"><h2>🔤 Шрифты</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить шрифт" onclick="document.getElementById('form-fonts').classList.toggle('show')">+</button><?php endif; ?></div>
         <?php if ($isAdmin): ?>
-        <div class="res-panel-head"><button type="button" class="edit-mode-btn" onclick="document.getElementById('form-fonts').classList.toggle('show')">+ Добавить</button></div>
         <form class="res-add-form" id="form-fonts" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="font">
             <input type="text" name="title" placeholder="Название шрифта" required>
@@ -243,8 +251,8 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 
     <!-- Brushes -->
     <div class="res-panel" id="panel-brushes">
+        <div class="res-panel-head"><h2>🎨 Стили и кисти</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить набор" onclick="document.getElementById('form-brushes').classList.toggle('show')">+</button><?php endif; ?></div>
         <?php if ($isAdmin): ?>
-        <div class="res-panel-head"><button type="button" class="edit-mode-btn" onclick="document.getElementById('form-brushes').classList.toggle('show')">+ Добавить</button></div>
         <form class="res-add-form" id="form-brushes" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="brush">
             <input type="text" name="title" placeholder="Название набора" required>
@@ -274,8 +282,8 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 
     <!-- SD -->
     <div class="res-panel" id="panel-sd">
+        <div class="res-panel-head"><h2>🖥 Гайд по установке</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Изменить гайд" onclick="document.getElementById('form-sd-guide').classList.toggle('show')">✏️</button><?php endif; ?></div>
         <?php if ($isAdmin): ?>
-        <div class="res-panel-head"><button type="button" class="edit-mode-btn" onclick="document.getElementById('form-sd-guide').classList.toggle('show')">✏️ Изменить гайд</button></div>
         <form class="res-add-form" id="form-sd-guide" method="post">
             <input type="hidden" name="action" value="save_sd_guide">
             <textarea name="sd_guide" style="min-height:180px;" placeholder="Текст гайда, полезные ссылки..."><?= htmlspecialchars($sdGuide) ?></textarea>
@@ -288,9 +296,8 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             <p style="text-align:center;color:var(--text2);padding:20px 0;">Гайд ещё не добавлен.</p>
         <?php endif; ?>
 
-        <div class="price-head" style="margin-top:36px;margin-bottom:14px;"><h2 style="font-size:18px;margin:0;">🎬 Видео установки</h2></div>
+        <div class="res-panel-head" style="margin-top:36px;"><h2>🎬 Видео установки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить видео" onclick="document.getElementById('form-sdvideo').classList.toggle('show')">+</button><?php endif; ?></div>
         <?php if ($isAdmin): ?>
-        <div class="res-panel-head"><button type="button" class="edit-mode-btn" onclick="document.getElementById('form-sdvideo').classList.toggle('show')">+ Добавить видео</button></div>
         <form class="res-add-form" id="form-sdvideo" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="sd_video">
             <input type="text" name="title" placeholder="Название видео" required>
