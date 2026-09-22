@@ -1,0 +1,335 @@
+<?php
+// Закрытый раздел ресурсов (Блок 3 ТЗ) — доступен Admin и Designer PPK.
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+require_once 'includes/session.php';
+require_once 'config/db.php';
+require_once 'includes/order_flow.php';
+require_once 'includes/pack_role.php';
+require_once 'includes/resources_lib.php';
+
+ensureOrderFlowSchema($pdo);
+ensurePackRoleSchema($pdo);
+ensureResourcesSchema($pdo);
+
+$sid = session_id();
+$tgProfile = [];
+try {
+    $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$sid]);
+    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $e) {}
+
+define('ADMIN_TG_ID', '1710365896');
+$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
+$isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
+    $isAdmin = true;
+}
+
+$isPackDesigner = false;
+if ($isAdmin || !empty($tgProfile['tg_id'])) {
+    $botTokenForRoleCheck        = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
+    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)($tgProfile['tg_id'] ?? ''), $isAdmin);
+}
+
+if (!$isPackDesigner) {
+    http_response_code(403);
+    ?>
+    <!DOCTYPE html>
+    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доступ закрыт | Kostlim Design</title>
+    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="stylesheet" href="style.css">
+    </head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
+        <div>
+            <h1>🔒 Доступ закрыт</h1>
+            <p>Этот раздел доступен только участникам приватной группы пака.</p>
+            <p><a href="index.php">← На главную</a></p>
+        </div>
+    </body></html>
+    <?php
+    exit;
+}
+
+// ── Добавление/удаление ресурсов прямо с этой страницы — ТОЛЬКО админ ──
+$message = '';
+if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'add_resource') {
+        $type = $_POST['type'] ?? '';
+        if (in_array($type, ['psd', 'font', 'brush', 'sd_video'], true)) {
+            $data = [
+                'type'        => $type,
+                'title'       => trim((string)($_POST['title'] ?? '')),
+                'description' => trim((string)($_POST['description'] ?? '')),
+            ];
+            if ($type === 'psd') {
+                $data['preview_image'] = uploadPackResourcePreview('resource_image', __DIR__ . '/uploads/pack_resources/');
+                $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
+            } elseif ($type === 'sd_video') {
+                require_once __DIR__ . '/admin/google_drive_helper.php';
+                if (!empty($_FILES['resource_file']['name'])) {
+                    $data['video_url'] = (string)uploadToGoogleDrive($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                }
+            } else { // font | brush
+                require_once __DIR__ . '/admin/google_drive_helper.php';
+                if (!empty($_FILES['resource_file']['name'])) {
+                    $data['file_url'] = (string)uploadToGoogleDrive($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                }
+            }
+            createPackResource($pdo, $data);
+            $message = '✅ Добавлено.';
+        }
+    } elseif ($action === 'delete_resource') {
+        deletePackResource($pdo, (int)($_POST['id'] ?? 0));
+        $message = '🗑 Удалено.';
+    } elseif ($action === 'save_sd_guide') {
+        setResSetting($pdo, 'SD_INSTALL_GUIDE', (string)($_POST['sd_guide'] ?? ''));
+        $message = '✅ Гайд сохранён.';
+    }
+    // PRG, чтобы не задваивалась отправка формы по F5
+    header('Location: resources.php?ok=1');
+    exit;
+}
+
+function resImg(string $val): string {
+    if ($val === '') return '';
+    if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
+    return '/uploads/' . ltrim($val, '/');
+}
+
+$psdPosts = listPackResources($pdo, 'psd');
+$fonts    = listPackResources($pdo, 'font');
+$brushes  = listPackResources($pdo, 'brush');
+$videos   = listPackResources($pdo, 'sd_video');
+$sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kostlim Design | Закрытый раздел</title>
+    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="apple-touch-icon" href="/assets/img/logo.png">
+    <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
+    <style>
+        .res-tabs { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:30px; }
+        .res-tab-btn {
+            background: var(--card); border: 1px solid var(--border); color: var(--text2);
+            padding: 9px 18px; border-radius: 999px; cursor: pointer; font-size: 12.5px;
+            font-weight: 700; font-family: inherit; transition: all .2s;
+        }
+        .res-tab-btn:hover { border-color: rgba(249,115,22,.35); color: var(--accent); }
+        .res-tab-btn.active { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-color: transparent; box-shadow: 0 0 16px rgba(249,115,22,.3); }
+        .res-panel { display:none; } .res-panel.active { display:block; }
+        .res-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+        .res-panel-head h2 { margin:0; font-size:16px; }
+        .res-add-btn {
+            width:38px; height:38px; border-radius:50%; border:none; flex-shrink:0;
+            background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff;
+            font-size:22px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+            box-shadow: 0 4px 14px rgba(249,115,22,.35); transition: transform .15s;
+        }
+        .res-add-btn:hover { transform: scale(1.08); }
+        .res-add-form { display:none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 22px; }
+        .res-add-form.show { display:block; }
+        .res-add-form input[type=text], .res-add-form textarea, .res-add-form input[type=file] {
+            width:100%; box-sizing:border-box; background: rgba(0,0,0,.15); border:1px solid var(--border); color: var(--text);
+            padding:9px 11px; border-radius:8px; font-family:inherit; margin-bottom:10px; font-size:13px;
+        }
+        .res-add-form textarea { min-height:70px; resize:vertical; }
+        .res-caption { padding: 14px 16px; }
+        .res-caption h3 { margin:0 0 4px; font-size:14px; }
+        .res-caption span { color: var(--text2); font-size:12px; }
+        .res-del-form { display:inline; }
+        .res-del-btn { position:absolute; top:8px; right:8px; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:6px; width:26px; height:26px; cursor:pointer; }
+        .res-card-wrap { position:relative; }
+        .res-guide { white-space:pre-wrap; line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-left">
+        <a href="index.php" class="nav-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            На главную
+        </a>
+    </div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
+    <div class="header-right">
+        <?php if ($isAdmin): ?>
+        <a href="admin/resources.php" class="nav-link">⚙️ Управление</a>
+        <?php endif; ?>
+    </div>
+</header>
+
+<main class="container price-page">
+    <div class="price-head">
+        <h1>🔒 Закрытый раздел</h1>
+        <p>Материалы и инструменты для дизайнеров пака<?= $isAdmin ? ' · режим администратора' : '' ?></p>
+    </div>
+
+    <?php if ($message): ?><p style="text-align:center;color:var(--accent);margin-bottom:20px;"><?= htmlspecialchars($message) ?></p><?php endif; ?>
+
+    <div class="res-tabs">
+        <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')">📁 PSD (<?= count($psdPosts) ?>)</button>
+        <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')">🔤 Шрифты (<?= count($fonts) ?>)</button>
+        <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')">🎨 Стили и кисти (<?= count($brushes) ?>)</button>
+        <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')">🖥 Stable Diffusion</button>
+    </div>
+
+    <!-- PSD -->
+    <div class="res-panel active" id="panel-psd">
+        <div class="res-panel-head"><h2>📁 PSD-паки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить PSD-пост" onclick="document.getElementById('form-psd').classList.toggle('show')">+</button><?php endif; ?></div>
+        <?php if ($isAdmin): ?>
+        <form class="res-add-form" id="form-psd" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="psd">
+            <input type="text" name="title" placeholder="Название поста" required>
+            <input type="text" name="telegram_url" placeholder="Ссылка на сообщение в TG (t.me/c/.../ID)" required>
+            <input type="file" name="resource_image" accept="image/*">
+            <button type="submit" class="save-all-btn">Добавить</button>
+        </form>
+        <?php endif; ?>
+        <?php if (empty($psdPosts)): ?>
+            <p style="text-align:center;color:var(--text2);padding:30px 0;">Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.</p>
+        <?php else: ?>
+        <section class="price-grid-local">
+            <?php foreach ($psdPosts as $r): ?>
+            <div class="res-card-wrap">
+                <?php if ($isAdmin): ?>
+                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
+                <?php endif; ?>
+                <a class="service-card" href="<?= htmlspecialchars($r['telegram_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
+                    <div class="service-cover">
+                        <?php $img = resImg((string)$r['preview_image']); ?>
+                        <?php if ($img): ?><img src="<?= htmlspecialchars($img) ?>" alt="">
+                        <?php else: ?><div class="service-cover-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><?php endif; ?>
+                    </div>
+                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><span>Открыть в Telegram →</span></div>
+                </a>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <?php endif; ?>
+    </div>
+
+    <!-- Fonts -->
+    <div class="res-panel" id="panel-fonts">
+        <div class="res-panel-head"><h2>🔤 Шрифты</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить шрифт" onclick="document.getElementById('form-fonts').classList.toggle('show')">+</button><?php endif; ?></div>
+        <?php if ($isAdmin): ?>
+        <form class="res-add-form" id="form-fonts" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="font">
+            <input type="text" name="title" placeholder="Название шрифта" required>
+            <input type="file" name="resource_file" accept=".ttf,.otf" required>
+            <button type="submit" class="save-all-btn">Добавить</button>
+        </form>
+        <?php endif; ?>
+        <?php if (empty($fonts)): ?>
+            <p style="text-align:center;color:var(--text2);padding:30px 0;">Шрифтов пока нет.</p>
+        <?php else: ?>
+        <section class="price-grid-local">
+            <?php foreach ($fonts as $r): ?>
+            <div class="res-card-wrap">
+                <?php if ($isAdmin): ?>
+                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
+                <?php endif; ?>
+                <a class="service-card" href="<?= htmlspecialchars($r['file_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
+                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">🔤</span></div>
+                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><span>Скачать →</span></div>
+                </a>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <?php endif; ?>
+    </div>
+
+    <!-- Brushes -->
+    <div class="res-panel" id="panel-brushes">
+        <div class="res-panel-head"><h2>🎨 Стили и кисти</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить набор" onclick="document.getElementById('form-brushes').classList.toggle('show')">+</button><?php endif; ?></div>
+        <?php if ($isAdmin): ?>
+        <form class="res-add-form" id="form-brushes" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="brush">
+            <input type="text" name="title" placeholder="Название набора" required>
+            <textarea name="description" placeholder="Описание (необязательно)"></textarea>
+            <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z" required>
+            <button type="submit" class="save-all-btn">Добавить</button>
+        </form>
+        <?php endif; ?>
+        <?php if (empty($brushes)): ?>
+            <p style="text-align:center;color:var(--text2);padding:30px 0;">Стилей и кистей пока нет.</p>
+        <?php else: ?>
+        <section class="price-grid-local">
+            <?php foreach ($brushes as $r): ?>
+            <div class="res-card-wrap">
+                <?php if ($isAdmin): ?>
+                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
+                <?php endif; ?>
+                <a class="service-card" href="<?= htmlspecialchars($r['file_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
+                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">🎨</span></div>
+                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><?php if ($r['description']): ?><span><?= htmlspecialchars($r['description']) ?></span><?php endif; ?></div>
+                </a>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <?php endif; ?>
+    </div>
+
+    <!-- SD -->
+    <div class="res-panel" id="panel-sd">
+        <div class="res-panel-head"><h2>🖥 Гайд по установке</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Изменить гайд" onclick="document.getElementById('form-sd-guide').classList.toggle('show')">✏️</button><?php endif; ?></div>
+        <?php if ($isAdmin): ?>
+        <form class="res-add-form" id="form-sd-guide" method="post">
+            <input type="hidden" name="action" value="save_sd_guide">
+            <textarea name="sd_guide" style="min-height:180px;" placeholder="Текст гайда, полезные ссылки..."><?= htmlspecialchars($sdGuide) ?></textarea>
+            <button type="submit" class="save-all-btn">Сохранить гайд</button>
+        </form>
+        <?php endif; ?>
+        <?php if ($sdGuide !== ''): ?>
+            <div class="res-guide"><?= htmlspecialchars($sdGuide) ?></div>
+        <?php else: ?>
+            <p style="text-align:center;color:var(--text2);padding:20px 0;">Гайд ещё не добавлен.</p>
+        <?php endif; ?>
+
+        <div class="res-panel-head" style="margin-top:36px;"><h2>🎬 Видео установки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить видео" onclick="document.getElementById('form-sdvideo').classList.toggle('show')">+</button><?php endif; ?></div>
+        <?php if ($isAdmin): ?>
+        <form class="res-add-form" id="form-sdvideo" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="sd_video">
+            <input type="text" name="title" placeholder="Название видео" required>
+            <input type="file" name="resource_file" accept="video/*" required>
+            <button type="submit" class="save-all-btn">Загрузить</button>
+        </form>
+        <?php endif; ?>
+        <?php if (empty($videos)): ?>
+            <p style="text-align:center;color:var(--text2);padding:20px 0;">Видео пока нет.</p>
+        <?php else: ?>
+        <section class="price-grid-local">
+            <?php foreach ($videos as $r): ?>
+            <div class="res-card-wrap">
+                <?php if ($isAdmin): ?>
+                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
+                <?php endif; ?>
+                <a class="service-card" href="<?= htmlspecialchars($r['video_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
+                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">▶️</span></div>
+                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3></div>
+                </a>
+            </div>
+            <?php endforeach; ?>
+        </section>
+        <?php endif; ?>
+    </div>
+</main>
+
+<script>
+function resTab(name) {
+    document.querySelectorAll('.res-tab-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.panel === name); });
+    document.querySelectorAll('.res-panel').forEach(function(p){ p.classList.toggle('active', p.id === 'panel-' + name); });
+}
+</script>
+</body>
+</html>
