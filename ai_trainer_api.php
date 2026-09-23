@@ -62,11 +62,84 @@ function ensureTrainerSchema(PDO $pdo): void
     }
 }
 
+/**
+ * Разбирает GEMINI_API_KEY из окружения в массив валидных ключей.
+ * ВАЖНО: в Render переменную заводят как "ключ1,ключ2,ключ3" (несколько
+ * ключей через запятую для ротации квоты). Раньше эта строка целиком
+ * подставлялась в заголовок/URL запроса как ОДИН ключ — Google получал
+ * мусор вида "AIza...,AIza...,AIza..." и закономерно отвечал
+ * HTTP 401 (invalid authentication credentials). Здесь строка режется
+ * по запятой, каждый кусок чистится от пробелов/пустых элементов.
+ */
+function getGeminiApiKeys(): array
+{
+    $raw = getenv('GEMINI_API_KEY') ?: '';
+    if ($raw === '') return [];
+    $keys = array_map('trim', explode(',', $raw));
+    $keys = array_values(array_filter($keys, static fn($k) => $k !== ''));
+    return $keys;
+}
+
+/**
+ * Единый низкоуровневый вызов Gemini generateContent с РОТАЦИЕЙ ключей:
+ * ключи перебираются в случайном порядке (чтобы не долбить всегда в
+ * один и тот же и размазывать квоту), и если очередной ключ вернул
+ * ошибку авторизации/квоты (401/403/429 или сообщение про invalid key
+ * / quota), автоматически пробуется следующий, а не падает сразу.
+ * Возвращает ['response' => string|null, 'http' => int, 'curl_err' => string, 'key_used' => string|null].
+ */
+function geminiCall(string $model, array $payload, int $timeout = 25): array
+{
+    $keys = getGeminiApiKeys();
+    if (!$keys) {
+        return ['response' => null, 'http' => 0, 'curl_err' => 'no_key', 'key_used' => null];
+    }
+    shuffle($keys);
+
+    $last = ['response' => null, 'http' => 0, 'curl_err' => '', 'key_used' => null];
+    foreach ($keys as $key) {
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . urlencode($key);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        ]);
+        $response = curl_exec($ch);
+        $err = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $last = ['response' => $response, 'http' => $httpCode, 'curl_err' => $err, 'key_used' => $key];
+
+        if ($err !== '') {
+            error_log('geminiCall curl error (key ...' . substr($key, -4) . '): ' . $err);
+            continue; // сетевая ошибка — пробуем следующий ключ
+        }
+
+        if ($httpCode === 401 || $httpCode === 403 || $httpCode === 429) {
+            error_log('geminiCall auth/quota HTTP ' . $httpCode . ' for key ...' . substr($key, -4) . ', пробуем следующий ключ');
+            continue; // невалидный ключ или исчерпана квота — пробуем следующий
+        }
+
+        $data = json_decode((string)$response, true);
+        $apiErrorMsg = $data['error']['message'] ?? null;
+        if ($apiErrorMsg !== null && (stripos($apiErrorMsg, 'API key') !== false || stripos($apiErrorMsg, 'quota') !== false || stripos($apiErrorMsg, 'authenticat') !== false)) {
+            error_log('geminiCall API error for key ...' . substr($key, -4) . ': ' . $apiErrorMsg . ' — пробуем следующий ключ');
+            continue;
+        }
+
+        return $last; // успех (или ошибка, не связанная с ключом, — нет смысла перебирать дальше)
+    }
+    return $last; // все ключи исчерпаны/невалидны — возвращаем последний результат для диагностики
+}
+
 /** Единый вызов Gemini text-only (тот же шаблон, что в проекте). */
 function geminiText(string $systemPrompt, array $historyTurns, string $userText): string
 {
-    $apiKey = getenv('GEMINI_API_KEY') ?: '';
-    if ($apiKey === '') return '⚠️ ИИ временно недоступен (не настроен GEMINI_API_KEY).';
+    if (!getGeminiApiKeys()) return '⚠️ ИИ временно недоступен (не настроен GEMINI_API_KEY).';
 
     $contents = [];
     foreach ($historyTurns as $turn) {
@@ -89,19 +162,16 @@ function geminiText(string $systemPrompt, array $historyTurns, string $userText)
             'thinkingConfig' => ['thinkingBudget' => 0],
         ],
     ];
-    $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_TIMEOUT => 25,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-    ]);
-    $response = curl_exec($ch);
-    $err = curl_error($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($err) { error_log('geminiText curl error: ' . $err); return '⚠️ Ошибка связи с ИИ, попробуй ещё раз.'; }
+
+    $result = geminiCall('gemini-2.5-flash', $payload, 25);
+    $response = $result['response'];
+    $httpCode = $result['http'];
+
+    if ($response === null) {
+        $reason = $result['curl_err'] === 'no_key' ? 'не настроен GEMINI_API_KEY' : ('ошибка связи: ' . $result['curl_err']);
+        error_log('geminiText: все ключи не сработали — ' . $reason);
+        return '⚠️ Ошибка связи с ИИ, попробуй ещё раз.';
+    }
 
     $data = json_decode((string)$response, true);
     $text = trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
@@ -123,8 +193,7 @@ function geminiText(string $systemPrompt, array $historyTurns, string $userText)
 /** Вызов Gemini с изображением (для оценки сдачи работы). */
 function geminiWithImage(string $systemPrompt, string $userText, string $imagePath, string $mime): string
 {
-    $apiKey = getenv('GEMINI_API_KEY') ?: '';
-    if ($apiKey === '') return json_encode(['score' => 70, 'review' => 'ИИ недоступен (нет ключа), выставлена условная оценка.']);
+    if (!getGeminiApiKeys()) return json_encode(['score' => 70, 'review' => 'ИИ недоступен (нет ключа), выставлена условная оценка.']);
 
     $imgData = base64_encode((string)file_get_contents($imagePath));
     $payload = [
@@ -142,16 +211,14 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
             'thinkingConfig' => ['thinkingBudget' => 0],
         ],
     ];
-    $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_TIMEOUT => 40,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-    ]);
-    $response = curl_exec($ch);
-    curl_close($ch);
+
+    $result = geminiCall('gemini-2.5-flash', $payload, 40);
+    $response = $result['response'];
+    if ($response === null) {
+        error_log('geminiWithImage: все ключи не сработали — ' . $result['curl_err']);
+        return '';
+    }
+
     $data = json_decode((string)$response, true);
     $text = trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
     if ($text === '') {
