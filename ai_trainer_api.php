@@ -99,11 +99,25 @@ function geminiText(string $systemPrompt, array $historyTurns, string $userText)
     ]);
     $response = curl_exec($ch);
     $err = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     if ($err) { error_log('geminiText curl error: ' . $err); return '⚠️ Ошибка связи с ИИ, попробуй ещё раз.'; }
 
     $data = json_decode((string)$response, true);
-    return trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '') ?: '…';
+    $text = trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
+    if ($text !== '') return $text;
+
+    // ДИАГНОСТИКА: раньше тут молча возвращали "…". Логируем сырой ответ
+    // целиком (видно в логах Render), а в сам чат отдаём короткую причину,
+    // чтобы не гадать вслепую — этого достаточно, чтобы понять, в чём дело:
+    // неверный/просроченный ключ, исчерпана квота, промпт заблокирован
+    // фильтром безопасности (finishReason=SAFETY), и т.п.
+    error_log('geminiText EMPTY reply. HTTP=' . $httpCode . ' raw=' . substr((string)$response, 0, 1500));
+    $finishReason = $data['candidates'][0]['finishReason'] ?? null;
+    $apiErrorMsg  = $data['error']['message'] ?? null;
+    if ($apiErrorMsg) return '⚠️ Ошибка Gemini API (HTTP ' . $httpCode . '): ' . $apiErrorMsg;
+    if ($finishReason) return '⚠️ Пустой ответ ИИ (finishReason: ' . $finishReason . '). Смотри логи сервера для деталей.';
+    return '⚠️ Пустой ответ ИИ (HTTP ' . $httpCode . '), причина неизвестна — смотри логи сервера.';
 }
 
 /** Вызов Gemini с изображением (для оценки сдачи работы). */
@@ -139,7 +153,11 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
     $response = curl_exec($ch);
     curl_close($ch);
     $data = json_decode((string)$response, true);
-    return trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
+    $text = trim($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
+    if ($text === '') {
+        error_log('geminiWithImage EMPTY reply. raw=' . substr((string)$response, 0, 1500));
+    }
+    return $text;
 }
 
 function difficultyPersona(string $level): string
@@ -198,6 +216,14 @@ case 'send_message': {
     $histStmt = $pdo->prepare("SELECT role, content FROM trainer_messages WHERE session_id = ? ORDER BY id ASC");
     $histStmt->execute([$sessionId]);
     $rows = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+    // ВАЖНО: первая запись в истории — это открывающее сообщение ИИ-клиента
+    // (то самое ТЗ, роль 'client'/'model'). Если отправить его Gemini как
+    // первый элемент contents, диалог начинается с роли model без
+    // предшествующего user — некоторые модели на это отвечают пустым
+    // текстом. Поэтому убираем его из истории и кладём текст ТЗ в
+    // systemPrompt как контекст, а contents строим только из реальных
+    // пар (дизайнер → клиент), начиная с первого сообщения дизайнера.
+    array_shift($rows);
     $turns = [];
     foreach ($rows as $r) {
         $turns[] = ['role' => $r['role'] === 'client' ? 'model' : 'user', 'text' => $r['content']];
@@ -206,6 +232,7 @@ case 'send_message': {
 
     $systemPrompt = "Ты играешь роль заказчика «{$session['client_name']}» по теме «{$session['topic']}». "
         . difficultyPersona($session['difficulty']) . " "
+        . "Своё первое сообщение дизайнеру (с ТЗ) ты уже отправил, вот оно: «{$session['brief']}». "
         . "Отвечай коротко (2-5 предложений), как в мессенджере, без markdown, оставайся в характере на протяжении всего диалога.";
 
     $reply = geminiText($systemPrompt, $turns, $content);
