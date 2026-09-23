@@ -17,43 +17,15 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/pack_role.php';
-require_once __DIR__ . '/includes/badges.php';
+require_once __DIR__ . '/includes/ppk_access.php';
 
 function jexit(array $data): void { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 
-function resSiteSetting(PDO $pdo, string $key, string $default = ''): string
-{
-    try {
-        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val !== false && $val !== null && $val !== '' ? (string)$val : $default;
-    } catch (Throwable $e) {
-        return $default;
-    }
-}
-
 // ── Доступ: ADMIN или PPK (авто-проверка ИЛИ ручная выдача) ──
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-$tgId = (string)($tgProfile['tg_id'] ?? '');
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true) || ($tgId !== '' && $tgId === $adminTgEnv);
-
-ensurePpkManualSchema($pdo);
-$botToken   = resSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-$groupChat  = resSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-$isPackDesigner = $isAdmin || hasManualPpkGrant($pdo, $tgId) || ($tgId !== '' && isPackDesigner($pdo, $botToken, $groupChat, $tgId, $isAdmin));
-
-if (!$isPackDesigner) jexit(['ok' => false, 'error' => 'Доступ только для PPK/ADMIN']);
-if ($tgId === '') $tgId = 'admin_local_' . $sid; // локальный админ без привязанного TG — своя изолированная история
+$access = resolvePpkAccess($pdo);
+if (!$access['isPackDesigner']) jexit(['ok' => false, 'error' => 'Доступ только для PPK/ADMIN']);
+$tgId = $access['tgId'];
+$tgProfile = $access['tgProfile'];
 
 ensureTrainerSchema($pdo);
 
@@ -105,7 +77,17 @@ function geminiText(string $systemPrompt, array $historyTurns, string $userText)
     $payload = [
         'contents'          => $contents,
         'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
-        'generationConfig'  => ['temperature' => 0.9, 'maxOutputTokens' => 400],
+        // ВАЖНО: gemini-2.5-flash — "thinking"-модель, часть maxOutputTokens
+        // уходит на внутренние рассуждения ДО текста ответа. С низким лимитом
+        // (было 400) бюджет иногда съедался целиком на "размышления", и в
+        // ответе оставался пустой text — отсюда "ИИ не отвечает" в чате.
+        // thinkingBudget=0 отключает эту фазу (не нужна для ролевого чата),
+        // а maxOutputTokens подняли с запасом.
+        'generationConfig'  => [
+            'temperature' => 0.9,
+            'maxOutputTokens' => 1024,
+            'thinkingConfig' => ['thinkingBudget' => 0],
+        ],
     ];
     $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey);
     curl_setopt_array($ch, [
@@ -140,7 +122,11 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
             ],
         ]],
         'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
-        'generationConfig' => ['temperature' => 0.4, 'maxOutputTokens' => 500],
+        'generationConfig' => [
+            'temperature' => 0.4,
+            'maxOutputTokens' => 1024,
+            'thinkingConfig' => ['thinkingBudget' => 0],
+        ],
     ];
     $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" . $apiKey);
     curl_setopt_array($ch, [
@@ -277,7 +263,7 @@ case 'share_with_admin': {
     if (!$session) jexit(['ok' => false, 'error' => 'Сессия не найдена']);
 
     $adminId = getenv('ADMIN_ID') ?: '';
-    $token = $botToken;
+    $token = ppkSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
     if ($token && $adminId) {
         $name = $tgProfile['tg_first_name'] ?? $tgId;
         $text = "🎮 Результат тренажёра клиентов\n"

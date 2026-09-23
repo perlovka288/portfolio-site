@@ -9,39 +9,13 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/pack_role.php';
-require_once __DIR__ . '/includes/badges.php';
+require_once __DIR__ . '/includes/ppk_access.php';
 
 function jexit(array $data): void { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-$tgId = (string)($tgProfile['tg_id'] ?? '');
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true) || ($tgId !== '' && $tgId === $adminTgEnv);
-
-ensurePpkManualSchema($pdo);
-function plannerSiteSetting(PDO $pdo, string $key, string $default = ''): string
-{
-    try {
-        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val !== false && $val !== null && $val !== '' ? (string)$val : $default;
-    } catch (Throwable $e) { return $default; }
-}
-$botToken  = plannerSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-$groupChat = plannerSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-$isPackDesigner = $isAdmin || hasManualPpkGrant($pdo, $tgId) || ($tgId !== '' && isPackDesigner($pdo, $botToken, $groupChat, $tgId, $isAdmin));
-
-if (!$isPackDesigner) jexit(['ok' => false, 'error' => 'Доступ только для PPK/ADMIN']);
-if ($tgId === '') $tgId = 'admin_local_' . $sid;
+$access = resolvePpkAccess($pdo);
+if (!$access['isPackDesigner']) jexit(['ok' => false, 'error' => 'Доступ только для PPK/ADMIN']);
+$tgId = $access['tgId'];
 
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS client_planner (

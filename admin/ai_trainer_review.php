@@ -38,7 +38,7 @@ $sessions = $pdo->query("
     <title>Тренажёр — результаты | Админка</title>
     <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="../assets/admin-theme.css">
-    <link rel="stylesheet" href="../assets/kostlim-upgrade.css">
+    
 </head>
 <body style="padding:24px;max-width:900px;margin:0 auto;">
     <h1>🎮 Результаты тренажёра клиентов</h1>
@@ -59,7 +59,7 @@ $sessions = $pdo->query("
                 <option value="think" <?= $s['admin_reaction']==='think'?'selected':'' ?>>🤔 нужно поработать</option>
             </select>
             <input type="text" name="comment" value="<?= htmlspecialchars($s['admin_comment']) ?>" placeholder="Комментарий дизайнеру" style="flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:var(--text);">
-            <button type="submit" class="save-all-btn">Сохранить</button>
+            <button type="submit" class="btn-submit">Сохранить</button>
         </form>
     </div>
     <?php endforeach; ?>

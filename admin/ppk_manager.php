@@ -49,7 +49,7 @@ $keys = $pdo->query("SELECT * FROM ppk_activation_keys ORDER BY created_at DESC 
     <title>PPK — управление доступом | Админка</title>
     <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="../assets/admin-theme.css">
-    <link rel="stylesheet" href="../assets/kostlim-upgrade.css">
+    
 </head>
 <body style="padding:24px;max-width:900px;margin:0 auto;">
     <h1>🎨 Управление ролью PPK</h1>
@@ -62,7 +62,7 @@ $keys = $pdo->query("SELECT * FROM ppk_activation_keys ORDER BY created_at DESC 
             <input type="hidden" name="action" value="grant">
             <input type="text" name="tg_id" placeholder="Telegram ID пользователя" required style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:var(--text);">
             <input type="text" name="note" placeholder="Заметка (необязательно)" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:var(--text);flex:1;min-width:180px;">
-            <button type="submit" class="save-all-btn">Выдать PPK</button>
+            <button type="submit" class="btn-submit">Выдать PPK</button>
         </form>
     </section>
 
@@ -80,7 +80,7 @@ $keys = $pdo->query("SELECT * FROM ppk_activation_keys ORDER BY created_at DESC 
                         <form method="post" onsubmit="return confirm('Снять PPK?')">
                             <input type="hidden" name="action" value="revoke">
                             <input type="hidden" name="tg_id" value="<?= htmlspecialchars($g['tg_id']) ?>">
-                            <button type="submit" class="res-del-btn">✕</button>
+                            <button type="submit" class="btn-submit" style="padding:6px 12px;background:rgba(239,68,68,.15);box-shadow:none;color:#ef4444;">✕</button>
                         </form>
                     </td>
                 </tr>
@@ -95,7 +95,7 @@ $keys = $pdo->query("SELECT * FROM ppk_activation_keys ORDER BY created_at DESC 
         <form method="post" style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
             <input type="hidden" name="action" value="generate_keys">
             <input type="number" name="count" value="1" min="1" max="20" style="width:70px;padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:var(--text);">
-            <button type="submit" class="save-all-btn">Сгенерировать</button>
+            <button type="submit" class="btn-submit">Сгенерировать</button>
         </form>
         <table style="width:100%;border-collapse:collapse;">
             <thead><tr style="text-align:left;color:var(--text2);"><th>Код</th><th>Статус</th><th>Кем погашен</th></tr></thead>

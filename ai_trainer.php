@@ -3,42 +3,17 @@
  * «Тренировка общения с клиентом» — закрытый раздел для PPK/ADMIN.
  * Анкета (имя клиента / сложность / тема) → чат с ИИ-заказчиком →
  * сдача работы → оценка 0–100 → «Поделиться с Kostlim».
- *
- * Бэкенд запросов к ИИ и БД — в ai_trainer_api.php (AJAX, JSON).
- * Использует тот же Gemini API и паттерн ключей, что и ai_support.php.
  */
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/pack_role.php';
-require_once __DIR__ . '/includes/badges.php';
+require_once __DIR__ . '/includes/ppk_access.php';
 
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
-if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
-    $isAdmin = true;
-}
-
-$tgId = (string)($tgProfile['tg_id'] ?? '');
-$isPackDesigner = false;
-if ($isAdmin || $tgId !== '') {
-    ensurePpkManualSchema($pdo);
-    $botTokenForRoleCheck        = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-    $isPackDesigner = $isAdmin
-        || hasManualPpkGrant($pdo, $tgId)
-        || isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, $tgId, $isAdmin);
-}
+$access = resolvePpkAccess($pdo);
+$isAdmin = $access['isAdmin'];
+$isPackDesigner = $access['isPackDesigner'];
 
 if (!$isPackDesigner) {
     http_response_code(403);
@@ -47,31 +22,15 @@ if (!$isPackDesigner) {
     <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Доступ закрыт | Kostlim Design</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="assets/kostlim-upgrade.css">
     </head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
         <div>
             <h1>🔒 Доступ закрыт</h1>
             <p>Тренажёр общения с клиентом доступен только участникам приватного пака (PPK).</p>
-            <p><a href="index.php">← На главную</a></p>
+            <p><a href="privat_pak.php">← В Приват Пак</a></p>
         </div>
     </body></html>
     <?php
     exit;
-}
-
-function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
-{
-    if (!function_exists('getSiteSettingImpl')) {
-        try {
-            $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-            $stmt->execute([$key]);
-            $val = $stmt->fetchColumn();
-            return $val !== false && $val !== null && $val !== '' ? (string)$val : $default;
-        } catch (Throwable $e) {
-            return $default;
-        }
-    }
-    return $default;
 }
 ?>
 <!DOCTYPE html>
@@ -82,32 +41,103 @@ function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
     <title>Тренажёр клиентов | Kostlim Design</title>
     <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
-    <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
+<style>
+.trainer-wrap { max-width: 560px; margin: 0 auto; padding: 22px 20px 40px; }
+.trainer-top { display:flex; align-items:center; gap:12px; margin-bottom: 18px; }
+.trainer-back {
+    display:inline-flex; align-items:center; gap:6px; background: var(--card); border:1px solid var(--border);
+    color: var(--text); padding: 9px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700;
+    text-decoration:none;
+}
+.trainer-back:hover { border-color: var(--border-accent); color: var(--accent2); }
+.trainer-title { font-size: 19px; font-weight: 900; margin: 0 0 4px; }
+.trainer-sub { color: var(--text2); font-size: 13px; margin-bottom: 20px; }
+
+.trainer-new-btn {
+    display:flex; align-items:center; justify-content:center; gap:8px; width:100%; box-sizing:border-box;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none;
+    padding: 15px; border-radius: 14px; font-size: 13px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .8px; cursor:pointer; box-shadow: var(--shadow-accent); transition: all var(--t);
+    margin-bottom: 20px;
+}
+.trainer-new-btn:hover { transform: translateY(-2px); }
+
+.trainer-session-row {
+    display:flex; align-items:center; gap:12px; background: var(--card); border:1px solid var(--border);
+    border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; cursor:pointer; transition: all var(--t);
+}
+.trainer-session-row:hover { border-color: var(--border-accent); background: var(--accent-dim); }
+.trainer-session-icon {
+    width:38px; height:38px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    background: var(--accent-dim); color: var(--accent); font-size:16px;
+}
+.trainer-session-title { font-size: 13.5px; font-weight: 800; }
+.trainer-session-meta { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+.trainer-empty { text-align:center; color: var(--text2); font-size: 13px; padding: 30px 0; }
+
+/* Модалка анкеты */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(3px); display:none; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+.modal-overlay.show { display:flex; }
+.modal-card { background: var(--bg2, #0d0d0d); border:1px solid var(--border); border-radius:18px; padding:22px; max-width:420px; width:100%; max-height:88vh; overflow-y:auto; }
+.modal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.modal-head h3 { margin:0; font-size:17px; }
+.modal-close { background:none; border:none; color: var(--text2); font-size:18px; cursor:pointer; }
+.trainer-setup-card label { display:block; font-size:12px; color: var(--text2); margin: 14px 0 6px; font-weight:700; }
+.setup-row { display:flex; gap:8px; }
+.setup-row input[type=text], .trainer-setup-card input[type=text]#setupTopicCustom {
+    flex:1; width:100%; box-sizing:border-box; background: rgba(0,0,0,.15); border:1px solid var(--border);
+    color: var(--text); padding:10px 12px; border-radius:10px; font-family:inherit; margin-top: 8px;
+}
+.mini-btn { background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text); padding:9px 13px; border-radius:10px; cursor:pointer; font-size:12.5px; font-weight:700; white-space:nowrap; }
+.mini-btn:hover { border-color: var(--border-accent); color: var(--accent2); }
+.setup-pills { display:flex; gap:8px; flex-wrap:wrap; }
+.setup-pill { background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text2); padding:9px 15px; border-radius:999px; cursor:pointer; font-size:12.5px; font-weight:700; }
+.setup-pill.active { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-color:transparent; }
+.trainer-start-btn {
+    display:flex; align-items:center; justify-content:center; width:100%; box-sizing:border-box; margin-top:18px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none; padding:14px;
+    border-radius:12px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.8px; cursor:pointer;
+    box-shadow: var(--shadow-accent);
+}
+.trainer-start-btn:disabled { opacity:.6; cursor:default; }
+
+/* Экран чата */
+.trainer-chat-screen { position: fixed; inset:0; background: var(--bg, #080808); z-index:999; display:none; flex-direction:column; }
+.trainer-chat-screen.show { display:flex; }
+.trainer-chat-header { display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.trainer-chat-title { flex:1; display:flex; flex-direction:column; }
+.trainer-chat-title span { font-size:11px; color: var(--text2); }
+.trainer-diff-badge { font-size:10px; font-weight:900; text-transform:uppercase; padding:4px 10px; border-radius:999px; background: var(--accent-dim); color: var(--accent3); border:1px solid var(--border-accent); }
+.trainer-chat-body { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+.trainer-msg { max-width:78%; padding:10px 14px; border-radius:14px; font-size:14px; line-height:1.5; word-wrap:break-word; }
+.trainer-msg--client { align-self:flex-start; background: var(--card); border:1px solid var(--border); }
+.trainer-msg--designer { align-self:flex-end; background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; }
+.trainer-msg--typing { opacity:.6; font-style:italic; }
+.trainer-msg-img { max-width:100%; border-radius:10px; display:block; margin-bottom:6px; }
+.trainer-chat-footer { display:flex; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0; }
+.trainer-chat-footer input[type=text] { flex:1; background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text); padding:12px 15px; border-radius:999px; font-family:inherit; }
+.chat-send-btn { flex-shrink:0; width:42px; height:42px; border-radius:50%; border:none; background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; font-size:16px; cursor:pointer; }
+.trainer-submit-btn {
+    display:flex; align-items:center; justify-content:center; gap:8px; margin:12px 16px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none; padding:13px;
+    border-radius:12px; font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; cursor:pointer;
+}
+.trainer-score-circle { width:96px; height:96px; border-radius:50%; margin:6px auto 16px; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:900; border:3px solid var(--accent); color:#fff; background: var(--accent-dim); }
+</style>
 </head>
 <body>
 
-<header>
-    <div class="header-left">
-        <a href="index.php" class="nav-link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            На главную
-        </a>
+<div class="trainer-wrap">
+    <div class="trainer-top">
+        <a href="privat_pak.php" class="trainer-back">← Приват Пак</a>
     </div>
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-    <div class="header-right"><?= renderRoleBadges(['ADMIN' => $isAdmin, 'PPK' => $isPackDesigner]) ?></div>
-</header>
+    <h1 class="trainer-title">🎮 Тренировка общения с клиентом</h1>
+    <p class="trainer-sub">Отыграй заказ от начала до сдачи — ИИ в роли требовательного заказчика.</p>
 
-<main class="container trainer-page">
-    <div class="price-head">
-        <h1>🎮 Тренировка общения с клиентом</h1>
-        <p>Отыграй заказ от начала до сдачи — ИИ в роли требовательного заказчика.</p>
-    </div>
+    <button type="button" class="trainer-new-btn" id="btnNewSession">+ Новый заказ</button>
 
-    <!-- Список прошлых/текущих сессий -->
-    <div id="trainerSessionsList" class="trainer-sessions-list"></div>
-
-    <button type="button" class="save-all-btn" id="btnNewSession" style="margin:0 auto 20px;display:block;">+ Новый заказ</button>
-</main>
+    <div id="trainerSessionsList"></div>
+</div>
 
 <!-- Модалка анкеты -->
 <div class="modal-overlay" id="setupModal">
@@ -137,7 +167,7 @@ function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
         </div>
         <input type="text" id="setupTopicCustom" placeholder="Или своя тема заказа...">
 
-        <button type="button" class="save-all-btn" id="btnStartSession" style="width:100%;margin-top:16px;">Начать заказ →</button>
+        <button type="button" class="trainer-start-btn" id="btnStartSession">Начать заказ →</button>
     </div>
 </div>
 
@@ -149,7 +179,7 @@ function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
             <strong id="chatClientName">Клиент</strong>
             <span id="chatTopicLabel"></span>
         </div>
-        <span id="chatDifficultyBadge" class="role-badge role-badge--ppk"></span>
+        <span id="chatDifficultyBadge" class="trainer-diff-badge"></span>
     </div>
     <div class="trainer-chat-body" id="chatBody"></div>
     <div class="trainer-chat-footer">
@@ -158,7 +188,7 @@ function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
         <input type="text" id="chatInput" placeholder="Написать клиенту...">
         <button type="button" class="chat-send-btn" id="btnSendMsg">➤</button>
     </div>
-    <button type="button" class="save-all-btn" id="btnSubmitWork" style="margin:12px 16px;">📤 Сдать работу</button>
+    <button type="button" class="trainer-submit-btn" id="btnSubmitWork">📤 Сдать работу</button>
 </div>
 
 <!-- Экран результата -->
@@ -170,7 +200,7 @@ function getSiteSetting(PDO $pdo, string $key, string $default = ''): string
         </div>
         <div class="trainer-score-circle" id="resultScoreCircle">–</div>
         <p id="resultReviewText" style="color:var(--text2);line-height:1.6;"></p>
-        <button type="button" class="save-all-btn" id="btnShareAdmin" style="width:100%;">📨 Поделиться с Kostlim</button>
+        <button type="button" class="trainer-start-btn" id="btnShareAdmin">📨 Поделиться с Kostlim</button>
     </div>
 </div>
 
@@ -223,7 +253,14 @@ document.getElementById('btnStartSession').onclick = async () => {
     const clientName = document.getElementById('setupClientName').value.trim() || randomNames[0];
 
     btn.disabled = true; btn.textContent = 'Клиент печатает...';
-    const r = await api('start_session', { client_name: clientName, difficulty, topic });
+    let r;
+    try {
+        r = await api('start_session', { client_name: clientName, difficulty, topic });
+    } catch (e) {
+        btn.disabled = false; btn.textContent = 'Начать заказ →';
+        alert('Ошибка сети, попробуйте ещё раз.');
+        return;
+    }
     btn.disabled = false; btn.textContent = 'Начать заказ →';
     if (!r.ok) { alert(r.error || 'Ошибка'); return; }
 
@@ -268,7 +305,12 @@ async function sendMessage() {
     document.getElementById('chatBody').appendChild(typing);
     document.getElementById('chatBody').scrollTop = 9e9;
 
-    const r = await api('send_message', { session_id: currentSessionId, content: text });
+    let r;
+    try {
+        r = await api('send_message', { session_id: currentSessionId, content: text });
+    } catch (e) {
+        r = { ok: false };
+    }
     typing.remove();
     if (r.ok) addMessageBubble({role:'client', content: r.reply});
     else addMessageBubble({role:'client', content: '⚠️ Не удалось получить ответ, попробуй ещё раз.'});
@@ -291,7 +333,12 @@ document.getElementById('btnSubmitWork').onclick = async () => {
     const fd = new FormData();
     fd.append('session_id', currentSessionId);
     fd.append('file', pendingSubmitFile);
-    const r = await api('submit_work', fd, true);
+    let r;
+    try {
+        r = await api('submit_work', fd, true);
+    } catch (e) {
+        r = { ok: false, error: 'Ошибка сети' };
+    }
 
     btn.disabled = false; btn.textContent = '📤 Сдать работу';
     if (!r.ok) { alert(r.error || 'Ошибка оценки'); return; }
@@ -315,12 +362,13 @@ document.getElementById('btnShareAdmin').onclick = async () => {
 async function loadSessions() {
     const r = await api('list_sessions');
     const wrap = document.getElementById('trainerSessionsList');
-    if (!r.ok || !r.sessions.length) { wrap.innerHTML = '<p style="text-align:center;color:var(--text2);">Пока нет тренировок — начни первую 👆</p>'; return; }
+    if (!r.ok || !r.sessions.length) { wrap.innerHTML = '<p class="trainer-empty">Пока нет тренировок — начни первую 👆</p>'; return; }
     wrap.innerHTML = r.sessions.map(s => `
-        <div class="service-card trainer-session-card" onclick="resumeSession(${s.id})">
-            <div class="res-caption">
-                <h3>${esc(s.client_name)} — ${esc(s.topic)}</h3>
-                <span>${s.status === 'scored' ? '✅ Оценено: ' + s.score + '/100' : (s.status === 'submitted' ? '⏳ На проверке' : '💬 В процессе')}</span>
+        <div class="trainer-session-row" onclick="resumeSession(${s.id})">
+            <div class="trainer-session-icon">🎮</div>
+            <div>
+                <div class="trainer-session-title">${esc(s.client_name)} — ${esc(s.topic)}</div>
+                <div class="trainer-session-meta">${s.status === 'scored' ? '✅ Оценено: ' + s.score + '/100' : (s.status === 'submitted' ? '⏳ На проверке' : '💬 В процессе')}</div>
             </div>
         </div>
     `).join('');

@@ -1,44 +1,16 @@
 <?php
 /**
  * Личный планер клиентов — модуль органайзера для владельцев пака (PPK).
- * Таблица заказов: Клиент / Контакт / Статус / Дедлайн / Сумма / Заметки.
- * Данные приватные для каждого owner_tg_id — планер одного PPK не виден
- * другому (только сам себе и админу через отдельный SQL при необходимости).
  */
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/pack_role.php';
-require_once __DIR__ . '/includes/badges.php';
+require_once __DIR__ . '/includes/ppk_access.php';
 
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id, tg_first_name FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-$tgId = (string)($tgProfile['tg_id'] ?? '');
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = (isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true) || ($tgId !== '' && $tgId === $adminTgEnv);
-
-ensurePpkManualSchema($pdo);
-$botToken  = getSiteSettingSafe($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-$groupChat = getSiteSettingSafe($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-$isPackDesigner = $isAdmin || hasManualPpkGrant($pdo, $tgId) || ($tgId !== '' && isPackDesigner($pdo, $botToken, $groupChat, $tgId, $isAdmin));
-
-function getSiteSettingSafe(PDO $pdo, string $key, string $default = ''): string
-{
-    try {
-        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val !== false && $val !== null && $val !== '' ? (string)$val : $default;
-    } catch (Throwable $e) { return $default; }
-}
+$access = resolvePpkAccess($pdo);
+$isPackDesigner = $access['isPackDesigner'];
 
 if (!$isPackDesigner) {
     http_response_code(403);
@@ -46,11 +18,10 @@ if (!$isPackDesigner) {
     <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Доступ закрыт | Kostlim Design</title><link rel="stylesheet" href="style.css"></head>
     <body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
-        <div><h1>🔒 Доступ закрыт</h1><p>Личный планер клиентов доступен только владельцам PPK.</p><p><a href="index.php">← На главную</a></p></div>
+        <div><h1>🔒 Доступ закрыт</h1><p>Личный планер клиентов доступен только владельцам PPK.</p><p><a href="privat_pak.php">← В Приват Пак</a></p></div>
     </body></html>
     <?php exit;
 }
-if ($tgId === '') $tgId = 'admin_local_' . $sid;
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -60,28 +31,50 @@ if ($tgId === '') $tgId = 'admin_local_' . $sid;
     <title>Планер клиентов | Kostlim Design</title>
     <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
-    <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
+<style>
+.planner-wrap { max-width: 920px; margin: 0 auto; padding: 22px 20px 50px; }
+.planner-top { display:flex; align-items:center; gap:12px; margin-bottom: 18px; }
+.trainer-back {
+    display:inline-flex; align-items:center; gap:6px; background: var(--card); border:1px solid var(--border);
+    color: var(--text); padding: 9px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700; text-decoration:none;
+}
+.trainer-back:hover { border-color: var(--border-accent); color: var(--accent2); }
+.planner-title { font-size: 19px; font-weight: 900; margin: 0 0 4px; }
+.planner-sub { color: var(--text2); font-size: 13px; margin-bottom: 20px; }
+.planner-add-btn {
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none;
+    padding: 13px 22px; border-radius: 12px; font-size: 12.5px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .7px; cursor:pointer; box-shadow: var(--shadow-accent); margin-bottom: 18px;
+}
+.planner-add-btn:hover { transform: translateY(-1px); }
+.planner-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 16px; }
+.planner-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.planner-table th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text2); padding: 12px 12px; border-bottom: 1px solid var(--border); background: var(--card);
+}
+.planner-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.planner-table input, .planner-table select {
+    width: 100%; box-sizing: border-box; background: transparent; border: 1px solid transparent;
+    color: var(--text); padding: 7px 8px; border-radius: 8px; font-family: inherit; font-size: 13px;
+}
+.planner-table input:focus, .planner-table select:focus { border-color: var(--border-accent); background: rgba(0,0,0,.15); outline: none; }
+.planner-table select option { background: var(--bg2, #0d0d0d); }
+.planner-del-btn { background: rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.3); color:#ef4444; width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:13px; }
+.planner-empty { text-align:center; color: var(--text2); font-size: 13px; padding: 30px 0; }
+</style>
 </head>
 <body>
 
-<header>
-    <div class="header-left">
-        <a href="index.php" class="nav-link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-            На главную
-        </a>
+<div class="planner-wrap">
+    <div class="planner-top">
+        <a href="privat_pak.php" class="trainer-back">← Приват Пак</a>
     </div>
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-    <div class="header-right"><?= renderRoleBadges(['ADMIN' => $isAdmin, 'PPK' => $isPackDesigner]) ?></div>
-</header>
+    <h1 class="planner-title">🗂 Личный планер клиентов</h1>
+    <p class="planner-sub">Учёт своих заказов вне сайта — только вы видите эти записи.</p>
 
-<main class="container planner-page">
-    <div class="price-head">
-        <h1>🗂 Личный планер клиентов</h1>
-        <p>Учёт своих заказов вне сайта — только вы видите эти записи.</p>
-    </div>
-
-    <button type="button" class="save-all-btn" id="btnAddRow" style="margin-bottom:20px;">+ Добавить клиента</button>
+    <button type="button" class="planner-add-btn" id="btnAddRow">+ Добавить клиента</button>
 
     <div class="planner-table-wrap">
         <table class="planner-table" id="plannerTable">
@@ -91,7 +84,8 @@ if ($tgId === '') $tgId = 'admin_local_' . $sid;
             <tbody id="plannerBody"></tbody>
         </table>
     </div>
-</main>
+    <p class="planner-empty" id="plannerEmptyHint" style="display:none;">Пока нет записей — добавьте первого клиента 👆</p>
+</div>
 
 <template id="rowTemplate">
     <tr data-id="">
@@ -107,7 +101,7 @@ if ($tgId === '') $tgId = 'admin_local_' . $sid;
         <td><input type="date" class="p-deadline"></td>
         <td><input type="number" class="p-amount" placeholder="0" step="0.01"></td>
         <td><input type="text" class="p-notes" placeholder="Заметка"></td>
-        <td><button type="button" class="res-del-btn p-delete" title="Удалить">✕</button></td>
+        <td><button type="button" class="planner-del-btn p-delete" title="Удалить">✕</button></td>
     </tr>
 </template>
 
@@ -117,8 +111,6 @@ async function api(action, payload = {}) {
     const res = await fetch(API, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action, ...payload}) });
     return res.json();
 }
-
-const statusColors = { in_progress: '#60a5fa', revision: '#fb923c', paid: '#4ade80' };
 
 function buildRow(row) {
     const tpl = document.getElementById('rowTemplate').content.cloneNode(true);
@@ -136,8 +128,10 @@ function buildRow(row) {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => saveRow(tr), 500);
     };
-    tr.querySelectorAll('input, select').forEach(el => el.addEventListener('input', scheduleSave));
-    tr.querySelectorAll('input, select').forEach(el => el.addEventListener('change', scheduleSave));
+    tr.querySelectorAll('input, select').forEach(el => {
+        el.addEventListener('input', scheduleSave);
+        el.addEventListener('change', scheduleSave);
+    });
     tr.querySelector('.p-delete').onclick = () => deleteRow(tr);
     return tr;
 }
@@ -152,26 +146,39 @@ async function saveRow(tr) {
         amount: parseFloat(tr.querySelector('.p-amount').value || '0'),
         notes: tr.querySelector('.p-notes').value.trim(),
     };
-    const r = await api('save_row', payload);
-    if (r.ok && !tr.dataset.id) tr.dataset.id = r.id;
+    try {
+        const r = await api('save_row', payload);
+        if (r.ok && !tr.dataset.id) tr.dataset.id = r.id;
+        if (!r.ok) console.error('planner save_row error:', r.error);
+    } catch (e) { console.error('planner save_row network error:', e); }
 }
 
 async function deleteRow(tr) {
     if (!confirm('Удалить запись?')) return;
     if (tr.dataset.id) await api('delete_row', { id: tr.dataset.id });
     tr.remove();
+    toggleEmptyHint();
+}
+
+function toggleEmptyHint() {
+    const hasRows = document.getElementById('plannerBody').children.length > 0;
+    document.getElementById('plannerEmptyHint').style.display = hasRows ? 'none' : 'block';
 }
 
 document.getElementById('btnAddRow').onclick = () => {
     document.getElementById('plannerBody').appendChild(buildRow({}));
+    toggleEmptyHint();
 };
 
 (async function loadPlanner() {
-    const r = await api('list_rows');
-    const body = document.getElementById('plannerBody');
-    if (r.ok && r.rows.length) {
-        r.rows.forEach(row => body.appendChild(buildRow(row)));
-    }
+    try {
+        const r = await api('list_rows');
+        const body = document.getElementById('plannerBody');
+        if (r.ok && r.rows.length) {
+            r.rows.forEach(row => body.appendChild(buildRow(row)));
+        }
+    } catch (e) { console.error('planner list_rows network error:', e); }
+    toggleEmptyHint();
 })();
 </script>
 </body>
