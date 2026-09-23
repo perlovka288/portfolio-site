@@ -23,6 +23,7 @@ $botToken  = getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '';
 $siteUrl   = rtrim(getenv('SITE_URL') ?: 'https://portfolio-site-boo5.onrender.com/', '/') . '/';
 
 $isAdmin   = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+$isPackDesigner = $isAdmin; // уточнится ниже, когда узнаем tg_id (см. resolvePpkAccess)
 
 // Раздел «ЗАКАЗЫ» в верхнем меню ведёт сюда с ?view=orders — в этом режиме
 // карточку профиля (аватар/имя/ADMIN) НЕ показываем, страница открывается
@@ -475,6 +476,9 @@ try {
 
         $tg_id       = $row['tg_id'] ?? '';
         $tg_username = $row['tg_username'] ?? '';
+
+        require_once __DIR__ . '/includes/ppk_access.php';
+        $isPackDesigner = resolvePpkAccess($pdo)['isPackDesigner'];
 
         // ── Lazy avatar refresh: re-fetch if empty or expired TG URL ──
         // Вынесено в includes/session.php::ensureTgAvatarFresh(), чтобы
@@ -1058,6 +1062,7 @@ body::before {
         <div class="profile-name">
             <?= htmlspecialchars($displayName) ?>
             <?php if ($isAdmin): ?><span style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;color:#fb923c;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.35);border-radius:5px;padding:2px 7px;vertical-align:middle;margin-left:6px;">admin</span><?php endif; ?>
+            <?php if ($isPackDesigner): ?><span style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;color:#fb923c;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.35);border-radius:5px;padding:2px 7px;vertical-align:middle;margin-left:6px;" title="Designer PPK">PPK</span><?php endif; ?>
         </div>
         <?php if (!empty($profile['tg_username'])): ?>
             <div class="profile-username">@<?= htmlspecialchars(ltrim($profile['tg_username'], '@')) ?></div>
