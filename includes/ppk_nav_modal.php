@@ -10,13 +10,14 @@
  *   $ppkHasAccess = $isAdmin || $isPackDesigner;
  *   include __DIR__ . '/includes/ppk_nav_modal.php';
  *
- * Если $ppkHasAccess === true — пункт меню просто ведёт на resources.php.
+ * Если $ppkHasAccess === true — пункт меню ведёт на privat_pak.php (хаб
+ * с тренажёром, планером и материалами — resources.php лежит внутри него).
  * Если false — пункт меню открывает модалку вместо перехода.
  */
 $ppkHasAccess = $ppkHasAccess ?? false;
 ?>
 <?php if ($ppkHasAccess): ?>
-    <a href="resources.php" class="section-tab section-tab-ppk <?= ($sectionTabsActive ?? '') === 'ppk' ? 'active' : '' ?>">Приват Пак <span class="ppk-lock-ico" aria-hidden="true">🔒</span></a>
+    <a href="privat_pak.php" class="section-tab section-tab-ppk <?= ($sectionTabsActive ?? '') === 'ppk' ? 'active' : '' ?>">Приват Пак <span class="ppk-lock-ico" aria-hidden="true">🔒</span></a>
 <?php else: ?>
     <a href="#" class="section-tab section-tab-ppk" onclick="document.getElementById('ppkPreviewModal').classList.add('show');return false;">Приват Пак <span class="ppk-lock-ico" aria-hidden="true">🔒</span></a>
 

@@ -74,23 +74,52 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $data['preview_image'] = uploadPackResourcePreview('resource_image', __DIR__ . '/uploads/pack_resources/');
                 $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
             } elseif ($type === 'sd_video') {
-                if (!empty($_FILES['resource_file']['name'])) {
-                    // FIX (Блок 2.2 ТЗ): раньше сохранялась только ссылка-превью
-                    // Google Drive (webViewLink) — она открывает страницу
-                    // просмотра, а не скачивает файл. Теперь дополнительно
-                    // сохраняем file_id/file_name, чтобы download.php мог
-                    // отдать файл как настоящее вложение.
+                $link = trim((string)($_POST['resource_link'] ?? ''));
+                if ($link !== '') {
+                    // Готовая ссылка (Блок «большой файл» — form-upload на
+                    // бесплатном хостинге ограничен размером POST-запроса и
+                    // временем выполнения, поэтому для файлов от ~15-20 МБ
+                    // надёжнее вставить прямую ссылку, а не грузить через форму).
+                    $data['video_url'] = $link;
+                } elseif (!empty($_FILES['resource_file']['name'])) {
+                    // FIX (Блок 2.2 ТЗ): раньше при неудачной загрузке на Google
+                    // Drive (например, если admin/gdrive_key.json не настроен)
+                    // ресурс всё равно создавался с пустой ссылкой, и страница
+                    // молча писала "✅ Добавлено" — а при попытке скачать было
+                    // "Файл недоступен". Теперь: сначала Google Drive (нужен
+                    // для больших видео), при неудаче — на сервер локально.
                     $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
-                    if ($gd) { $data['video_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name']; }
+                    if ($gd) {
+                        $data['video_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name'];
+                    } else {
+                        $local = uploadPackResourceFileLocal('resource_file', __DIR__ . '/uploads/pack_resources/');
+                        if ($local) { $data['video_url'] = $local['url']; $data['file_name'] = $local['file_name']; }
+                        else { $message = '❌ Не удалось загрузить видео (ни на Google Drive, ни локально). Проверь admin/gdrive_key.json или права на папку uploads/.'; }
+                    }
+                } else {
+                    $message = '❌ Прикрепи файл или вставь ссылку.';
                 }
             } else { // font | brush
-                if (!empty($_FILES['resource_file']['name'])) {
+                $link = trim((string)($_POST['resource_link'] ?? ''));
+                if ($link !== '') {
+                    $data['file_url'] = $link;
+                } elseif (!empty($_FILES['resource_file']['name'])) {
                     $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
-                    if ($gd) { $data['file_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name']; }
+                    if ($gd) {
+                        $data['file_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name'];
+                    } else {
+                        $local = uploadPackResourceFileLocal('resource_file', __DIR__ . '/uploads/pack_resources/');
+                        if ($local) { $data['file_url'] = $local['url']; $data['file_name'] = $local['file_name']; }
+                        else { $message = '❌ Не удалось загрузить файл (ни на Google Drive, ни локально). Проверь admin/gdrive_key.json или права на папку uploads/.'; }
+                    }
+                } else {
+                    $message = '❌ Прикрепи файл или вставь ссылку.';
                 }
             }
-            createPackResource($pdo, $data);
-            $message = '✅ Добавлено.';
+            if ($message === '') {
+                createPackResource($pdo, $data);
+                $message = '✅ Добавлено.';
+            }
         }
     } elseif ($action === 'delete_resource') {
         deletePackResource($pdo, (int)($_POST['id'] ?? 0));
@@ -134,21 +163,21 @@ function resCard(array $r, array $eng, bool $isAdmin): string {
     if ($type === 'psd') {
         $img = resImg((string)$r['preview_image']);
         $media = $img
-            ? '<img src="' . htmlspecialchars($img) . '" alt="">'
+            ? '<img src="' . htmlspecialchars($img) . '" alt="" onerror="this.parentElement.classList.add(\'media-broken\')">'
             : '<div class="service-cover-placeholder"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
         $sub = 'Открыть в Telegram';
         // Блок 2.2 ТЗ: у PSD вместо кнопки «Заказать» — круглая оранжевая
         // кнопка-иконка Telegram.
-        $dlBtn = '<a class="res-tg-btn" href="' . htmlspecialchars($r['telegram_url']) . '" target="_blank" title="Открыть пост в Telegram" onclick="event.stopPropagation()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></a>';
+        $dlBtn = '<a class="res-tg-btn" href="' . htmlspecialchars($r['telegram_url']) . '" target="_blank" title="Открыть пост в Telegram" onclick="event.stopPropagation()">✈️</a>';
     } elseif ($type === 'sd_video') {
         $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">▶️</span></div>';
         $sub = 'Видео-инструкция';
-        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg></a>';
+        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()">📥</a>';
     } else { // font | brush
         $icon = $type === 'font' ? '🔤' : '🎨';
         $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">' . $icon . '</span></div>';
         $sub = $type === 'font' ? 'Шрифт' : (string)($r['description'] ?: 'Стили и кисти');
-        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg></a>';
+        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()">📥</a>';
     }
 
     $delBtn = '';
@@ -169,7 +198,7 @@ function resCard(array $r, array $eng, bool $isAdmin): string {
         </div>
         <div class="res-card-actions">
             <button type="button" class="res-like-btn' . $likedClass . '" data-rid="' . $id . '" title="Нравится">❤️ <span class="res-like-count">' . (int)$e['likes'] . '</span></button>
-            <button type="button" class="res-fav-btn' . $favClass . '" data-rid="' . $id . '" title="В избранное">🔖</button>
+            <button type="button" class="res-fav-btn' . $favClass . '" data-rid="' . $id . '" title="В избранное">⭐</button>
             ' . $dlBtn . '
         </div>
     </div>';
@@ -236,8 +265,13 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
 
         /* ── Карточка (единая разметка для плитки и списка) ── */
         .res-card-wrap { position:relative; background: var(--card); border:1px solid var(--border); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
-        .res-card-media { aspect-ratio:16/9; overflow:hidden; background: rgba(0,0,0,.2); display:flex; align-items:center; justify-content:center; }
+        .res-card-media { aspect-ratio:16/9; max-height:220px; overflow:hidden; background: rgba(0,0,0,.2); display:flex; align-items:center; justify-content:center; }
         .res-card-media img { width:100%; height:100%; object-fit:cover; }
+        /* FIX: если превью-картинка не загрузилась (404/удалена) — вместо
+           битой иконки браузера показываем плашку-заглушку, а не голый
+           чёрный блок на всю ширину плитки (см. media-broken на img onerror). */
+        .res-card-media.media-broken img { display:none; }
+        .res-card-media.media-broken::after { content:'🖼'; font-size:26px; opacity:.5; }
         .res-card-body { padding:12px 14px 4px; flex:1; }
         .res-card-body h3 { margin:0 0 4px; font-size:14px; }
         .res-card-sub { color: var(--text2); font-size:12px; }
@@ -329,7 +363,8 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         <form class="res-add-form" id="form-fonts" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="font">
             <input type="text" name="title" placeholder="Название шрифта" required>
-            <input type="file" name="resource_file" accept=".ttf,.otf" required>
+            <input type="file" name="resource_file" accept=".ttf,.otf">
+            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (если он большой)">
             <button type="submit" class="save-all-btn">Добавить</button>
         </form>
         <?php endif; ?>
@@ -344,7 +379,8 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="brush">
             <input type="text" name="title" placeholder="Название набора" required>
             <textarea name="description" placeholder="Описание (необязательно)"></textarea>
-            <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z" required>
+            <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z">
+            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (если он большой — загрузка через форму ограничена хостингом)">
             <button type="submit" class="save-all-btn">Добавить</button>
         </form>
         <?php endif; ?>
@@ -372,7 +408,8 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         <form class="res-add-form" id="form-sdvideo" method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="sd_video">
             <input type="text" name="title" placeholder="Название видео" required>
-            <input type="file" name="resource_file" accept="video/*" required>
+            <input type="file" name="resource_file" accept="video/*">
+            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на видео (если оно большое)">
             <button type="submit" class="save-all-btn">Загрузить</button>
         </form>
         <?php endif; ?>

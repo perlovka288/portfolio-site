@@ -212,3 +212,30 @@ function uploadPackResourcePreview(string $field, string $uploadDir): string
     }
     return '';
 }
+
+/**
+ * Локальная загрузка файла материала (шрифт/кисти/видео) прямо на сервер —
+ * запасной вариант, когда Google Drive не настроен (нет admin/gdrive_key.json
+ * или переменной GDRIVE_FOLDER_ID). В отличие от Google Drive, локальный
+ * файл гарантированно скачивается с Content-Disposition: attachment через
+ * download.php — то, что и требуется по ТЗ, — без внешних зависимостей.
+ *
+ * @return array{url:string,file_name:string}|null
+ */
+function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
+{
+    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return null;
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) return null;
+    $origName = basename((string)$_FILES[$field]['name']);
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    $allowed = ['ttf', 'otf', 'abr', 'asl', 'zip', 'rar', '7z', 'mp4', 'mov', 'webm'];
+    if (!in_array($ext, $allowed, true)) return null;
+    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
+    if (!is_writable($uploadDir)) return null;
+    $filename = 'res_' . time() . '_' . uniqid() . '.' . $ext;
+    if (move_uploaded_file($_FILES[$field]['tmp_name'], $uploadDir . $filename)) {
+        return ['url' => '/uploads/pack_resources/' . $filename, 'file_name' => $origName];
+    }
+    return null;
+}

@@ -72,7 +72,26 @@ if ($fileId !== '') {
 }
 
 if ($sourceUrl === '') { http_response_code(404); exit('Файл недоступен'); }
-// Старые записи без сохранённого file_id (добавлены до этого обновления) —
-// отдаём как есть; для них принудительный Content-Disposition недоступен.
+
+// Локально загруженный файл (запасной вариант, когда Google Drive не
+// настроен, — см. uploadPackResourceFileLocal()) — отдаём напрямую с
+// заголовком attachment, это надёжнее, чем редирект.
+if (str_starts_with($sourceUrl, '/uploads/')) {
+    $localPath = __DIR__ . $sourceUrl;
+    if (is_file($localPath)) {
+        header('Content-Description: File Transfer');
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . str_replace('"', '', $fileName ?: basename($localPath)) . '"');
+        header('Content-Length: ' . filesize($localPath));
+        header('Cache-Control: private, max-age=0, must-revalidate');
+        readfile($localPath);
+        exit;
+    }
+    http_response_code(404); exit('Файл недоступен');
+}
+
+// Старые записи с внешней ссылкой без сохранённого file_id (добавлены до
+// этого обновления) — отдаём как есть; для них принудительный
+// Content-Disposition недоступен.
 header('Location: ' . $sourceUrl);
 exit;

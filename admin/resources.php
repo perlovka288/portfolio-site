@@ -31,11 +31,14 @@ function uploadResourceFileDetailed(string $field): ?array
     $tmp  = $_FILES[$field]['tmp_name'];
     $name = basename((string)$_FILES[$field]['name']);
     $gd   = uploadToGoogleDriveDetailed($tmp, $name);
-    if ($gd === null) {
-        $message = '❌ Не удалось загрузить файл на Google Drive — проверь admin/gdrive_key.json и GDRIVE_FOLDER_ID.';
-        return null;
-    }
-    return $gd;
+    if ($gd !== null) return $gd;
+    // FIX: Google Drive не настроен (нет admin/gdrive_key.json) или недоступен —
+    // не проваливаем загрузку молча, а сохраняем файл прямо на сервер, чтобы
+    // материал всё равно можно было скачать.
+    $local = uploadPackResourceFileLocal($field, __DIR__ . '/../uploads/pack_resources/');
+    if ($local !== null) return ['id' => '', 'url' => $local['url'], 'name' => $local['file_name']];
+    $message = '❌ Не удалось загрузить файл ни на Google Drive, ни локально — проверь admin/gdrive_key.json или права на папку uploads/.';
+    return null;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -46,11 +49,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($type, ['font', 'brush', 'sd_video'], true)) {
             $message = '❌ Неизвестный тип ресурса.';
         } else {
-            $fileUrl = '';
-            $fileGd = uploadResourceFileDetailed('resource_file');
-            if ($fileGd === null && $message === '') {
-                $message = '❌ Прикрепи файл.';
-            } elseif ($fileGd !== null) {
+            $link = trim((string)($_POST['resource_link'] ?? ''));
+            if ($link !== '') {
+                // Готовая ссылка — обходит лимиты хостинга на размер
+                // POST-запроса, для больших файлов (100+ МБ) это надёжнее.
+                $fileGd = ['id' => '', 'url' => $link, 'name' => ''];
+            } else {
+                $fileGd = uploadResourceFileDetailed('resource_file');
+                if ($fileGd === null && $message === '') $message = '❌ Прикрепи файл или вставь ссылку.';
+            }
+            if ($fileGd !== null) {
                 createPackResource($pdo, [
                     'type'        => $type,
                     'title'       => trim((string)($_POST['title'] ?? '')),
@@ -120,7 +128,8 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     <input type="hidden" name="action" value="add_resource">
     <input type="hidden" name="type" value="font">
     <input type="text" name="title" placeholder="Название шрифта" required>
-    <input type="file" name="resource_file" accept=".ttf,.otf" required>
+    <input type="file" name="resource_file" accept=".ttf,.otf">
+    <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (для больших файлов)">
     <button type="submit">Добавить</button>
 </form>
 <ul>
@@ -137,7 +146,8 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     <input type="hidden" name="type" value="brush">
     <input type="text" name="title" placeholder="Название набора" required>
     <textarea name="description" placeholder="Описание (необязательно)"></textarea>
-    <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z" required>
+    <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z">
+    <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (для больших файлов)">
     <button type="submit">Добавить</button>
 </form>
 <ul>
@@ -161,7 +171,8 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     <input type="hidden" name="action" value="add_resource">
     <input type="hidden" name="type" value="sd_video">
     <input type="text" name="title" placeholder="Название видео" required>
-    <input type="file" name="resource_file" accept="video/*" required>
+    <input type="file" name="resource_file" accept="video/*">
+    <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на видео (для больших файлов)">
     <button type="submit">Загрузить видео</button>
 </form>
 <ul>
