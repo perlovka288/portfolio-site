@@ -356,6 +356,21 @@ case 'share_with_admin': {
     $session = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$session) jexit(['ok' => false, 'error' => 'Сессия не найдена']);
 
+    // FIX (дублирование карточек/уведомлений при повторном/двойном клике
+    // «Поделиться с Kostlim»): UPDATE ... WHERE shared_with_admin = FALSE —
+    // атомарно "занимает" расшаривание, так что даже при гонке двух
+    // одновременных запросов Telegram-уведомление уйдёт максимум один раз,
+    // а не по одному на каждый клик/запрос.
+    $claim = $pdo->prepare("UPDATE trainer_sessions SET shared_with_admin = TRUE WHERE id = ? AND shared_with_admin = FALSE");
+    $claim->execute([$sessionId]);
+    $firstShare = $claim->rowCount() > 0;
+
+    if (!$firstShare) {
+        // Уже было расшарено раньше (повторный клик/двойной запрос) —
+        // подтверждаем без повторной отправки в Telegram.
+        jexit(['ok' => true, 'already_shared' => true]);
+    }
+
     $adminId = getenv('ADMIN_ID') ?: '';
     $token = ppkSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
     if ($token && $adminId) {
@@ -367,7 +382,6 @@ case 'share_with_admin': {
             . "Отзыв ИИ-клиента: {$session['review']}";
         @file_get_contents("https://api.telegram.org/bot{$token}/sendMessage?chat_id={$adminId}&text=" . urlencode($text));
     }
-    $pdo->prepare("UPDATE trainer_sessions SET shared_with_admin = TRUE WHERE id = ?")->execute([$sessionId]);
     jexit(['ok' => true]);
 }
 
@@ -388,6 +402,7 @@ case 'get_session': {
     $msgStmt->execute([$sessionId]);
     jexit(['ok' => true, 'client_name' => $session['client_name'], 'topic' => $session['topic'], 'difficulty' => $session['difficulty'],
         'status' => $session['status'], 'score' => $session['score'], 'review' => $session['review'],
+        'shared_with_admin' => (bool)$session['shared_with_admin'],
         'messages' => $msgStmt->fetchAll(PDO::FETCH_ASSOC)]);
 }
 

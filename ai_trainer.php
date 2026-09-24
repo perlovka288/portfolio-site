@@ -353,10 +353,20 @@ document.getElementById('btnSubmitWork').onclick = async () => {
 
 document.getElementById('btnShareAdmin').onclick = async () => {
     const btn = document.getElementById('btnShareAdmin');
+    // FIX: раньше кнопка снова становилась кликабельной после успешной
+    // отправки ("✅ Отправлено" можно было нажать ещё раз) — это и слало
+    // повторное уведомление админу на каждый лишний клик. Теперь при
+    // успехе кнопка остаётся заблокированной насовсем; разблокируем
+    // обратно только если сама отправка не удалась (сетевая ошибка и т.п.).
     btn.disabled = true; btn.textContent = 'Отправка...';
     const r = await api('share_with_admin', { session_id: currentSessionId });
-    btn.disabled = false;
-    btn.textContent = r.ok ? '✅ Отправлено' : 'Ошибка, повторить';
+    if (r.ok) {
+        btn.disabled = true;
+        btn.textContent = '✅ Отправлено';
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Ошибка, повторить';
+    }
 };
 
 async function loadSessions() {
@@ -383,6 +393,16 @@ async function resumeSession(id) {
         document.getElementById('resultScoreCircle').textContent = r.score + '/100';
         document.getElementById('resultReviewText').textContent = r.review;
         document.getElementById('resultModal').classList.add('show');
+        // Реоткрытие уже расшаренного результата — сразу показываем
+        // «Отправлено» и не даём поделиться повторно (см. FIX выше).
+        const shareBtn = document.getElementById('btnShareAdmin');
+        if (r.shared_with_admin) {
+            shareBtn.disabled = true;
+            shareBtn.textContent = '✅ Отправлено';
+        } else {
+            shareBtn.disabled = false;
+            shareBtn.textContent = '📨 Поделиться с Kostlim';
+        }
     }
 }
 

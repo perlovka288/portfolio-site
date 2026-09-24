@@ -60,7 +60,19 @@ if (!$isPackDesigner) {
     color: var(--text); padding: 7px 8px; border-radius: 8px; font-family: inherit; font-size: 13px;
 }
 .planner-table input:focus, .planner-table select:focus { border-color: var(--border-accent); background: rgba(0,0,0,.15); outline: none; }
-.planner-table select option { background: var(--bg2, #0d0d0d); }
+/* FIX: раньше select был почти без стилей "коробки" (только option'ы) —
+   в Chrome/Windows это давало стандартный системный синий фон вместо темы
+   сайта. Отключаем нативный вид и рисуем свою стрелку в акцентном цвете. */
+.planner-table select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background-color: #0D0D0D;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%23FF7A00' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px;
+}
+.planner-table select option { background: #0D0D0D; color: #F4F4F4; }
+/* Кастомные статусы (Блок 3 ТЗ) получают собственный фон-плашку через
+   inline style — см. renderStatusOptions() ниже; она не трогает базовую
+   тёмную тему коробки select выше. */
 .planner-del-btn { background: rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.3); color:#ef4444; width:28px; height:28px; border-radius:8px; cursor:pointer; font-size:13px; }
 .planner-empty { text-align:center; color: var(--text2); font-size: 13px; padding: 30px 0; }
 </style>

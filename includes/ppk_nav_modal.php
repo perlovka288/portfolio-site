@@ -16,9 +16,9 @@
 $ppkHasAccess = $ppkHasAccess ?? false;
 ?>
 <?php if ($ppkHasAccess): ?>
-    <a href="resources.php" class="section-tab <?= ($sectionTabsActive ?? '') === 'ppk' ? 'active' : '' ?>">Приват Пак</a>
+    <a href="resources.php" class="section-tab section-tab-ppk <?= ($sectionTabsActive ?? '') === 'ppk' ? 'active' : '' ?>">Приват Пак <span class="ppk-lock-ico" aria-hidden="true">🔒</span></a>
 <?php else: ?>
-    <a href="#" class="section-tab" onclick="document.getElementById('ppkPreviewModal').classList.add('show');return false;">Приват Пак</a>
+    <a href="#" class="section-tab section-tab-ppk" onclick="document.getElementById('ppkPreviewModal').classList.add('show');return false;">Приват Пак <span class="ppk-lock-ico" aria-hidden="true">🔒</span></a>
 
     <div class="modal-overlay" id="ppkPreviewModal">
         <div class="modal-card">

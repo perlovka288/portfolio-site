@@ -10,15 +10,23 @@
  * параметра view — см. profile.php: $viewOrders прячет profile-hero.
  *
  * Подключение (внутри <header>, под логотипом):
- *   $sectionTabsActive = 'home' | 'orders' | 'support';
+ *   $sectionTabsActive = 'home' | 'orders' | 'support' | 'ppk';
  *   include __DIR__ . '/section_tabs.php';
+ *
+ * Чтобы после «Поддержка» показать ещё вкладку «Приват Пак» (с 🔒 и
+ * модалкой для тех, у кого нет доступа — см. ppk_nav_modal.php), перед
+ * include выставь:
+ *   $ppkHasAccess = $isAdmin || $isPackDesigner;
+ *   $sectionTabsShowPpk = true;
  */
 $sectionTabsActive = $sectionTabsActive ?? 'home';
+$sectionTabsShowPpk = $sectionTabsShowPpk ?? false;
 ?>
 <nav class="section-tabs" aria-label="Разделы">
     <a href="index.php" class="section-tab <?= $sectionTabsActive === 'home' ? 'active' : '' ?>">Главная</a>
     <a href="profile.php?view=orders#orders-section" class="section-tab <?= $sectionTabsActive === 'orders' ? 'active' : '' ?>">Заказы</a>
     <a href="support.php" class="section-tab <?= $sectionTabsActive === 'support' ? 'active' : '' ?>">Поддержка</a>
+    <?php if ($sectionTabsShowPpk) include __DIR__ . '/ppk_nav_modal.php'; ?>
 </nav>
 <script>
 /* Лёгкий индикатор загрузки (3 оранжевые точки) при переходе между

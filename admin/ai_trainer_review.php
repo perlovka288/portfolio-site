@@ -52,14 +52,14 @@ $sessions = $pdo->query("
         <p style="color:var(--text2);"><?= nl2br(htmlspecialchars($s['review'])) ?></p>
         <form method="post" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
             <input type="hidden" name="session_id" value="<?= (int)$s['id'] ?>">
-            <select name="reaction">
+            <select name="reaction" class="at-select" style="width:auto;min-width:150px;">
                 <option value="">Без реакции</option>
                 <option value="fire" <?= $s['admin_reaction']==='fire'?'selected':'' ?>>🔥</option>
                 <option value="like" <?= $s['admin_reaction']==='like'?'selected':'' ?>>👍</option>
                 <option value="think" <?= $s['admin_reaction']==='think'?'selected':'' ?>>🤔 нужно поработать</option>
             </select>
-            <input type="text" name="comment" value="<?= htmlspecialchars($s['admin_comment']) ?>" placeholder="Комментарий дизайнеру" style="flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.15);color:var(--text);">
-            <button type="submit" class="btn-submit">Сохранить</button>
+            <input type="text" name="comment" class="at-input" value="<?= htmlspecialchars($s['admin_comment']) ?>" placeholder="Комментарий дизайнеру" style="flex:1;min-width:180px;">
+            <button type="submit" class="at-btn at-btn-primary">Сохранить</button>
         </form>
     </div>
     <?php endforeach; ?>

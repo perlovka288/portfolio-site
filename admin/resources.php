@@ -87,16 +87,28 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 <title>Ресурсы пака | Админ</title>
 <link rel="icon" type="image/png" href="../assets/img/logo.png" sizes="16x16">
 <style>
-    body{background:#0e0e14;color:#e8e8ee;font-family:system-ui,sans-serif;margin:0;padding:24px;}
-    a{color:#8b8bff;}
-    h1{font-size:20px;} h2{font-size:16px;margin-top:36px;border-bottom:1px solid #26262f;padding-bottom:8px;}
-    .msg{background:#1a2e1a;border:1px solid #2e5a2e;padding:10px 14px;border-radius:8px;margin-bottom:16px;}
-    form.inline{display:flex;flex-direction:column;gap:8px;max-width:480px;background:#16161d;padding:14px;border-radius:10px;margin-bottom:16px;}
-    input[type=text],textarea{background:#0e0e14;border:1px solid #2a2a35;color:#e8e8ee;padding:8px 10px;border-radius:6px;font-family:inherit;}
+    /* FIX (Блок 1.3 ТЗ): раньше у этой страницы была своя отдельная
+       фиолетовая мини-тема (#5b5bd6 и т.п.), полностью выбивавшаяся из
+       общего тёмно-оранжевого стиля сайта/админки. Приводим к единой
+       палитре: фон #0D0D0D, акцент #FF7A00, границы #222222. */
+    body{background:#0D0D0D;color:#F4F4F4;font-family:system-ui,sans-serif;margin:0;padding:24px;}
+    a{color:#FF7A00;text-decoration:none;}
+    a:hover{color:#ff9433;text-decoration:underline;}
+    h1{font-size:20px;} h2{font-size:16px;margin-top:36px;border-bottom:1px solid #222222;padding-bottom:8px;}
+    .msg{background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.35);color:#4ade80;padding:10px 14px;border-radius:8px;margin-bottom:16px;}
+    form.inline{display:flex;flex-direction:column;gap:8px;max-width:480px;background:#121212;border:1px solid #222222;padding:14px;border-radius:10px;margin-bottom:16px;}
+    input[type=text],textarea,select{
+        appearance:none;-webkit-appearance:none;-moz-appearance:none;
+        background-color:#0D0D0D;border:1px solid #222222;color:#F4F4F4;padding:8px 10px;border-radius:6px;font-family:inherit;
+    }
+    input[type=text]:focus,textarea:focus,select:focus{outline:none;border-color:#FF7A00;box-shadow:0 0 0 3px rgba(255,122,0,.18);}
     textarea{min-height:160px;}
-    button{background:#5b5bd6;color:#fff;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font-weight:600;}
-    button.danger{background:#c0392b;}
-    ul{list-style:none;padding:0;} li{display:flex;justify-content:space-between;align-items:center;background:#16161d;padding:10px 14px;border-radius:8px;margin-bottom:6px;}
+    input[type=file]{color:#F4F4F4;}
+    button{background:#FF7A00;color:#0D0D0D;border:none;padding:9px 14px;border-radius:6px;cursor:pointer;font-weight:700;}
+    button:hover{background:#ff9433;}
+    button.danger{background:#c0392b;color:#fff;}
+    button.danger:hover{background:#e0463a;}
+    ul{list-style:none;padding:0;} li{display:flex;justify-content:space-between;align-items:center;background:#121212;border:1px solid #222222;padding:10px 14px;border-radius:8px;margin-bottom:6px;}
     li span{opacity:.7;font-size:12px;margin-left:8px;}
 </style>
 </head>

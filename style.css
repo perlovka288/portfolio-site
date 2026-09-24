@@ -398,10 +398,24 @@ header.header-compact .section-tabs {
     color: #fff;
 }
 .section-tab.active::after { width: 100%; }
+/* Вкладка «Приват Пак» — замочек рядом с названием, тёмно-оранжевый акцент */
+.section-tab-ppk { color: var(--accent3, #FF7A00); }
+.section-tab-ppk:hover { color: var(--accent, #FF7A00); }
+.section-tab-ppk .ppk-lock-ico {
+    font-size: 11px;
+    margin-left: 2px;
+    filter: drop-shadow(0 0 4px rgba(255,122,0,.55));
+}
 @media (max-width: 720px) {
     .section-tabs { max-width: none; width: 100%; gap: 6px; justify-content: space-between; }
     .section-tab { font-size: 11px; flex: 1 1 0; }
     header.header-compact { padding: 14px 16px 10px; }
+}
+@media (max-width: 420px) {
+    /* 4 вкладки в ряд на совсем узких экранах — чуть плотнее */
+    .section-tabs { gap: 3px; }
+    .section-tab { font-size: 9.5px; padding: 6px 1px 10px; letter-spacing: .3px; }
+    .section-tab-ppk .ppk-lock-ico { display: block; margin: 2px auto 0; }
 }
 
 /* =====================================================
@@ -1149,6 +1163,33 @@ body.admin-body textarea {
     transition: border-color var(--t), box-shadow var(--t) !important;
     outline: none !important;
 }
+/* FIX: <select> и его закрытая "коробка" раньше НЕ получали фон/цвет темы
+   в этом общем блоке (только рамка на фокусе) — из-за этого в Chrome на
+   Windows список статусов показывал стандартный системный синий фон и
+   светлый попап вместо тёмно-оранжевой темы сайта. Явно берём под
+   контроль appearance/фон/цвет и рисуем свою стрелку вместо системной. */
+.admin-panel select,
+body.admin-body select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-color: #0D0D0D !important;
+    color: #F4F4F4 !important;
+    border: 1px solid #222222 !important;
+    border-radius: 8px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23FF7A00' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 12px center !important;
+    padding-right: 34px !important;
+}
+/* Сам <option> в открытом списке — современный Chrome/Firefox уважают эти
+   цвета для попапа выпадающего списка (системный синий фон Windows этим
+   и убирается). */
+.admin-panel select option,
+body.admin-body select option {
+    background-color: #0D0D0D !important;
+    color: #F4F4F4 !important;
+}
 .admin-panel input:focus,
 .admin-panel select:focus,
 .admin-panel textarea:focus,
@@ -1157,7 +1198,7 @@ body.admin-body select:focus,
 body.admin-body textarea:focus {
     border-color: var(--accent) !important;
     box-shadow: 0 0 0 3px var(--accent-dim), 0 0 14px var(--accent-glow) !important;
-    background: var(--card3) !important;
+    background-color: #14161F !important;
 }
 
 /* ── Кнопки отправки/сохранения ── */
