@@ -53,7 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($link !== '') {
                 // Готовая ссылка — обходит лимиты хостинга на размер
                 // POST-запроса, для больших файлов (100+ МБ) это надёжнее.
-                $fileGd = ['id' => '', 'url' => $link, 'name' => ''];
+                // Если это Google Drive и сервис-аккаунт имеет доступ к
+                // папке с файлом — скачивание пойдёт через API, без
+                // страницы-предупреждения о вирусах для больших файлов.
+                $gdId = extractGDriveFileId($link);
+                $fileGd = ['id' => $gdId ?? '', 'url' => $link, 'name' => $gdId ? trim((string)($_POST['title'] ?? '')) : ''];
             } else {
                 $fileGd = uploadResourceFileDetailed('resource_file');
                 if ($fileGd === null && $message === '') $message = '❌ Прикрепи файл или вставь ссылку.';

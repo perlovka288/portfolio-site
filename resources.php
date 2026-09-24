@@ -80,7 +80,13 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     // бесплатном хостинге ограничен размером POST-запроса и
                     // временем выполнения, поэтому для файлов от ~15-20 МБ
                     // надёжнее вставить прямую ссылку, а не грузить через форму).
+                    // Если это ссылка на Google Drive и файл лежит в папке,
+                    // доступной сервис-аккаунту — качаем потом через API
+                    // (download.php), это надёжнее, чем публичная ссылка
+                    // с предупреждением о вирусах у больших файлов.
                     $data['video_url'] = $link;
+                    $gdId = extractGDriveFileId($link);
+                    if ($gdId) { $data['file_id'] = $gdId; $data['file_name'] = trim((string)($_POST['title'] ?? '')); }
                 } elseif (!empty($_FILES['resource_file']['name'])) {
                     // FIX (Блок 2.2 ТЗ): раньше при неудачной загрузке на Google
                     // Drive (например, если admin/gdrive_key.json не настроен)
@@ -103,6 +109,11 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $link = trim((string)($_POST['resource_link'] ?? ''));
                 if ($link !== '') {
                     $data['file_url'] = $link;
+                    // Если это Google Drive и сервис-аккаунт имеет доступ к
+                    // папке с файлом — скачивание пойдёт через API, без
+                    // страницы-предупреждения о вирусах для больших файлов.
+                    $gdId = extractGDriveFileId($link);
+                    if ($gdId) { $data['file_id'] = $gdId; $data['file_name'] = trim((string)($_POST['title'] ?? '')); }
                 } elseif (!empty($_FILES['resource_file']['name'])) {
                     $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
                     if ($gd) {

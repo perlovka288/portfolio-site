@@ -92,6 +92,25 @@ function listPackResources(PDO $pdo, string $type): array
     }
 }
 
+/**
+ * Вытаскивает id файла из обычной ссылки на Google Drive (любого из
+ * распространённых форматов), чтобы скачивание материала могло идти через
+ * авторизованный API сервис-аккаунта (download.php → downloadFromGoogleDrive),
+ * а не через публичную страницу Google с предупреждением "не удалось
+ * проверить на вирусы" и капризным confirm-токеном — при условии, что файл
+ * лежит в папке, к которой у сервис-аккаунта есть доступ (см. GDRIVE_FOLDER_ID).
+ * Возвращает null, если это не похоже на ссылку Google Drive.
+ */
+function extractGDriveFileId(string $link): ?string
+{
+    // .../file/d/<id>/view  или  .../file/d/<id>/edit
+    if (preg_match('~drive\.google\.com/file/d/([a-zA-Z0-9_-]+)~', $link, $m)) return $m[1];
+    // .../uc?...id=<id>...   или   .../download?...id=<id>...  (оба домена: drive.google.com и drive.usercontent.google.com)
+    if (preg_match('~[?&]id=([a-zA-Z0-9_-]+)~', $link, $m)) return $m[1];
+    // .../drive/folders/<id> — это ссылка на ПАПКУ, а не на файл, не подходит
+    return null;
+}
+
 function createPackResource(PDO $pdo, array $data): int
 {
     $stmt = $pdo->prepare("
