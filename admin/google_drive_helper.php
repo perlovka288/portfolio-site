@@ -4,6 +4,19 @@
  */
 
 function uploadToGoogleDrive(string $filePath, string $fileName): ?string {
+    $r = uploadToGoogleDriveDetailed($filePath, $fileName);
+    return $r['url'] ?? null;
+}
+
+/**
+ * То же самое, что uploadToGoogleDrive(), но возвращает ещё file id и
+ * оригинальное имя файла — нужно для прямого скачивания с заголовком
+ * Content-Disposition: attachment через download.php (Блок 2.2 ТЗ),
+ * вместо открытия webViewLink-превью Google Drive в пустой вкладке.
+ *
+ * @return array{id:string,url:string,name:string}|null
+ */
+function uploadToGoogleDriveDetailed(string $filePath, string $fileName): ?array {
     $keyFile = __DIR__ . '/gdrive_key.json';
     $folderId = getenv('GDRIVE_FOLDER_ID') ?: '1U3rLkAbezkc7SSAp7rh9RGCvTQkD7QaK'; // Замени на ID своей папки
 
@@ -50,11 +63,49 @@ function uploadToGoogleDrive(string $filePath, string $fileName): ?string {
         $fileId = $response['id'];
         // 2. Делаем файл публичным (чтение для всех по ссылке)
         makeGDriveFilePublic($fileId, $accessToken);
-        return $response['webViewLink'] ?? "https://drive.google.com/uc?id=$fileId";
+        return [
+            'id'   => $fileId,
+            'url'  => $response['webViewLink'] ?? "https://drive.google.com/uc?id=$fileId",
+            'name' => $fileName,
+        ];
     }
 
     error_log("[GDrive] Ошибка загрузки: " . json_encode($response));
     return null;
+}
+
+/**
+ * Скачивает содержимое файла с Google Drive по его id (через тот же
+ * сервисный аккаунт, что и загрузка) — используется download.php, чтобы
+ * гарантированно отдать файл пользователю как вложение, а не как
+ * страницу-превью Google Drive.
+ *
+ * @return array{data:string,mime:string}|null
+ */
+function downloadFromGoogleDrive(string $fileId): ?array {
+    $keyFile = __DIR__ . '/gdrive_key.json';
+    if (!is_file($keyFile)) return null;
+    $keyData = json_decode(file_get_contents($keyFile), true);
+    $accessToken = getGDriveAccessToken($keyData);
+    if (!$accessToken) return null;
+
+    $ch = curl_init("https://www.googleapis.com/drive/v3/files/$fileId?alt=media");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $accessToken"]);
+    curl_setopt($ch, CURLOPT_HEADER, true);
+    $raw = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
+    if ($code !== 200 || $raw === false) return null;
+
+    $headers = substr($raw, 0, $headerSize);
+    $body = substr($raw, $headerSize);
+    $mime = 'application/octet-stream';
+    if (preg_match('/Content-Type:\s*([^\r\n]+)/i', $headers, $m)) {
+        $mime = trim($m[1]);
+    }
+    return ['data' => $body, 'mime' => $mime];
 }
 
 function getGDriveAccessToken(array $keyData): ?string {

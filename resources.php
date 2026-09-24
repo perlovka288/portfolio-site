@@ -9,6 +9,7 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 require_once 'includes/pack_role.php';
 require_once 'includes/resources_lib.php';
+require_once __DIR__ . '/admin/google_drive_helper.php';
 
 ensureOrderFlowSchema($pdo);
 ensurePackRoleSchema($pdo);
@@ -55,6 +56,8 @@ if (!$isPackDesigner) {
     exit;
 }
 
+$myTgId = (string)($tgProfile['tg_id'] ?? '');
+
 // ── Добавление/удаление ресурсов прямо с этой страницы — ТОЛЬКО админ ──
 $message = '';
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -71,14 +74,19 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $data['preview_image'] = uploadPackResourcePreview('resource_image', __DIR__ . '/uploads/pack_resources/');
                 $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
             } elseif ($type === 'sd_video') {
-                require_once __DIR__ . '/admin/google_drive_helper.php';
                 if (!empty($_FILES['resource_file']['name'])) {
-                    $data['video_url'] = (string)uploadToGoogleDrive($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                    // FIX (Блок 2.2 ТЗ): раньше сохранялась только ссылка-превью
+                    // Google Drive (webViewLink) — она открывает страницу
+                    // просмотра, а не скачивает файл. Теперь дополнительно
+                    // сохраняем file_id/file_name, чтобы download.php мог
+                    // отдать файл как настоящее вложение.
+                    $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                    if ($gd) { $data['video_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name']; }
                 }
             } else { // font | brush
-                require_once __DIR__ . '/admin/google_drive_helper.php';
                 if (!empty($_FILES['resource_file']['name'])) {
-                    $data['file_url'] = (string)uploadToGoogleDrive($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                    $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
+                    if ($gd) { $data['file_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name']; }
                 }
             }
             createPackResource($pdo, $data);
@@ -107,6 +115,74 @@ $fonts    = listPackResources($pdo, 'font');
 $brushes  = listPackResources($pdo, 'brush');
 $videos   = listPackResources($pdo, 'sd_video');
 $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
+$favorites = listFavoriteResources($pdo, $myTgId);
+
+$allIds = array_map(fn($r) => (int)$r['id'], array_merge($psdPosts, $fonts, $brushes, $videos, $favorites));
+$engagement = getResourceEngagement($pdo, array_unique($allIds), $myTgId);
+
+/**
+ * Единая карточка материала — работает и в режиме «Плитка», и в режиме
+ * «Список» (раскладку переключает CSS через класс .res-view-list на
+ * <main>, разметка одна и та же — см. Блок 2.1 ТЗ).
+ */
+function resCard(array $r, array $eng, bool $isAdmin): string {
+    $id = (int)$r['id'];
+    $e = $eng[$id] ?? ['likes' => 0, 'liked' => false, 'favorited' => false];
+    $type = $r['type'];
+
+    // Медиа + основная ссылка зависят от типа материала.
+    if ($type === 'psd') {
+        $img = resImg((string)$r['preview_image']);
+        $media = $img
+            ? '<img src="' . htmlspecialchars($img) . '" alt="">'
+            : '<div class="service-cover-placeholder"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
+        $sub = 'Открыть в Telegram';
+        // Блок 2.2 ТЗ: у PSD вместо кнопки «Заказать» — круглая оранжевая
+        // кнопка-иконка Telegram.
+        $dlBtn = '<a class="res-tg-btn" href="' . htmlspecialchars($r['telegram_url']) . '" target="_blank" title="Открыть пост в Telegram" onclick="event.stopPropagation()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></a>';
+    } elseif ($type === 'sd_video') {
+        $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">▶️</span></div>';
+        $sub = 'Видео-инструкция';
+        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg></a>';
+    } else { // font | brush
+        $icon = $type === 'font' ? '🔤' : '🎨';
+        $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">' . $icon . '</span></div>';
+        $sub = $type === 'font' ? 'Шрифт' : (string)($r['description'] ?: 'Стили и кисти');
+        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg></a>';
+    }
+
+    $delBtn = '';
+    if ($isAdmin) {
+        $delBtn = '<form class="res-del-form" method="post" onsubmit="return confirm(\'Удалить?\')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="' . $id . '"><button class="res-del-btn" type="submit">✕</button></form>';
+    }
+
+    $likedClass = $e['liked'] ? ' is-active' : '';
+    $favClass   = $e['favorited'] ? ' is-active' : '';
+
+    return '
+    <div class="res-card-wrap" data-rid="' . $id . '">
+        ' . $delBtn . '
+        <div class="res-card-media">' . $media . '</div>
+        <div class="res-card-body">
+            <h3>' . htmlspecialchars($r['title']) . '</h3>
+            <span class="res-card-sub">' . htmlspecialchars($sub) . '</span>
+        </div>
+        <div class="res-card-actions">
+            <button type="button" class="res-like-btn' . $likedClass . '" data-rid="' . $id . '" title="Нравится">❤️ <span class="res-like-count">' . (int)$e['likes'] . '</span></button>
+            <button type="button" class="res-fav-btn' . $favClass . '" data-rid="' . $id . '" title="В избранное">🔖</button>
+            ' . $dlBtn . '
+        </div>
+    </div>';
+}
+
+function resSection(array $items, array $eng, bool $isAdmin, string $emptyText): string {
+    if (empty($items)) {
+        return '<p style="text-align:center;color:var(--text2);padding:30px 0;">' . htmlspecialchars($emptyText) . '</p>';
+    }
+    $html = '<section class="price-grid-local">';
+    foreach ($items as $r) { $html .= resCard($r, $eng, $isAdmin); }
+    return $html . '</section>';
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -117,8 +193,9 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
     <link rel="apple-touch-icon" href="/assets/img/logo.png">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
     <style>
-        .res-tabs { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:30px; }
+        .res-tabs { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:22px; }
         .res-tab-btn {
             background: var(--card); border: 1px solid var(--border); color: var(--text2);
             padding: 9px 18px; border-radius: 999px; cursor: pointer; font-size: 12.5px;
@@ -143,13 +220,53 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             padding:9px 11px; border-radius:8px; font-family:inherit; margin-bottom:10px; font-size:13px;
         }
         .res-add-form textarea { min-height:70px; resize:vertical; }
-        .res-caption { padding: 14px 16px; }
-        .res-caption h3 { margin:0 0 4px; font-size:14px; }
-        .res-caption span { color: var(--text2); font-size:12px; }
         .res-del-form { display:inline; }
-        .res-del-btn { position:absolute; top:8px; right:8px; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:6px; width:26px; height:26px; cursor:pointer; }
-        .res-card-wrap { position:relative; }
+        .res-del-btn { position:absolute; top:8px; right:8px; z-index:2; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:6px; width:26px; height:26px; cursor:pointer; }
         .res-guide { white-space:pre-wrap; line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
+
+        /* ── Переключатель Плитка/Список (Блок 2.1 ТЗ), сохраняется в localStorage ── */
+        .res-view-switch { display:flex; gap:4px; justify-content:center; margin-bottom:18px; }
+        .res-view-btn {
+            background: var(--card); border:1px solid var(--border); color:var(--text2);
+            padding:7px 14px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+        }
+        .res-view-btn:first-child { border-radius:8px 0 0 8px; }
+        .res-view-btn:last-child { border-radius:0 8px 8px 0; }
+        .res-view-btn.active { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-color:transparent; }
+
+        /* ── Карточка (единая разметка для плитки и списка) ── */
+        .res-card-wrap { position:relative; background: var(--card); border:1px solid var(--border); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+        .res-card-media { aspect-ratio:16/9; overflow:hidden; background: rgba(0,0,0,.2); display:flex; align-items:center; justify-content:center; }
+        .res-card-media img { width:100%; height:100%; object-fit:cover; }
+        .res-card-body { padding:12px 14px 4px; flex:1; }
+        .res-card-body h3 { margin:0 0 4px; font-size:14px; }
+        .res-card-sub { color: var(--text2); font-size:12px; }
+        .res-card-actions { display:flex; align-items:center; gap:8px; padding:10px 14px 14px; }
+        .res-like-btn, .res-fav-btn, .res-dl-btn, .res-tg-btn {
+            background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text2);
+            border-radius:8px; padding:7px 10px; font-size:12px; cursor:pointer; font-family:inherit;
+            display:flex; align-items:center; gap:5px; text-decoration:none; line-height:1;
+        }
+        .res-like-btn.is-active { color:#ff5a7a; border-color:rgba(255,90,122,.4); background:rgba(255,90,122,.08); }
+        .res-fav-btn.is-active { color: var(--accent); border-color: rgba(249,115,22,.4); background: rgba(249,115,22,.08); }
+        .res-dl-btn, .res-tg-btn {
+            margin-left:auto; width:32px; height:32px; padding:0; justify-content:center;
+            background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none;
+            box-shadow: 0 4px 12px rgba(249,115,22,.3);
+        }
+
+        /* ── Режим «Список»: вытянутые строки [превью] название --- [действия] ── */
+        .res-view-list .price-grid-local { grid-template-columns: 1fr; gap:8px; }
+        .res-view-list .res-card-wrap { flex-direction:row; align-items:center; border-radius:10px; }
+        .res-view-list .res-card-media { width:56px; height:56px; flex:0 0 56px; aspect-ratio:auto; border-radius:8px; margin:8px 0 8px 10px; }
+        .res-view-list .res-card-body { padding:8px 10px; }
+        .res-view-list .res-card-actions { padding:8px 12px 8px 0; }
+        .res-view-list .res-del-btn { top:6px; right:6px; }
+
+        @media (max-width:520px) {
+            .res-view-list .res-card-body h3 { font-size:12.5px; }
+            .res-view-list .res-card-sub { display:none; }
+        }
     </style>
 </head>
 <body>
@@ -169,7 +286,7 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     </div>
 </header>
 
-<main class="container price-page">
+<main class="container price-page" id="resMain">
     <div class="price-head">
         <h1>🔒 Закрытый раздел</h1>
         <p>Материалы и инструменты для дизайнеров пака<?= $isAdmin ? ' · режим администратора' : '' ?></p>
@@ -177,11 +294,17 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 
     <?php if ($message): ?><p style="text-align:center;color:var(--accent);margin-bottom:20px;"><?= htmlspecialchars($message) ?></p><?php endif; ?>
 
+    <div class="res-view-switch">
+        <button type="button" class="res-view-btn active" data-view="tile" onclick="resSetView('tile')">▦ Плитка</button>
+        <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')">☰ Список</button>
+    </div>
+
     <div class="res-tabs">
         <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')">📁 PSD (<?= count($psdPosts) ?>)</button>
         <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')">🔤 Шрифты (<?= count($fonts) ?>)</button>
         <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')">🎨 Стили и кисти (<?= count($brushes) ?>)</button>
         <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')">🖥 Stable Diffusion</button>
+        <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">⭐ Избранное (<?= count($favorites) ?>)</button>
     </div>
 
     <!-- PSD -->
@@ -196,27 +319,7 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             <button type="submit" class="save-all-btn">Добавить</button>
         </form>
         <?php endif; ?>
-        <?php if (empty($psdPosts)): ?>
-            <p style="text-align:center;color:var(--text2);padding:30px 0;">Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.</p>
-        <?php else: ?>
-        <section class="price-grid-local">
-            <?php foreach ($psdPosts as $r): ?>
-            <div class="res-card-wrap">
-                <?php if ($isAdmin): ?>
-                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
-                <?php endif; ?>
-                <a class="service-card" href="<?= htmlspecialchars($r['telegram_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
-                    <div class="service-cover">
-                        <?php $img = resImg((string)$r['preview_image']); ?>
-                        <?php if ($img): ?><img src="<?= htmlspecialchars($img) ?>" alt="">
-                        <?php else: ?><div class="service-cover-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><?php endif; ?>
-                    </div>
-                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><span>Открыть в Telegram →</span></div>
-                </a>
-            </div>
-            <?php endforeach; ?>
-        </section>
-        <?php endif; ?>
+        <?= resSection($psdPosts, $engagement, $isAdmin, 'Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.') ?>
     </div>
 
     <!-- Fonts -->
@@ -230,23 +333,7 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             <button type="submit" class="save-all-btn">Добавить</button>
         </form>
         <?php endif; ?>
-        <?php if (empty($fonts)): ?>
-            <p style="text-align:center;color:var(--text2);padding:30px 0;">Шрифтов пока нет.</p>
-        <?php else: ?>
-        <section class="price-grid-local">
-            <?php foreach ($fonts as $r): ?>
-            <div class="res-card-wrap">
-                <?php if ($isAdmin): ?>
-                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
-                <?php endif; ?>
-                <a class="service-card" href="<?= htmlspecialchars($r['file_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
-                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">🔤</span></div>
-                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><span>Скачать →</span></div>
-                </a>
-            </div>
-            <?php endforeach; ?>
-        </section>
-        <?php endif; ?>
+        <?= resSection($fonts, $engagement, $isAdmin, 'Шрифтов пока нет.') ?>
     </div>
 
     <!-- Brushes -->
@@ -261,23 +348,7 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             <button type="submit" class="save-all-btn">Добавить</button>
         </form>
         <?php endif; ?>
-        <?php if (empty($brushes)): ?>
-            <p style="text-align:center;color:var(--text2);padding:30px 0;">Стилей и кистей пока нет.</p>
-        <?php else: ?>
-        <section class="price-grid-local">
-            <?php foreach ($brushes as $r): ?>
-            <div class="res-card-wrap">
-                <?php if ($isAdmin): ?>
-                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
-                <?php endif; ?>
-                <a class="service-card" href="<?= htmlspecialchars($r['file_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
-                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">🎨</span></div>
-                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3><?php if ($r['description']): ?><span><?= htmlspecialchars($r['description']) ?></span><?php endif; ?></div>
-                </a>
-            </div>
-            <?php endforeach; ?>
-        </section>
-        <?php endif; ?>
+        <?= resSection($brushes, $engagement, $isAdmin, 'Стилей и кистей пока нет.') ?>
     </div>
 
     <!-- SD -->
@@ -305,23 +376,13 @@ $sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
             <button type="submit" class="save-all-btn">Загрузить</button>
         </form>
         <?php endif; ?>
-        <?php if (empty($videos)): ?>
-            <p style="text-align:center;color:var(--text2);padding:20px 0;">Видео пока нет.</p>
-        <?php else: ?>
-        <section class="price-grid-local">
-            <?php foreach ($videos as $r): ?>
-            <div class="res-card-wrap">
-                <?php if ($isAdmin): ?>
-                <form class="res-del-form" method="post" onsubmit="return confirm('Удалить?')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><button class="res-del-btn" type="submit">✕</button></form>
-                <?php endif; ?>
-                <a class="service-card" href="<?= htmlspecialchars($r['video_url']) ?>" target="_blank" style="text-decoration:none;display:block;">
-                    <div class="service-cover-placeholder" style="aspect-ratio:16/9;"><span style="font-size:28px;">▶️</span></div>
-                    <div class="res-caption"><h3><?= htmlspecialchars($r['title']) ?></h3></div>
-                </a>
-            </div>
-            <?php endforeach; ?>
-        </section>
-        <?php endif; ?>
+        <?= resSection($videos, $engagement, $isAdmin, 'Видео пока нет.') ?>
+    </div>
+
+    <!-- Избранное -->
+    <div class="res-panel" id="panel-fav">
+        <div class="res-panel-head"><h2>⭐ Избранное</h2></div>
+        <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.') ?>
     </div>
 </main>
 
@@ -330,6 +391,57 @@ function resTab(name) {
     document.querySelectorAll('.res-tab-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.panel === name); });
     document.querySelectorAll('.res-panel').forEach(function(p){ p.classList.toggle('active', p.id === 'panel-' + name); });
 }
+
+// Переключатель Плитка/Список — режим сохраняется в localStorage, чтобы
+// не сбрасывался при перезагрузке страницы (Блок 2.1 ТЗ).
+function resSetView(mode) {
+    document.getElementById('resMain').classList.toggle('res-view-list', mode === 'list');
+    document.querySelectorAll('.res-view-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.view === mode); });
+    try { localStorage.setItem('res_view_mode', mode); } catch (e) {}
+}
+(function(){
+    var saved = 'tile';
+    try { saved = localStorage.getItem('res_view_mode') || 'tile'; } catch (e) {}
+    if (saved === 'list') resSetView('list');
+})();
+
+// Лайки/избранное — оптимистичное обновление UI + запрос в resources_api.php.
+document.addEventListener('click', async function(ev){
+    var likeBtn = ev.target.closest('.res-like-btn');
+    var favBtn = ev.target.closest('.res-fav-btn');
+    if (!likeBtn && !favBtn) return;
+    var btn = likeBtn || favBtn;
+    var rid = btn.dataset.rid;
+    var action = likeBtn ? 'toggle_like' : 'toggle_favorite';
+    btn.disabled = true;
+    try {
+        var res = await fetch('resources_api.php', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action: action, resource_id: rid })
+        });
+        var r = await res.json();
+        if (r.ok) {
+            if (likeBtn) {
+                likeBtn.classList.toggle('is-active', r.liked);
+                var countEl = likeBtn.querySelector('.res-like-count');
+                if (countEl) countEl.textContent = r.likes;
+                // Тот же материал может быть виден и в других вкладках/списке —
+                // синхронизируем все его карточки на странице.
+                document.querySelectorAll('.res-like-btn[data-rid="' + rid + '"]').forEach(function(b){
+                    b.classList.toggle('is-active', r.liked);
+                    var c = b.querySelector('.res-like-count'); if (c) c.textContent = r.likes;
+                });
+            } else {
+                document.querySelectorAll('.res-fav-btn[data-rid="' + rid + '"]').forEach(function(b){
+                    b.classList.toggle('is-active', r.favorited);
+                });
+            }
+        } else if (r.error) {
+            alert(r.error);
+        }
+    } catch (e) {}
+    btn.disabled = false;
+});
 </script>
 </body>
 </html>

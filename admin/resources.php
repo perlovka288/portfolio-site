@@ -18,24 +18,24 @@ ensureResourcesSchema($pdo);
 
 $message = '';
 
-/** Загружает файл на Google Drive и возвращает публичную ссылку либо '' */
-function uploadResourceFile(string $field): string
+/** Загружает файл на Google Drive и возвращает [url, file_id, file_name] либо null */
+function uploadResourceFileDetailed(string $field): ?array
 {
     global $message;
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
-    if ($err === UPLOAD_ERR_NO_FILE) return '';
+    if ($err === UPLOAD_ERR_NO_FILE) return null;
     if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
         $message = '❌ Ошибка загрузки файла.';
-        return '';
+        return null;
     }
     $tmp  = $_FILES[$field]['tmp_name'];
     $name = basename((string)$_FILES[$field]['name']);
-    $url  = uploadToGoogleDrive($tmp, $name);
-    if ($url === null || $url === '') {
+    $gd   = uploadToGoogleDriveDetailed($tmp, $name);
+    if ($gd === null) {
         $message = '❌ Не удалось загрузить файл на Google Drive — проверь admin/gdrive_key.json и GDRIVE_FOLDER_ID.';
-        return '';
+        return null;
     }
-    return $url;
+    return $gd;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -47,20 +47,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = '❌ Неизвестный тип ресурса.';
         } else {
             $fileUrl = '';
-            if ($type === 'sd_video') {
-                $fileUrl = uploadResourceFile('resource_file');
-            } else {
-                $fileUrl = uploadResourceFile('resource_file');
-            }
-            if ($fileUrl === '' && $message === '') {
+            $fileGd = uploadResourceFileDetailed('resource_file');
+            if ($fileGd === null && $message === '') {
                 $message = '❌ Прикрепи файл.';
-            } else {
+            } elseif ($fileGd !== null) {
                 createPackResource($pdo, [
                     'type'        => $type,
                     'title'       => trim((string)($_POST['title'] ?? '')),
                     'description' => trim((string)($_POST['description'] ?? '')),
-                    'file_url'    => $type !== 'sd_video' ? $fileUrl : '',
-                    'video_url'   => $type === 'sd_video' ? $fileUrl : '',
+                    'file_url'    => $type !== 'sd_video' ? $fileGd['url'] : '',
+                    'video_url'   => $type === 'sd_video' ? $fileGd['url'] : '',
+                    'file_id'     => $fileGd['id'],
+                    'file_name'   => $fileGd['name'],
                 ]);
                 $message = '✅ Добавлено.';
             }
