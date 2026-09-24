@@ -18,7 +18,7 @@ function uploadToGoogleDrive(string $filePath, string $fileName): ?string {
  */
 function uploadToGoogleDriveDetailed(string $filePath, string $fileName): ?array {
     $keyFile = __DIR__ . '/gdrive_key.json';
-    $folderId = getenv('GDRIVE_FOLDER_ID') ?: '1U3rLkAbezkc7SSAp7rh9RGCvTQkD7QaK'; // Замени на ID своей папки
+    $folderId = getenv('GDRIVE_FOLDER_ID') ?: '1G1t_t9lgXTkoh5jFL015QylUSbA4Css7'; // Kostlim Pack Files
 
     if (!is_file($keyFile)) {
         error_log("[GDrive] Ошибка: файл ключа gdrive_key.json не найден.");
