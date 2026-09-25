@@ -18,6 +18,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/resources_lib.php'; // getResSetting() — для редактируемых промптов сложности (Блок 4.1 ТЗ)
 
 function jexit(array $data): void { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 
@@ -28,6 +29,7 @@ $tgId = $access['tgId'];
 $tgProfile = $access['tgProfile'];
 
 ensureTrainerSchema($pdo);
+ensureResourcesSchema($pdo); // гарантирует site_settings для редактируемых промптов (Блок 4.1 ТЗ)
 
 function ensureTrainerSchema(PDO $pdo): void
 {
@@ -227,13 +229,18 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
     return $text;
 }
 
-function difficultyPersona(string $level): string
+function difficultyPersona(PDO $pdo, string $level): string
 {
-    return match ($level) {
-        'easy'  => 'Клиент дружелюбный, лояльный, легко соглашается с идеями дизайнера, почти не придирается, максимум 1 несущественная правка.',
-        'hard'  => 'Клиент придирчивый и требовательный: часто просит правки, сомневается, сравнивает с конкурентами, торгуется по цене, но остаётся вежливым (без грубости и оскорблений). До 3-4 раундов правок.',
-        default => 'Клиент обычный, среднего уровня требовательности: иногда просит 1-2 уточнения или небольшую правку, в целом адекватен.',
-    };
+    // Блок 4.1 ТЗ: редактируется в админке (admin/ai_trainer_review.php) —
+    // хранится в site_settings, значения по умолчанию совпадают с тем, что
+    // было зашито в коде раньше.
+    $defaults = [
+        'easy'     => 'Клиент дружелюбный, лояльный, легко соглашается с идеями дизайнера, почти не придирается, максимум 1 несущественная правка.',
+        'standard' => 'Клиент обычный, среднего уровня требовательности: иногда просит 1-2 уточнения или небольшую правку, в целом адекватен.',
+        'hard'     => 'Клиент придирчивый и требовательный: часто просит правки, сомневается, сравнивает с конкурентами, торгуется по цене, но остаётся вежливым (без грубости и оскорблений). До 3-4 раундов правок.',
+    ];
+    $key = 'TRAINER_PROMPT_' . strtoupper($level);
+    return getResSetting($pdo, $key, $defaults[$level] ?? $defaults['standard']);
 }
 
 $input = $_POST;
@@ -252,7 +259,7 @@ case 'start_session': {
     $topic      = trim((string)($input['topic'] ?? 'Дизайн-заказ'));
 
     $briefPrompt = "Ты — заказчик по имени {$clientName}, который хочет заказать у дизайнера: «{$topic}». "
-        . difficultyPersona($difficulty) . " "
+        . difficultyPersona($pdo, $difficulty) . " "
         . "Напиши ПЕРВОЕ сообщение дизайнеру: поздоровайся, кратко представься и сформулируй подробное техническое задание (стиль, цвета/референсы, что должно быть на макете, дедлайн). "
         . "Пиши как реальный человек в мессенджере: коротко, без markdown и звёздочек, можно эмодзи. Не упоминай, что ты ИИ.";
 
@@ -298,7 +305,7 @@ case 'send_message': {
     array_pop($turns); // последнее сообщение дизайнера уйдёт отдельным userText
 
     $systemPrompt = "Ты играешь роль заказчика «{$session['client_name']}» по теме «{$session['topic']}». "
-        . difficultyPersona($session['difficulty']) . " "
+        . difficultyPersona($pdo, $session['difficulty']) . " "
         . "Своё первое сообщение дизайнеру (с ТЗ) ты уже отправил, вот оно: «{$session['brief']}». "
         . "Отвечай коротко (2-5 предложений), как в мессенджере, без markdown, оставайся в характере на протяжении всего диалога.";
 
@@ -386,7 +393,7 @@ case 'share_with_admin': {
 }
 
 case 'list_sessions': {
-    $stmt = $pdo->prepare("SELECT id, client_name, topic, difficulty, status, score FROM trainer_sessions WHERE tg_id = ? ORDER BY updated_at DESC LIMIT 50");
+    $stmt = $pdo->prepare("SELECT id, client_name, topic, difficulty, status, score, admin_reaction, admin_comment FROM trainer_sessions WHERE tg_id = ? ORDER BY updated_at DESC LIMIT 50");
     $stmt->execute([$tgId]);
     jexit(['ok' => true, 'sessions' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
 }
@@ -403,6 +410,7 @@ case 'get_session': {
     jexit(['ok' => true, 'client_name' => $session['client_name'], 'topic' => $session['topic'], 'difficulty' => $session['difficulty'],
         'status' => $session['status'], 'score' => $session['score'], 'review' => $session['review'],
         'shared_with_admin' => (bool)$session['shared_with_admin'],
+        'admin_reaction' => $session['admin_reaction'], 'admin_comment' => $session['admin_comment'],
         'messages' => $msgStmt->fetchAll(PDO::FETCH_ASSOC)]);
 }
 

@@ -123,6 +123,35 @@ if (!$isPackDesigner) {
     border-radius:12px; font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; cursor:pointer;
 }
 .trainer-score-circle { width:96px; height:96px; border-radius:50%; margin:6px auto 16px; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:900; border:3px solid var(--accent); color:#fff; background: var(--accent-dim); }
+/* Блок 4.2 ТЗ: круговой прогресс-бар вместо статичного кружка — заливка
+   кольца анимированно "доезжает" до итогового процента, цвет зависит от
+   оценки (красный/оранжевый/зелёный). */
+.trainer-score-ring {
+    position: relative; width: 128px; height: 128px; margin: 6px auto 18px; border-radius: 50%;
+    background: conic-gradient(var(--score-color, var(--accent)) calc(var(--pct, 0) * 1%), rgba(255,255,255,.08) 0);
+    transition: background .08s linear;
+}
+.trainer-score-ring::before {
+    content: ''; position: absolute; inset: 9px; border-radius: 50%; background: var(--card, #121212);
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+.trainer-score-ring .tsr-label {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1;
+}
+.trainer-score-ring .tsr-num { font-size: 26px; font-weight: 900; color: #fff; line-height: 1; }
+.trainer-score-ring .tsr-max { font-size: 11px; color: var(--text2); margin-top: 2px; }
+/* Блок 4.3 ТЗ: метка «Отзыв от Kostlim» — в карточке списка и в модалке результата. */
+.trainer-kostlim-badge {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 4px;
+    background: rgba(249,115,22,.12); color: var(--accent2); border: 1px solid rgba(249,115,22,.3);
+    border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700;
+}
+.trainer-kostlim-feedback {
+    background: rgba(249,115,22,.08); border: 1px solid rgba(249,115,22,.25); border-radius: 12px;
+    padding: 12px 14px; margin: -4px 0 14px; text-align: left;
+}
+.trainer-kostlim-feedback strong { color: var(--accent2); font-size: 13px; }
+.trainer-kostlim-feedback p { margin: 6px 0 0; color: var(--text2); font-size: 13px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -198,8 +227,11 @@ if (!$isPackDesigner) {
             <h3>Результат сдачи</h3>
             <button type="button" class="modal-close" onclick="closeResultModal()">✕</button>
         </div>
-        <div class="trainer-score-circle" id="resultScoreCircle">–</div>
+        <div class="trainer-score-ring" id="resultScoreCircle" style="--pct:0;">
+            <div class="tsr-label"><span class="tsr-num" id="resultScoreNum">–</span><span class="tsr-max">из 100</span></div>
+        </div>
         <p id="resultReviewText" style="color:var(--text2);line-height:1.6;"></p>
+        <div id="resultKostlimFeedback" class="trainer-kostlim-feedback" style="display:none;"></div>
         <button type="button" class="trainer-start-btn" id="btnShareAdmin">📨 Поделиться с Kostlim</button>
     </div>
 </div>
@@ -226,6 +258,28 @@ function openSetupModal(){ document.getElementById('setupModal').classList.add('
 function closeSetupModal(){ document.getElementById('setupModal').classList.remove('show'); }
 function closeChatScreen(){ document.getElementById('chatScreen').classList.remove('show'); loadSessions(); }
 function closeResultModal(){ document.getElementById('resultModal').classList.remove('show'); }
+
+// Блок 4.2 ТЗ: анимированная заливка кольца от 0 до итогового счёта +
+// цвет по диапазону оценки (красный/оранжевый/зелёный).
+function animateScoreRing(score) {
+    const ring = document.getElementById('resultScoreCircle');
+    const numEl = document.getElementById('resultScoreNum');
+    const color = score >= 75 ? '#22C55E' : score >= 50 ? '#FF7A00' : '#EF4444';
+    ring.style.setProperty('--score-color', color);
+    ring.style.setProperty('--pct', 0);
+    numEl.textContent = '0';
+    const duration = 900;
+    let start = null;
+    function step(ts) {
+        if (!start) start = ts;
+        const progress = Math.min((ts - start) / duration, 1);
+        const val = Math.round(progress * score);
+        ring.style.setProperty('--pct', val);
+        numEl.textContent = val;
+        if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
 
 document.getElementById('btnNewSession').onclick = openSetupModal;
 
@@ -344,7 +398,7 @@ document.getElementById('btnSubmitWork').onclick = async () => {
     if (!r.ok) { alert(r.error || 'Ошибка оценки'); return; }
 
     addMessageBubble({role:'designer', content:'Сдал работу на проверку', attachment_url: r.attachment_url});
-    document.getElementById('resultScoreCircle').textContent = r.score + '/100';
+    animateScoreRing(r.score);
     document.getElementById('resultReviewText').textContent = r.review;
     document.getElementById('resultModal').classList.add('show');
     pendingSubmitFile = null;
@@ -379,9 +433,16 @@ async function loadSessions() {
             <div>
                 <div class="trainer-session-title">${esc(s.client_name)} — ${esc(s.topic)}</div>
                 <div class="trainer-session-meta">${s.status === 'scored' ? '✅ Оценено: ' + s.score + '/100' : (s.status === 'submitted' ? '⏳ На проверке' : '💬 В процессе')}</div>
+                ${s.admin_reaction || s.admin_comment ? `<div class="trainer-kostlim-badge">${reactionEmoji(s.admin_reaction)} Отзыв от Kostlim</div>` : ''}
             </div>
         </div>
     `).join('');
+}
+
+// Блок 4.3 ТЗ: реакция/комментарий, оставленные Kostlim в админке (или
+// через TG-бота), видны дизайнеру прямо у карточки прохождения.
+function reactionEmoji(r) {
+    return r === 'fire' ? '🔥' : r === 'like' ? '👍' : r === 'think' ? '🤔' : '💬';
 }
 
 async function resumeSession(id) {
@@ -390,8 +451,17 @@ async function resumeSession(id) {
     currentSessionId = id;
     openChatWithHistory(r);
     if (r.status === 'scored') {
-        document.getElementById('resultScoreCircle').textContent = r.score + '/100';
+        animateScoreRing(r.score);
         document.getElementById('resultReviewText').textContent = r.review;
+        // Блок 4.3 ТЗ: если Kostlim уже оставил реакцию/комментарий —
+        // показываем прямо в модалке результата с меткой «Отзыв от Kostlim».
+        const kostlimBox = document.getElementById('resultKostlimFeedback');
+        if (r.admin_reaction || r.admin_comment) {
+            kostlimBox.innerHTML = `<strong>${reactionEmoji(r.admin_reaction)} Отзыв от Kostlim</strong>${r.admin_comment ? '<p>' + esc(r.admin_comment) + '</p>' : ''}`;
+            kostlimBox.style.display = 'block';
+        } else {
+            kostlimBox.style.display = 'none';
+        }
         document.getElementById('resultModal').classList.add('show');
         // Реоткрытие уже расшаренного результата — сразу показываем
         // «Отправлено» и не даём поделиться повторно (см. FIX выше).
