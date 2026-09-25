@@ -71,7 +71,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 'description' => trim((string)($_POST['description'] ?? '')),
             ];
             if ($type === 'psd') {
-                $data['preview_image'] = uploadPackResourcePreview('resource_image', __DIR__ . '/uploads/pack_resources/');
+                $data['preview_image'] = uploadPackResourcePreview($pdo, 'resource_image', __DIR__ . '/uploads/pack_resources/');
                 $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
             } elseif ($type === 'sd_video') {
                 $link = trim((string)($_POST['resource_link'] ?? ''));

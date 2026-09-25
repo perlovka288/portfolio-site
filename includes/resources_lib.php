@@ -212,10 +212,16 @@ function listFavoriteResources(PDO $pdo, string $tgId): array
 }
 
 /**
- * Простая локальная загрузка картинки-превью (для ручного добавления PSD-
- * поста прямо на сайте) — без внешнего хостинга, аналогично uploads/psd/.
+ * Загрузка картинки-превью для PSD-поста. FIX: раньше сохранялось только
+ * локально на диск сервера (uploads/pack_resources/) — после каждого
+ * git push/деплоя эта папка не сохраняется, и превью "слетали". Теперь
+ * грузим на ImgBB — постоянная ссылка, переживает любой деплой. Ключи
+ * читаем ТАК ЖЕ, как остальной сайт (admin/index.php::uploadToImgBB): из
+ * таблицы site_settings (вкладка "Ключи и API" в админке), с фолбэком на
+ * переменные окружения IMGBB_API_KEY/2/3. Локальное сохранение — запасной
+ * вариант, если ImgBB недоступен (ключи не заданы/лимит исчерпан).
  */
-function uploadPackResourcePreview(string $field, string $uploadDir): string
+function uploadPackResourcePreview(PDO $pdo, string $field, string $uploadDir): string
 {
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
     if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return '';
@@ -223,11 +229,50 @@ function uploadPackResourcePreview(string $field, string $uploadDir): string
     $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
     $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) return '';
+
+    $imgbbUrl = uploadPackImageToImgBB($pdo, $_FILES[$field]['tmp_name'], 'psd_preview_' . time());
+    if ($imgbbUrl !== '') return $imgbbUrl; // resImg() отдаёт http(s)-ссылки как есть
+
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
     if (!is_writable($uploadDir)) return '';
     $filename = 'psdres_' . time() . '_' . uniqid() . '.' . $ext;
     if (move_uploaded_file($_FILES[$field]['tmp_name'], $uploadDir . $filename)) {
         return 'pack_resources/' . $filename;
+    }
+    return '';
+}
+
+/**
+ * Тот же ImgBB-аплоад, что и uploadToImgBB() в admin/index.php (ключи из
+ * site_settings + фолбэк на getenv), но без зависимости от admin/index.php
+ * (его нельзя просто require — там объявлен весь остальной файл админки).
+ */
+function uploadPackImageToImgBB(PDO $pdo, string $tmpPath, string $name = 'image'): string
+{
+    if (!is_file($tmpPath)) return '';
+    $keys = array_filter([
+        getResSetting($pdo, 'IMGBB_API_KEY',  getenv('IMGBB_API_KEY')  ?: ''),
+        getResSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
+        getResSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
+    ]);
+    if (empty($keys)) return '';
+    $b64 = base64_encode((string)file_get_contents($tmpPath));
+    foreach ($keys as $apiKey) {
+        try {
+            $ch = curl_init('https://api.imgbb.com/1/upload');
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+                CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
+            ]);
+            $res = curl_exec($ch);
+            curl_close($ch);
+            if ($res === false || $res === '') continue;
+            $data = json_decode($res, true);
+            $url  = $data['data']['url'] ?? '';
+            if ($url !== '') return $url;
+        } catch (Throwable $e) {
+            error_log('uploadPackImageToImgBB error: ' . $e->getMessage());
+        }
     }
     return '';
 }
