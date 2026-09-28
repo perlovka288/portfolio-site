@@ -352,7 +352,9 @@ function addMessageBubble(m) {
     div.className = 'trainer-msg trainer-msg--' + (m.role === 'client' ? 'client' : 'designer');
     let html = '';
     if (m.attachment_url) html += `<img src="${esc(m.attachment_url)}" class="trainer-msg-img">`;
-    if (m.content) html += `<div>${esc(m.content).replace(/\n/g,'<br>')}</div>`;
+    // страховка: даже если сервер пропустил маркер оплаты — не показываем его сырым
+    const shown = (m.content || '').replace(/[`\s]*\[\s*PAYMENT_SUCCESS\b[^\]]*\][`]*/gi, '').trim();
+    if (shown) html += `<div>${esc(shown).replace(/\n/g,'<br>')}</div>`;
     div.innerHTML = html;
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;

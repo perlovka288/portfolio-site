@@ -51,6 +51,13 @@ function ensureTrainerSchema(PDO $pdo): void
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )");
+        // FIX: промпты сложности (Блок 4.1) теперь полноценные, с плейсхолдерами
+        // {CLIENT_NAME}/{RANDOM_BUDGET}/{HALF_BUDGET} и маркером оплаты
+        // [PAYMENT_SUCCESS:...] — раньше бюджета в БД не было вообще, и
+        // плейсхолдер просто не на что было подставлять.
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS budget INT NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS paid_amount INT NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS payment_type VARCHAR(60) NOT NULL DEFAULT ''");
         $pdo->exec("CREATE TABLE IF NOT EXISTS trainer_messages (
             id SERIAL PRIMARY KEY,
             session_id INT NOT NULL REFERENCES trainer_sessions(id) ON DELETE CASCADE,
@@ -243,6 +250,49 @@ function difficultyPersona(PDO $pdo, string $level): string
     return getResSetting($pdo, $key, $defaults[$level] ?? $defaults['standard']);
 }
 
+/** Подставляет {CLIENT_NAME}/{RANDOM_BUDGET}/{HALF_BUDGET}/{TOPIC} в текст промпта сложности. */
+function fillPromptPlaceholders(string $tpl, array $vars): string
+{
+    $map = [];
+    foreach ($vars as $k => $v) { $map['{' . $k . '}'] = (string)$v; }
+    return strtr($tpl, $map);
+}
+
+/** Случайный бюджет для сессии тренажёра, округлённый до сотни — реалистичнее "рваных" сумм. */
+function generateTrainerBudget(): int
+{
+    return random_int(10, 50) * 100; // 1000..5000 ₽
+}
+
+/**
+ * Вырезает маркер оплаты [PAYMENT_SUCCESS: amount=NNN, type="..."] из ответа
+ * ИИ-клиента и возвращает [чистый текст без маркера, данные оплаты|null].
+ * Без этого маркер так и остался бы виден дизайнеру как есть — сырым
+ * текстом прямо в сообщении.
+ */
+function extractPaymentMarker(string $text, int $defaultAmount = 0): array
+{
+    // Терпимый разбор: любой регистр, пробелы, прямые/«ёлочки»/типографские
+    // кавычки, "=" или ":" после amount/type, обёртка в [] или `` ` ``.
+    // Раньше жёсткий шаблон не срабатывал на малейшем отличии формата, и
+    // дизайнер видел сырой маркер прямо в реплике клиента.
+    $pattern = '/[`\s]*\[\s*PAYMENT_SUCCESS\b[^\]]*\][`]*/iu';
+    if (!preg_match($pattern, $text, $m)) return [$text, null];
+
+    $marker = $m[0];
+    $amount = $defaultAmount;
+    if (preg_match('/amount\s*[=:]\s*(\d[\d\s]*)/iu', $marker, $a)) {
+        $amount = (int)preg_replace('/\s+/', '', $a[1]);
+    }
+    $type = 'Предоплата';
+    if (preg_match('/type\s*[=:]\s*["“”«\']?\s*([^"“”»\'\]]+)/iu', $marker, $t)) {
+        $type = trim($t[1]);
+    }
+    $clean = trim(preg_replace($pattern, '', $text));
+    if ($clean === '') $clean = 'Держи предоплату 👍';
+    return [$clean, ['amount' => $amount, 'type' => $type]];
+}
+
 $input = $_POST;
 $rawJson = null;
 if (empty($input)) {
@@ -257,21 +307,32 @@ case 'start_session': {
     $clientName = trim((string)($input['client_name'] ?? 'Клиент'));
     $difficulty = in_array($input['difficulty'] ?? '', ['easy','standard','hard'], true) ? $input['difficulty'] : 'standard';
     $topic      = trim((string)($input['topic'] ?? 'Дизайн-заказ'));
+    $budget     = generateTrainerBudget();
+    $halfBudget = intdiv($budget, 2);
 
-    $briefPrompt = "Ты — заказчик по имени {$clientName}, который хочет заказать у дизайнера: «{$topic}». "
-        . difficultyPersona($pdo, $difficulty) . " "
-        . "Напиши ПЕРВОЕ сообщение дизайнеру: поздоровайся, кратко представься и сформулируй подробное техническое задание (стиль, цвета/референсы, что должно быть на макете, дедлайн). "
-        . "Пиши как реальный человек в мессенджере: коротко, без markdown и звёздочек, можно эмодзи. Не упоминай, что ты ИИ.";
+    $personaPrompt = fillPromptPlaceholders(difficultyPersona($pdo, $difficulty), [
+        'CLIENT_NAME'   => $clientName,
+        'RANDOM_BUDGET' => $budget,
+        'HALF_BUDGET'   => $halfBudget,
+        'TOPIC'         => $topic,
+    ]);
 
-    $brief = geminiText($briefPrompt, [], "Напиши первое сообщение с ТЗ.");
+    $briefPrompt = "Тема заказа: «{$topic}». " . $personaPrompt . " "
+        . "Напиши ПЕРВОЕ сообщение дизайнеру СТРОГО по правилам ведения диалога выше (пункт про первое сообщение). "
+        . "Если правил нет — просто поздоровайся и коротко скажи, что хочешь заказать; подробное ТЗ выдавай позже, по вопросам дизайнера. "
+        . "Свой бюджет в первом сообщении НЕ называй и вообще не озвучивай, пока дизайнер сам не назвал цену. "
+        . "Пиши как реальный человек в мессенджере: без markdown и звёздочек. Не упоминай, что ты ИИ, и не пиши маркер оплаты в первом сообщении.";
 
-    $stmt = $pdo->prepare("INSERT INTO trainer_sessions (tg_id, client_name, difficulty, topic, brief) VALUES (?,?,?,?,?) RETURNING id");
-    $stmt->execute([$tgId, $clientName, $difficulty, $topic, $brief]);
+    $brief = geminiText($briefPrompt, [], "Напиши первое сообщение.");
+    [$brief] = extractPaymentMarker($brief); // на случай, если модель всё же вставила маркер
+
+    $stmt = $pdo->prepare("INSERT INTO trainer_sessions (tg_id, client_name, difficulty, topic, brief, budget) VALUES (?,?,?,?,?,?) RETURNING id");
+    $stmt->execute([$tgId, $clientName, $difficulty, $topic, $brief, $budget]);
     $sessionId = (int)$stmt->fetchColumn();
 
     $pdo->prepare("INSERT INTO trainer_messages (session_id, role, content) VALUES (?, 'client', ?)")->execute([$sessionId, $brief]);
 
-    jexit(['ok' => true, 'session_id' => $sessionId, 'client_name' => $clientName, 'difficulty' => $difficulty, 'topic' => $topic,
+    jexit(['ok' => true, 'session_id' => $sessionId, 'client_name' => $clientName, 'difficulty' => $difficulty, 'topic' => $topic, 'budget' => $budget,
         'messages' => [['role' => 'client', 'content' => $brief]]]);
 }
 
@@ -304,16 +365,35 @@ case 'send_message': {
     }
     array_pop($turns); // последнее сообщение дизайнера уйдёт отдельным userText
 
-    $systemPrompt = "Ты играешь роль заказчика «{$session['client_name']}» по теме «{$session['topic']}». "
-        . difficultyPersona($pdo, $session['difficulty']) . " "
+    $budget = (int)$session['budget'];
+    $halfBudget = intdiv($budget, 2);
+    $personaPrompt = fillPromptPlaceholders(difficultyPersona($pdo, $session['difficulty']), [
+        'CLIENT_NAME'   => $session['client_name'],
+        'RANDOM_BUDGET' => $budget,
+        'HALF_BUDGET'   => $halfBudget,
+        'TOPIC'         => $session['topic'],
+    ]);
+
+    $alreadyPaid = (int)$session['paid_amount'] > 0;
+    $systemPrompt = "Тема заказа: «{$session['topic']}». " . $personaPrompt . " "
         . "Своё первое сообщение дизайнеру (с ТЗ) ты уже отправил, вот оно: «{$session['brief']}». "
+        . ($alreadyPaid
+            ? "Предоплату ты уже отправил ранее — повторно маркер оплаты НЕ пиши. "
+            : "Если по правилам выше пора отправить маркер оплаты — напиши его В ТОЧНОСТИ в формате, который задан в правилах (не меняй синтаксис). ")
+        . "Свой бюджет ({$budget} ₽) называй только когда торгуешься по цене, не раньше. "
         . "Отвечай коротко (2-5 предложений), как в мессенджере, без markdown, оставайся в характере на протяжении всего диалога.";
 
-    $reply = geminiText($systemPrompt, $turns, $content);
+    $rawReply = geminiText($systemPrompt, $turns, $content);
+    [$reply, $payment] = extractPaymentMarker($rawReply, $halfBudget);
+    if ($payment !== null && !$alreadyPaid) {
+        $pdo->prepare("UPDATE trainer_sessions SET paid_amount = ?, payment_type = ? WHERE id = ?")
+            ->execute([$payment['amount'], $payment['type'], $sessionId]);
+    }
+
     $pdo->prepare("INSERT INTO trainer_messages (session_id, role, content) VALUES (?, 'client', ?)")->execute([$sessionId, $reply]);
     $pdo->prepare("UPDATE trainer_sessions SET updated_at = NOW() WHERE id = ?")->execute([$sessionId]);
 
-    jexit(['ok' => true, 'reply' => $reply]);
+    jexit(['ok' => true, 'reply' => $reply, 'payment' => $payment]);
 }
 
 case 'submit_work': {
@@ -407,11 +487,33 @@ case 'get_session': {
 
     $msgStmt = $pdo->prepare("SELECT role, content, attachment_url FROM trainer_messages WHERE session_id = ? ORDER BY id ASC");
     $msgStmt->execute([$sessionId]);
+    $messages = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Сессии, сыгранные до починки разбора маркера, могли сохранить
+    // "сырой" [PAYMENT_SUCCESS:...] прямо в тексте — чистим при выдаче и
+    // восстанавливаем факт оплаты, чтобы пузырёк 💰 всё равно показался.
+    $paidAmount = (int)$session['paid_amount'];
+    $paymentType = (string)$session['payment_type'];
+    foreach ($messages as &$m) {
+        if ($m['role'] !== 'client') continue;
+        [$clean, $pay] = extractPaymentMarker((string)$m['content'], intdiv((int)$session['budget'], 2));
+        if ($pay !== null) {
+            $m['content'] = $clean;
+            if ($paidAmount === 0) {
+                $paidAmount = $pay['amount']; $paymentType = $pay['type'];
+                $pdo->prepare("UPDATE trainer_sessions SET paid_amount = ?, payment_type = ? WHERE id = ?")
+                    ->execute([$paidAmount, $paymentType, $sessionId]);
+            }
+        }
+    }
+    unset($m);
+
     jexit(['ok' => true, 'client_name' => $session['client_name'], 'topic' => $session['topic'], 'difficulty' => $session['difficulty'],
         'status' => $session['status'], 'score' => $session['score'], 'review' => $session['review'],
         'shared_with_admin' => (bool)$session['shared_with_admin'],
         'admin_reaction' => $session['admin_reaction'], 'admin_comment' => $session['admin_comment'],
-        'messages' => $msgStmt->fetchAll(PDO::FETCH_ASSOC)]);
+        'budget' => (int)$session['budget'], 'paid_amount' => $paidAmount, 'payment_type' => $paymentType,
+        'messages' => $messages]);
 }
 
 default:
