@@ -116,12 +116,30 @@ if (!$isPackDesigner) {
 .trainer-msg--client { align-self:flex-start; background: var(--card); border:1px solid var(--border); }
 .trainer-msg--designer { align-self:flex-end; background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; }
 .trainer-msg--typing { opacity:.6; font-style:italic; }
-/* Системный пузырёк оплаты (маркер [PAYMENT_SUCCESS:...] из промпта) —
-   отдельно от обычных реплик клиента/дизайнера, по центру, с акцентом. */
+/* Окно результата: оценка по пунктам + отзыв клиента со смайлом */
+.trs-section { text-align:left; margin: 0 0 12px; padding: 12px 14px; border-radius: 12px; background:#121212; border:1px solid var(--border); }
+.trs-section h4 { margin: 0 0 8px; font-size: 13px; font-weight: 800; }
+.trs-section ul { margin: 0; padding-left: 18px; }
+.trs-section li { font-size: 12.5px; line-height: 1.5; color: var(--text2); margin-bottom: 4px; }
+.trs-pros { border-color: rgba(0,255,102,.25); } .trs-pros h4 { color:#00FF66; }
+.trs-cons { border-color: rgba(255,122,0,.3); }  .trs-cons h4 { color:#FF7A00; }
+.trs-review { display:flex; gap:12px; align-items:flex-start; text-align:left; padding:12px 14px; border-radius:12px; background:#121212; border:1px solid var(--border); margin-bottom:14px; }
+.trs-review-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text2); margin-bottom:4px; }
+.trs-review p { margin:0; font-size:13px; line-height:1.5; color:var(--text); }
+.trs-smile { flex-shrink:0; width:34px; height:34px; }
+/* Виджет «Перевод от клиента» в ленте чата */
 .trainer-msg--payment {
-    align-self: center; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35);
-    color: #22C55E; font-size: 12.5px; font-weight: 700; padding: 8px 16px; border-radius: 999px;
+    align-self: stretch; max-width: 100%; display:flex; align-items:center; gap:12px; padding: 12px 14px;
+    background:#121212; border:1px solid #FF7A00; border-radius:14px; color:#fff; font-size:13px; font-weight:400;
+    box-shadow: 0 0 18px rgba(255,122,0,.15);
 }
+.tpc-icon { font-size:22px; }
+.tpc-main { flex:1; min-width:0; }
+.tpc-title { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text2); }
+.tpc-amount { font-size:17px; font-weight:900; color:#FF7A00; }
+.tpc-amount span { font-size:12px; font-weight:600; color:var(--text2); }
+.tpc-status { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#00FF66; white-space:nowrap; }
+.tpc-check { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:#00FF66; color:#0D0D0D; font-size:12px; font-weight:900; }
 .trainer-msg-img { max-width:100%; border-radius:10px; display:block; margin-bottom:6px; }
 .trainer-chat-footer { display:flex; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0; }
 .trainer-chat-footer input[type=text] { flex:1; background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text); padding:12px 15px; border-radius:999px; font-family:inherit; }
@@ -240,7 +258,12 @@ if (!$isPackDesigner) {
         <div class="trainer-score-ring" id="resultScoreCircle" style="--pct:0;">
             <div class="tsr-label"><span class="tsr-num" id="resultScoreNum">–</span><span class="tsr-max">из 100</span></div>
         </div>
-        <p id="resultReviewText" style="color:var(--text2);line-height:1.6;"></p>
+        <div class="trs-section trs-pros" id="resultProsWrap"><h4>✅ Что сделано отлично</h4><ul id="resultPros"></ul></div>
+        <div class="trs-section trs-cons" id="resultConsWrap"><h4>⚠️ За что сняты баллы</h4><ul id="resultCons"></ul></div>
+        <div class="trs-review" id="resultReviewBox">
+            <span class="trs-smile" id="resultSmile"></span>
+            <div><div class="trs-review-label">Отзыв клиента</div><p id="resultReviewText"></p></div>
+        </div>
         <div id="resultKostlimFeedback" class="trainer-kostlim-feedback" style="display:none;"></div>
         <button type="button" class="trainer-start-btn" id="btnShareAdmin">📨 Поделиться с Kostlim</button>
     </div>
@@ -274,7 +297,7 @@ function closeResultModal(){ document.getElementById('resultModal').classList.re
 function animateScoreRing(score) {
     const ring = document.getElementById('resultScoreCircle');
     const numEl = document.getElementById('resultScoreNum');
-    const color = score >= 75 ? '#22C55E' : score >= 50 ? '#FF7A00' : '#EF4444';
+    const color = score >= 80 ? '#22C55E' : score >= 50 ? '#FFC53D' : '#EF4444';
     ring.style.setProperty('--score-color', color);
     ring.style.setProperty('--pct', 0);
     numEl.textContent = '0';
@@ -366,9 +389,40 @@ function addPaymentBubble(payment) {
     const body = document.getElementById('chatBody');
     const div = document.createElement('div');
     div.className = 'trainer-msg trainer-msg--payment';
-    div.innerHTML = `💰 <strong>${payment.amount} ₽</strong> — ${esc(payment.type)}`;
+    const amount = Number(payment.amount || 0).toLocaleString('ru-RU');
+    div.innerHTML = `
+        <div class="tpc-icon">💸</div>
+        <div class="tpc-main">
+            <div class="tpc-title">Перевод от клиента</div>
+            <div class="tpc-amount">+${amount} ₽ <span>(${esc(payment.type || 'Предоплата')})</span></div>
+        </div>
+        <div class="tpc-status"><span class="tpc-check">✓</span> Успешно</div>`;
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
+}
+
+// Смайлик отзыва клиента: красный / жёлтый / зелёный — минималистичный SVG.
+function sentimentSmile(sentiment) {
+    const color = sentiment === 'green' ? '#00FF66' : sentiment === 'yellow' ? '#FFC53D' : '#EF4444';
+    const mouth = sentiment === 'green' ? 'M9 21c2 3 10 3 12 0' : sentiment === 'yellow' ? 'M10 22h10' : 'M9 24c2-3 10-3 12 0';
+    return `<svg viewBox="0 0 30 30" width="34" height="34" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round">
+        <circle cx="15" cy="15" r="13"/><circle cx="10.5" cy="12" r="1" fill="${color}"/><circle cx="19.5" cy="12" r="1" fill="${color}"/><path d="${mouth}"/></svg>`;
+}
+
+// Единая отрисовка окна результата (после сдачи и при повторном открытии).
+function showResult(r) {
+    animateScoreRing(r.score);
+    const fill = (id, wrapId, list) => {
+        const ul = document.getElementById(id);
+        ul.innerHTML = (list || []).map(t => `<li>${esc(t)}</li>`).join('');
+        document.getElementById(wrapId).style.display = (list && list.length) ? 'block' : 'none';
+    };
+    fill('resultPros', 'resultProsWrap', r.pros);
+    fill('resultCons', 'resultConsWrap', r.cons);
+    const sentiment = r.sentiment || (r.score >= 80 ? 'green' : r.score >= 50 ? 'yellow' : 'red');
+    document.getElementById('resultSmile').innerHTML = sentimentSmile(sentiment);
+    document.getElementById('resultReviewText').textContent = r.review || '';
+    document.getElementById('resultModal').classList.add('show');
 }
 
 async function sendMessage() {
@@ -425,9 +479,9 @@ document.getElementById('btnSubmitWork').onclick = async () => {
     if (!r.ok) { alert(r.error || 'Ошибка оценки'); return; }
 
     addMessageBubble({role:'designer', content:'Сдал работу на проверку', attachment_url: r.attachment_url});
-    animateScoreRing(r.score);
-    document.getElementById('resultReviewText').textContent = r.review;
-    document.getElementById('resultModal').classList.add('show');
+    const kb = document.getElementById('resultKostlimFeedback'); if (kb) kb.style.display = 'none';
+    const sb = document.getElementById('btnShareAdmin'); sb.disabled = false; sb.textContent = '📨 Поделиться с Kostlim';
+    showResult(r);
     pendingSubmitFile = null;
     document.getElementById('btnAttachSubmit').textContent = '📎';
 };
@@ -478,8 +532,6 @@ async function resumeSession(id) {
     currentSessionId = id;
     openChatWithHistory(r);
     if (r.status === 'scored') {
-        animateScoreRing(r.score);
-        document.getElementById('resultReviewText').textContent = r.review;
         // Блок 4.3 ТЗ: если Kostlim уже оставил реакцию/комментарий —
         // показываем прямо в модалке результата с меткой «Отзыв от Kostlim».
         const kostlimBox = document.getElementById('resultKostlimFeedback');
@@ -489,7 +541,7 @@ async function resumeSession(id) {
         } else {
             kostlimBox.style.display = 'none';
         }
-        document.getElementById('resultModal').classList.add('show');
+        showResult(r);
         // Реоткрытие уже расшаренного результата — сразу показываем
         // «Отправлено» и не даём поделиться повторно (см. FIX выше).
         const shareBtn = document.getElementById('btnShareAdmin');

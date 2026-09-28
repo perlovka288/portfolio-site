@@ -58,6 +58,10 @@ function ensureTrainerSchema(PDO $pdo): void
         $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS budget INT NOT NULL DEFAULT 0");
         $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS paid_amount INT NOT NULL DEFAULT 0");
         $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS payment_type VARCHAR(60) NOT NULL DEFAULT ''");
+        // Оценка «по пунктам»: что сделано хорошо / за что сняты баллы + настроение клиента.
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS pros TEXT NOT NULL DEFAULT '[]'");
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS cons TEXT NOT NULL DEFAULT '[]'");
+        $pdo->exec("ALTER TABLE trainer_sessions ADD COLUMN IF NOT EXISTS sentiment VARCHAR(10) NOT NULL DEFAULT ''");
         $pdo->exec("CREATE TABLE IF NOT EXISTS trainer_messages (
             id SERIAL PRIMARY KEY,
             session_id INT NOT NULL REFERENCES trainer_sessions(id) ON DELETE CASCADE,
@@ -202,7 +206,7 @@ function geminiText(string $systemPrompt, array $historyTurns, string $userText)
 /** Вызов Gemini с изображением (для оценки сдачи работы). */
 function geminiWithImage(string $systemPrompt, string $userText, string $imagePath, string $mime): string
 {
-    if (!getGeminiApiKeys()) return json_encode(['score' => 70, 'review' => 'ИИ недоступен (нет ключа), выставлена условная оценка.']);
+    if (!getGeminiApiKeys()) return ''; // без ключа честно сообщаем об ошибке, а не рисуем "условную" оценку
 
     $imgData = base64_encode((string)file_get_contents($imagePath));
     $payload = [
@@ -216,7 +220,7 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
         'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
         'generationConfig' => [
             'temperature' => 0.4,
-            'maxOutputTokens' => 1024,
+            'maxOutputTokens' => 1800,
             'thinkingConfig' => ['thinkingBudget' => 0],
         ],
     ];
@@ -234,6 +238,53 @@ function geminiWithImage(string $systemPrompt, string $userText, string $imagePa
         error_log('geminiWithImage EMPTY reply. raw=' . substr((string)$response, 0, 1500));
     }
     return $text;
+}
+
+
+/** Переписка дизайнера с ИИ-клиентом одним текстом — для анализатора «Сдать работу». */
+function buildTrainerTranscript(PDO $pdo, int $sessionId, int $limit = 60): string
+{
+    $stmt = $pdo->prepare("SELECT role, content FROM trainer_messages WHERE session_id = ? ORDER BY id ASC");
+    $stmt->execute([$sessionId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $rows = array_slice($rows, -$limit);
+    $lines = [];
+    foreach ($rows as $r) {
+        [$txt] = extractPaymentMarker((string)$r['content']);
+        $txt = trim($txt);
+        if ($txt === '') continue;
+        $lines[] = ($r['role'] === 'client' ? 'Клиент: ' : 'Дизайнер: ') . $txt;
+    }
+    return implode("\n", $lines);
+}
+
+/** Достаёт JSON-объект из ответа модели, даже если он обёрнут в ```json или сопровождён текстом. */
+function parseModelJson(string $raw): ?array
+{
+    $raw = trim($raw);
+    $start = strpos($raw, '{');
+    $end = strrpos($raw, '}');
+    if ($start === false || $end === false || $end <= $start) return null;
+    $data = json_decode(substr($raw, $start, $end - $start + 1), true);
+    return is_array($data) ? $data : null;
+}
+
+function cleanPointsList($list, int $max = 5): array
+{
+    if (!is_array($list)) return [];
+    $out = [];
+    foreach ($list as $item) {
+        $s = trim(is_string($item) ? $item : '');
+        if ($s === '') continue;
+        $out[] = mb_substr($s, 0, 160);
+        if (count($out) >= $max) break;
+    }
+    return $out;
+}
+
+function sentimentForScore(int $score): string
+{
+    return $score >= 80 ? 'green' : ($score >= 50 ? 'yellow' : 'red');
 }
 
 function difficultyPersona(PDO $pdo, string $level): string
@@ -381,7 +432,7 @@ case 'send_message': {
             ? "Предоплату ты уже отправил ранее — повторно маркер оплаты НЕ пиши. "
             : "Если по правилам выше пора отправить маркер оплаты — напиши его В ТОЧНОСТИ в формате, который задан в правилах (не меняй синтаксис). ")
         . "Свой бюджет ({$budget} ₽) называй только когда торгуешься по цене, не раньше. "
-        . "Отвечай коротко (2-5 предложений), как в мессенджере, без markdown, оставайся в характере на протяжении всего диалога.";
+        . "Отвечай ОЧЕНЬ коротко — 1-3 предложения, как в реальном чате Telegram, никаких длинных монологов и списков. Без markdown, оставайся в характере на протяжении всего диалога.";
 
     $rawReply = geminiText($systemPrompt, $turns, $content);
     [$reply, $payment] = extractPaymentMarker($rawReply, $halfBudget);
@@ -416,24 +467,41 @@ case 'submit_work': {
     $publicUrl = '/uploads/trainer_submits/' . $filename;
 
     $mimeMap = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
-    $scorePrompt = "Ты — арт-директор, оцениваешь сдачу дизайнера по ТЗ заказчика. "
-        . "ТЗ было: «{$session['brief']}». Тема: «{$session['topic']}». Уровень сложности клиента: {$session['difficulty']}. "
-        . "Посмотри на приложенное изображение — это сданная дизайнером работа. "
-        . "Оцени объективно и по-доброму, БЕЗ мелких неадекватных придирок (не занижай за мелочи вроде положения текста на пиксель). "
-        . "Ответь СТРОГО в формате JSON без markdown и пояснений: {\"score\": <число от 0 до 100>, \"review\": \"<отзыв клиента на 2-4 предложения от первого лица, в характере клиента>\"}";
+    $transcript = buildTrainerTranscript($pdo, $sessionId);
+    $paidInfo = (int)$session['paid_amount'] > 0
+        ? "Предоплата от клиента ПОЛУЧЕНА ({$session['paid_amount']} ₽, {$session['payment_type']})."
+        : "Предоплата от клиента НЕ была получена — дизайнер не довёл переговоры до оплаты.";
 
-    $raw = geminiWithImage($scorePrompt, 'Оцени эту работу по ТЗ выше.', $dir . $filename, $mimeMap[$ext]);
-    $clean = trim(preg_replace('~^```json|```$~m', '', $raw));
-    $parsed = json_decode($clean, true);
-    $score = is_array($parsed) && isset($parsed['score']) ? max(0, min(100, (int)$parsed['score'])) : 75;
-    $review = is_array($parsed) && !empty($parsed['review']) ? (string)$parsed['review'] : 'Спасибо, работа принята!';
+    $scorePrompt = "Ты — опытный арт-директор и наставник, оцениваешь тренировочную сдачу дизайнера. "
+        . "Клиент играл роль: имя «{$session['client_name']}», тема «{$session['topic']}», сложность {$session['difficulty']}. "
+        . "Вот ПОЛНАЯ переписка дизайнера с клиентом (в ней клиент раскрывал детали ТЗ):\n---\n{$transcript}\n---\n"
+        . $paidInfo . " К сообщению приложено изображение — это сданная работа. "
+        . "Оцени по критериям (в сумме 100): соответствие работы ТЗ из переписки — до 45; общение (вежливость, уточняющие вопросы по ТЗ, инициативность) — до 25; "
+        . "работа с ценой и выход на оплату — до 20; соблюдение условий (размеры, сроки, правки) — до 10. "
+        . "Будь честным: если работа не соответствует ТЗ (не та игра/цвета/персонаж) — балл низкий, но без придирок к мелочам вроде положения текста на пиксель. "
+        . "Пункты должны быть КОНКРЕТНЫМИ и ссылаться на то, что реально было в переписке или на картинке (без общих фраз). "
+        . "Ответь СТРОГО JSON без markdown и пояснений: "
+        . "{\"score\": <0-100>, \"pros\": [\"что сделано хорошо\", ...2-5 пунктов], \"cons\": [\"за что сняты баллы\", ...0-5 пунктов], "
+        . "\"review_text\": \"отзыв клиента 1-3 предложения от первого лица, в его характере\"}";
+
+    $raw = geminiWithImage($scorePrompt, 'Оцени сдачу дизайнера.', $dir . $filename, $mimeMap[$ext]);
+    $parsed = parseModelJson($raw);
+    if ($parsed === null || !isset($parsed['score'])) {
+        @unlink($dir . $filename);
+        jexit(['ok' => false, 'error' => 'ИИ не смог оценить работу (пустой ответ). Попробуй сдать ещё раз через минуту.']);
+    }
+    $score = max(0, min(100, (int)$parsed['score']));
+    $pros = cleanPointsList($parsed['pros'] ?? []);
+    $cons = cleanPointsList($parsed['cons'] ?? []);
+    $review = trim((string)($parsed['review_text'] ?? ($parsed['review'] ?? ''))) ?: 'Спасибо, работа принята!';
+    $sentiment = sentimentForScore($score); // цвет считаем сами по баллу — не доверяем модели
 
     $pdo->prepare("INSERT INTO trainer_messages (session_id, role, content, attachment_url) VALUES (?, 'designer', 'Сдал работу на проверку', ?)")
         ->execute([$sessionId, $publicUrl]);
-    $pdo->prepare("UPDATE trainer_sessions SET status = 'scored', score = ?, review = ?, updated_at = NOW() WHERE id = ?")
-        ->execute([$score, $review, $sessionId]);
+    $pdo->prepare("UPDATE trainer_sessions SET status = 'scored', score = ?, review = ?, pros = ?, cons = ?, sentiment = ?, updated_at = NOW() WHERE id = ?")
+        ->execute([$score, $review, json_encode($pros, JSON_UNESCAPED_UNICODE), json_encode($cons, JSON_UNESCAPED_UNICODE), $sentiment, $sessionId]);
 
-    jexit(['ok' => true, 'score' => $score, 'review' => $review, 'attachment_url' => $publicUrl]);
+    jexit(['ok' => true, 'score' => $score, 'review' => $review, 'pros' => $pros, 'cons' => $cons, 'sentiment' => $sentiment, 'attachment_url' => $publicUrl]);
 }
 
 case 'share_with_admin': {
@@ -466,7 +534,9 @@ case 'share_with_admin': {
             . "Дизайнер: {$name}\n"
             . "Клиент: {$session['client_name']} · Тема: {$session['topic']} · Сложность: {$session['difficulty']}\n"
             . "Оценка: {$session['score']}/100\n"
-            . "Отзыв ИИ-клиента: {$session['review']}";
+            . "Отзыв ИИ-клиента: {$session['review']}\n"
+            . "✅ " . implode('; ', json_decode((string)$session['pros'], true) ?: ['—']) . "\n"
+            . "⚠️ " . implode('; ', json_decode((string)$session['cons'], true) ?: ['—']);
         @file_get_contents("https://api.telegram.org/bot{$token}/sendMessage?chat_id={$adminId}&text=" . urlencode($text));
     }
     jexit(['ok' => true]);
@@ -513,6 +583,8 @@ case 'get_session': {
         'shared_with_admin' => (bool)$session['shared_with_admin'],
         'admin_reaction' => $session['admin_reaction'], 'admin_comment' => $session['admin_comment'],
         'budget' => (int)$session['budget'], 'paid_amount' => $paidAmount, 'payment_type' => $paymentType,
+        'pros' => json_decode((string)$session['pros'], true) ?: [], 'cons' => json_decode((string)$session['cons'], true) ?: [],
+        'sentiment' => (string)$session['sentiment'],
         'messages' => $messages]);
 }
 
