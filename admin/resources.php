@@ -13,8 +13,10 @@ require_once 'auth.php'; // редиректит на login.php, если не �
 require_once '../config/db.php';
 require_once __DIR__ . '/../includes/resources_lib.php';
 require_once __DIR__ . '/google_drive_helper.php';
+require_once __DIR__ . '/../includes/notifications_lib.php';
 
 ensureResourcesSchema($pdo);
+ensureNotificationsSchema($pdo);
 
 $message = '';
 
@@ -63,9 +65,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($fileGd === null && $message === '') $message = '❌ Прикрепи файл или вставь ссылку.';
             }
             if ($fileGd !== null) {
+                $title = trim((string)($_POST['title'] ?? ''));
                 createPackResource($pdo, [
                     'type'        => $type,
-                    'title'       => trim((string)($_POST['title'] ?? '')),
+                    'title'       => $title,
                     'description' => trim((string)($_POST['description'] ?? '')),
                     'file_url'    => $type !== 'sd_video' ? $fileGd['url'] : '',
                     'video_url'   => $type === 'sd_video' ? $fileGd['url'] : '',
@@ -73,6 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'file_name'   => $fileGd['name'],
                 ]);
                 $message = '✅ Добавлено.';
+                $typeLabels = ['font' => 'Шрифт', 'brush' => 'Стили/кисти', 'sd_video' => 'Видео SD'];
+                broadcastNotification($pdo, 'new_resource', '📁 Новый материал: ' . ($typeLabels[$type] ?? $type), $title, '/resources.php');
             }
         }
     } elseif ($action === 'delete_resource') {

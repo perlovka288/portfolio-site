@@ -13,6 +13,7 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 require_once 'includes/pack_role.php';
 require_once 'includes/resources_lib.php';
+require_once 'includes/ppk_access.php';
 
 ensureOrderFlowSchema($pdo);
 ensurePackRoleSchema($pdo);
@@ -20,30 +21,12 @@ ensureResourcesSchema($pdo);
 
 function jexit(array $data): void { echo json_encode($data); exit; }
 
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
-if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
-    $isAdmin = true;
-}
-$isPackDesigner = false;
-if ($isAdmin || !empty($tgProfile['tg_id'])) {
-    $botTokenForRoleCheck        = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)($tgProfile['tg_id'] ?? ''), $isAdmin);
-}
-if (!$isPackDesigner) jexit(['ok' => false, 'error' => 'Доступ закрыт']);
+$access = resolvePpkAccess($pdo);
+if (!$access['isPackDesigner']) jexit(['ok' => false, 'error' => 'Доступ закрыт']);
 
 // Лайки/избранное привязаны к tg_id — у чистого админа без привязанного
 // Telegram (заходит только по паролю) своего личного набора избранного нет.
-$tgId = (string)($tgProfile['tg_id'] ?? '');
+$tgId = $access['tgProfile']['tg_id'] ?? '';
 if ($tgId === '') jexit(['ok' => false, 'error' => 'Нужен привязанный Telegram-аккаунт']);
 
 $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;

@@ -9,33 +9,24 @@ require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 require_once 'includes/pack_role.php';
 require_once 'includes/resources_lib.php';
+require_once 'includes/ppk_access.php';
+require_once 'includes/notifications_lib.php';
+require_once 'includes/notifications_bell.php';
 require_once __DIR__ . '/admin/google_drive_helper.php';
+require_once __DIR__ . '/includes/rich_editor.php';
 
 ensureOrderFlowSchema($pdo);
 ensurePackRoleSchema($pdo);
 ensureResourcesSchema($pdo);
+ensureNotificationsSchema($pdo);
 
-$sid = session_id();
-$tgProfile = [];
-try {
-    $stmt = $pdo->prepare("SELECT tg_id, tg_username, tg_first_name, tg_photo_url FROM tg_links WHERE session_id = ? AND linked = TRUE ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
-    $tgProfile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
-
-define('ADMIN_TG_ID', '1710365896');
-$adminTgEnv = getenv('ADMIN_ID') ?: '1710365896';
-$isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
-if (!$isAdmin && !empty($tgProfile['tg_id']) && (string)$tgProfile['tg_id'] === $adminTgEnv) {
-    $isAdmin = true;
-}
-
-$isPackDesigner = false;
-if ($isAdmin || !empty($tgProfile['tg_id'])) {
-    $botTokenForRoleCheck        = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
-    $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)($tgProfile['tg_id'] ?? ''), $isAdmin);
-}
+// Единая точка доступа ADMIN/PPK (тот же resolvePpkAccess, что и в
+// planner.php/ai_trainer.php) — учитывает в т.ч. ручную выдачу роли в
+// админке, чего не было в прежней локальной проверке этого файла.
+$access = resolvePpkAccess($pdo);
+$isAdmin = $access['isAdmin'];
+$isPackDesigner = $access['isPackDesigner'];
+$tgProfile = $access['tgProfile'];
 
 if (!$isPackDesigner) {
     http_response_code(403);
@@ -56,7 +47,7 @@ if (!$isPackDesigner) {
     exit;
 }
 
-$myTgId = (string)($tgProfile['tg_id'] ?? '');
+$myTgId = $access['tgId'];
 
 // ── Добавление/удаление ресурсов прямо с этой страницы — ТОЛЬКО админ ──
 $message = '';
@@ -128,8 +119,12 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             if ($message === '') {
-                createPackResource($pdo, $data);
+                $newId = createPackResource($pdo, $data);
                 $message = '✅ Добавлено.';
+                // Блок 5.2 ТЗ: уведомление о новом материале всем дизайнерам.
+                $typeLabels = ['psd' => 'PSD-пак', 'font' => 'Шрифт', 'brush' => 'Стили/кисти', 'sd_video' => 'Видео SD'];
+                broadcastNotification($pdo, 'new_resource', '📁 Новый материал: ' . ($typeLabels[$type] ?? $type),
+                    (string)($data['title'] ?? ''), 'resources.php', $myTgId);
             }
         }
     } elseif ($action === 'delete_resource') {
@@ -262,7 +257,9 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         .res-add-form textarea { min-height:70px; resize:vertical; }
         .res-del-form { display:inline; }
         .res-del-btn { position:absolute; top:8px; right:8px; z-index:2; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:6px; width:26px; height:26px; cursor:pointer; }
-        .res-guide { white-space:pre-wrap; line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
+        .res-guide { line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
+        .res-guide p { margin: 0 0 12px; }
+        .res-guide img { max-width:100%; border-radius:8px; }
 
         /* ── Переключатель Плитка/Список (Блок 2.1 ТЗ), сохраняется в localStorage ── */
         .res-view-switch { display:flex; gap:4px; justify-content:center; margin-bottom:18px; }
@@ -313,6 +310,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
             .res-view-list .res-card-sub { display:none; }
         }
     </style>
+    <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
 </head>
 <body>
 
@@ -325,6 +323,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
     </div>
     <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
     <div class="header-right">
+        <?php renderNotificationBell(); ?>
         <?php if ($isAdmin): ?>
         <a href="admin/resources.php" class="nav-link">⚙️ Управление</a>
         <?php endif; ?>
@@ -404,12 +403,18 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         <?php if ($isAdmin): ?>
         <form class="res-add-form" id="form-sd-guide" method="post">
             <input type="hidden" name="action" value="save_sd_guide">
-            <textarea name="sd_guide" style="min-height:180px;" placeholder="Текст гайда, полезные ссылки..."><?= htmlspecialchars($sdGuide) ?></textarea>
-            <button type="submit" class="save-all-btn">Сохранить гайд</button>
+            <?php renderRichEditor('sd_guide', $sdGuide); ?>
+            <button type="submit" class="save-all-btn" style="margin-top:10px;">Сохранить гайд</button>
         </form>
         <?php endif; ?>
         <?php if ($sdGuide !== ''): ?>
-            <div class="res-guide"><?= htmlspecialchars($sdGuide) ?></div>
+            <div class="res-guide"><?php
+                // Обратная совместимость: гайд, сохранённый ДО подключения
+                // редактора, — обычный текст без HTML-тегов. Определяем по
+                // отсутствию '<' и в этом случае оборачиваем как раньше
+                // (экранируем + переносы строк), иначе — новый HTML-гайд как есть.
+                echo (strpos($sdGuide, '<') === false) ? nl2br(htmlspecialchars($sdGuide)) : $sdGuide;
+            ?></div>
         <?php else: ?>
             <p style="text-align:center;color:var(--text2);padding:20px 0;">Гайд ещё не добавлен.</p>
         <?php endif; ?>

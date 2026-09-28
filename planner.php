@@ -8,7 +8,10 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/notifications_lib.php';
+require_once __DIR__ . '/includes/notifications_bell.php';
 
+ensureNotificationsSchema($pdo);
 $access = resolvePpkAccess($pdo);
 $isPackDesigner = $access['isPackDesigner'];
 
@@ -34,7 +37,7 @@ if (!$isPackDesigner) {
     <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
 <style>
 .planner-wrap { max-width: 1100px; margin: 0 auto; padding: 22px 20px 50px; }
-.planner-top { display:flex; align-items:center; gap:12px; margin-bottom: 18px; }
+.planner-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 18px; }
 .trainer-back {
     display:inline-flex; align-items:center; gap:6px; background: var(--card); border:1px solid var(--border);
     color: var(--text); padding: 9px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700; text-decoration:none;
@@ -112,6 +115,7 @@ if (!$isPackDesigner) {
 <div class="planner-wrap">
     <div class="planner-top">
         <a href="privat_pak.php" class="trainer-back">← Приват Пак</a>
+        <?php renderNotificationBell(); ?>
     </div>
     <h1 class="planner-title">🗂 Личный планер клиентов</h1>
     <p class="planner-sub">Учёт своих заказов вне сайта — только вы видите эти записи.</p>

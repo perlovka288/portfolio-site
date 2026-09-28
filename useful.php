@@ -1,0 +1,205 @@
+<?php
+/**
+ * «Полезности» — мини-форум закрытого раздела (Блок 5.1 ТЗ).
+ */
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
+require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/useful_lib.php';
+require_once __DIR__ . '/includes/notifications_lib.php';
+require_once __DIR__ . '/includes/notifications_bell.php';
+require_once __DIR__ . '/includes/rich_editor.php';
+
+ensureUsefulSchema($pdo);
+ensureNotificationsSchema($pdo);
+
+$access = resolvePpkAccess($pdo);
+$isAdmin = $access['isAdmin'];
+$isPackDesigner = $access['isPackDesigner'];
+$tgProfile = $access['tgProfile'];
+$myTgId = $access['tgId'];
+$myName = $tgProfile['tg_first_name'] ?? ($isAdmin ? 'Kostlim' : 'Дизайнер');
+
+if (!$isPackDesigner) {
+    http_response_code(403);
+    ?>
+    <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доступ закрыт | Kostlim Design</title><link rel="stylesheet" href="style.css"></head>
+    <body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
+        <div><h1>🔒 Доступ закрыт</h1><p>«Полезности» доступны только участникам Приват Пака.</p><p><a href="privat_pak.php">← В Приват Пак</a></p></div>
+    </body></html>
+    <?php exit;
+}
+
+$message = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'create_post' && $isAdmin) {
+        $title = trim((string)($_POST['title'] ?? ''));
+        $body  = trim((string)($_POST['body'] ?? ''));
+        if ($title !== '' && $body !== '') {
+            $postId = createUsefulPost($pdo, $myTgId, $myName, $title, $body);
+            // Блок 5.2 ТЗ: уведомление о новой статье всем дизайнерам пака.
+            $excerpt = mb_substr(trim(strip_tags($body)), 0, 120);
+            broadcastNotification($pdo, 'useful_post', '📰 Новая статья: ' . $title, $excerpt, 'useful.php?id=' . $postId, $myTgId);
+        }
+        header('Location: useful.php?ok=1');
+        exit;
+    }
+    if ($action === 'delete_post' && $isAdmin) {
+        deleteUsefulPost($pdo, (int)($_POST['id'] ?? 0));
+        header('Location: useful.php');
+        exit;
+    }
+    if ($action === 'add_comment') {
+        $postId = (int)($_POST['post_id'] ?? 0);
+        $body = trim((string)($_POST['comment'] ?? ''));
+        if ($postId > 0 && $body !== '') {
+            addUsefulComment($pdo, $postId, $myTgId, $myName, $body);
+        }
+        header('Location: useful.php?id=' . $postId);
+        exit;
+    }
+}
+
+$openId = (int)($_GET['id'] ?? 0);
+$openPost = $openId > 0 ? getUsefulPost($pdo, $openId) : null;
+$posts = listUsefulPosts($pdo);
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Полезности | Kostlim Design</title>
+    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
+    <?php if ($isAdmin) renderRichEditorAssets(); ?>
+    <style>
+        .useful-wrap { max-width: 900px; margin: 0 auto; padding: 22px 20px 50px; }
+        .useful-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 18px; }
+        .useful-back {
+            display:inline-flex; align-items:center; gap:6px; background: var(--card); border:1px solid var(--border);
+            color: var(--text); padding: 9px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700; text-decoration:none;
+        }
+        .useful-back:hover { border-color: var(--border-accent); color: var(--accent2); }
+        .useful-title { font-size: 19px; font-weight: 900; margin: 0 0 4px; }
+        .useful-sub { color: var(--text2); font-size: 13px; margin-bottom: 20px; }
+        .useful-add-btn {
+            display:flex; align-items:center; justify-content:center; gap:8px;
+            background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border:none;
+            padding: 12px 20px; border-radius: 12px; font-size: 12.5px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: .6px; cursor:pointer; box-shadow: var(--shadow-accent); margin-bottom: 20px;
+        }
+        .useful-add-form { display:none; background: var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:22px; }
+        .useful-add-form.show { display:block; }
+        .useful-add-form input[type=text] {
+            width:100%; box-sizing:border-box; background: rgba(0,0,0,.15); border:1px solid var(--border); color: var(--text);
+            padding:10px 12px; border-radius:8px; font-family:inherit; margin-bottom:12px; font-size:14px; font-weight:700;
+        }
+        .useful-post-card {
+            display:block; background: var(--card); border:1px solid var(--border); border-radius:14px;
+            padding:18px; margin-bottom:14px; text-decoration:none; color:inherit; transition: border-color .2s;
+        }
+        .useful-post-card:hover { border-color: rgba(249,115,22,.35); }
+        .useful-post-card h3 { margin:0 0 6px; font-size:15px; }
+        .useful-post-meta { color: var(--text2); font-size:12px; display:flex; gap:10px; }
+        .useful-post-excerpt { color: var(--text2); font-size:13px; margin-top:8px; line-height:1.5; }
+        .useful-empty { text-align:center; color: var(--text2); font-size:13px; padding: 40px 0; }
+
+        .useful-article { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:26px; margin-bottom:24px; }
+        .useful-article h1 { margin:0 0 8px; font-size:20px; }
+        .useful-article .useful-post-meta { margin-bottom:18px; }
+        .useful-article-body { line-height:1.7; color: var(--text2); }
+        .useful-article-body img { max-width:100%; border-radius:10px; }
+        .useful-article-body p { margin: 0 0 12px; }
+        .useful-del-btn { background:none;border:none;color:#ef4444;font-size:12px;cursor:pointer;margin-left:auto; }
+
+        .useful-comments-head { font-size:14px; font-weight:800; margin: 24px 0 12px; }
+        .useful-comment { background: var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+        .useful-comment-meta { font-size:11.5px; color: var(--text2); margin-bottom:4px; font-weight:700; }
+        .useful-comment-body { font-size:13px; color: var(--text); line-height:1.5; white-space:pre-wrap; }
+        .useful-comment-form { display:flex; gap:8px; margin-top:14px; }
+        .useful-comment-form textarea {
+            flex:1; background: rgba(0,0,0,.15); border:1px solid var(--border); color: var(--text);
+            padding:10px 12px; border-radius:8px; font-family:inherit; font-size:13px; min-height:44px; resize:vertical;
+        }
+    </style>
+</head>
+<body>
+
+<div class="useful-wrap">
+    <div class="useful-top">
+        <a href="privat_pak.php" class="useful-back">← Приват Пак</a>
+        <?php renderNotificationBell(); ?>
+    </div>
+
+    <?php if ($openPost): ?>
+        <h1 class="useful-title">📚 Полезности</h1>
+        <div class="useful-article">
+            <?php if ($isAdmin): ?>
+            <form method="post" onsubmit="return confirm('Удалить статью?')" style="float:right;">
+                <input type="hidden" name="action" value="delete_post">
+                <input type="hidden" name="id" value="<?= (int)$openPost['id'] ?>">
+                <button type="submit" class="useful-del-btn">🗑 Удалить</button>
+            </form>
+            <?php endif; ?>
+            <h1><?= htmlspecialchars($openPost['title']) ?></h1>
+            <div class="useful-post-meta">
+                <span>✍️ <?= htmlspecialchars($openPost['author_name']) ?></span>
+                <span>🕐 <?= date('d.m.Y', strtotime($openPost['created_at'])) ?></span>
+            </div>
+            <div class="useful-article-body"><?= $openPost['body_html'] ?></div>
+        </div>
+
+        <div class="useful-comments-head">💬 Комментарии</div>
+        <?php foreach (listUsefulComments($pdo, $openPost['id']) as $c): ?>
+            <div class="useful-comment">
+                <div class="useful-comment-meta"><?= htmlspecialchars($c['author_name']) ?> · <?= date('d.m.Y H:i', strtotime($c['created_at'])) ?></div>
+                <div class="useful-comment-body"><?= htmlspecialchars($c['body']) ?></div>
+            </div>
+        <?php endforeach; ?>
+        <?php if (!listUsefulComments($pdo, $openPost['id'])): ?><p style="color:var(--text2);font-size:13px;">Пока нет комментариев.</p><?php endif; ?>
+
+        <form method="post" class="useful-comment-form">
+            <input type="hidden" name="action" value="add_comment">
+            <input type="hidden" name="post_id" value="<?= (int)$openPost['id'] ?>">
+            <textarea name="comment" placeholder="Написать комментарий..." required></textarea>
+            <button type="submit" class="save-all-btn" style="align-self:flex-end;">Отправить</button>
+        </form>
+
+    <?php else: ?>
+        <h1 class="useful-title">📚 Полезности</h1>
+        <p class="useful-sub">Статьи, гайды и фишки от Kostlim.</p>
+
+        <?php if ($isAdmin): ?>
+        <button type="button" class="useful-add-btn" onclick="document.getElementById('newPostForm').classList.toggle('show')">+ Написать статью</button>
+        <form class="useful-add-form" id="newPostForm" method="post">
+            <input type="hidden" name="action" value="create_post">
+            <input type="text" name="title" placeholder="Заголовок статьи" required>
+            <?php renderRichEditor('body'); ?>
+            <button type="submit" class="save-all-btn" style="margin-top:12px;">Опубликовать</button>
+        </form>
+        <?php endif; ?>
+
+        <?php if (!$posts): ?>
+            <p class="useful-empty">Пока нет статей.</p>
+        <?php else: foreach ($posts as $p): ?>
+            <a href="useful.php?id=<?= (int)$p['id'] ?>" class="useful-post-card">
+                <h3><?= htmlspecialchars($p['title']) ?></h3>
+                <div class="useful-post-meta">
+                    <span>✍️ <?= htmlspecialchars($p['author_name']) ?></span>
+                    <span>🕐 <?= date('d.m.Y', strtotime($p['created_at'])) ?></span>
+                    <span>💬 <?= (int)$p['comment_count'] ?></span>
+                </div>
+                <div class="useful-post-excerpt"><?= htmlspecialchars(mb_substr(trim(strip_tags($p['body_html'])), 0, 160)) ?>…</div>
+            </a>
+        <?php endforeach; endif; ?>
+    <?php endif; ?>
+</div>
+</body>
+</html>

@@ -10,7 +10,10 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/notifications_lib.php';
+require_once __DIR__ . '/includes/notifications_bell.php';
 
+ensureNotificationsSchema($pdo);
 $access = resolvePpkAccess($pdo);
 $isAdmin = $access['isAdmin'];
 $isPackDesigner = $access['isPackDesigner'];
@@ -43,7 +46,7 @@ if (!$isPackDesigner) {
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <style>
 .trainer-wrap { max-width: 560px; margin: 0 auto; padding: 22px 20px 40px; }
-.trainer-top { display:flex; align-items:center; gap:12px; margin-bottom: 18px; }
+.trainer-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 18px; }
 .trainer-back {
     display:inline-flex; align-items:center; gap:6px; background: var(--card); border:1px solid var(--border);
     color: var(--text); padding: 9px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 700;
@@ -113,6 +116,12 @@ if (!$isPackDesigner) {
 .trainer-msg--client { align-self:flex-start; background: var(--card); border:1px solid var(--border); }
 .trainer-msg--designer { align-self:flex-end; background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; }
 .trainer-msg--typing { opacity:.6; font-style:italic; }
+/* Системный пузырёк оплаты (маркер [PAYMENT_SUCCESS:...] из промпта) —
+   отдельно от обычных реплик клиента/дизайнера, по центру, с акцентом. */
+.trainer-msg--payment {
+    align-self: center; background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35);
+    color: #22C55E; font-size: 12.5px; font-weight: 700; padding: 8px 16px; border-radius: 999px;
+}
 .trainer-msg-img { max-width:100%; border-radius:10px; display:block; margin-bottom:6px; }
 .trainer-chat-footer { display:flex; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0; }
 .trainer-chat-footer input[type=text] { flex:1; background: rgba(255,255,255,.06); border:1px solid var(--border); color: var(--text); padding:12px 15px; border-radius:999px; font-family:inherit; }
@@ -159,6 +168,7 @@ if (!$isPackDesigner) {
 <div class="trainer-wrap">
     <div class="trainer-top">
         <a href="privat_pak.php" class="trainer-back">← Приват Пак</a>
+        <?php renderNotificationBell(); ?>
     </div>
     <h1 class="trainer-title">🎮 Тренировка общения с клиентом</h1>
     <p class="trainer-sub">Отыграй заказ от начала до сдачи — ИИ в роли требовательного заказчика.</p>
@@ -331,6 +341,7 @@ function openChatWithHistory(sessionData) {
     const body = document.getElementById('chatBody');
     body.innerHTML = '';
     (sessionData.messages || []).forEach(addMessageBubble);
+    if (sessionData.paid_amount) addPaymentBubble({ amount: sessionData.paid_amount, type: sessionData.payment_type });
     document.getElementById('chatScreen').classList.add('show');
     body.scrollTop = body.scrollHeight;
 }
@@ -343,6 +354,17 @@ function addMessageBubble(m) {
     if (m.attachment_url) html += `<img src="${esc(m.attachment_url)}" class="trainer-msg-img">`;
     if (m.content) html += `<div>${esc(m.content).replace(/\n/g,'<br>')}</div>`;
     div.innerHTML = html;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+// Показывает маркер [PAYMENT_SUCCESS:...] красиво — отдельным системным
+// пузырьком в чате, а не сырым текстом (см. ai_trainer_api.php::extractPaymentMarker).
+function addPaymentBubble(payment) {
+    const body = document.getElementById('chatBody');
+    const div = document.createElement('div');
+    div.className = 'trainer-msg trainer-msg--payment';
+    div.innerHTML = `💰 <strong>${payment.amount} ₽</strong> — ${esc(payment.type)}`;
     body.appendChild(div);
     body.scrollTop = body.scrollHeight;
 }
@@ -366,7 +388,10 @@ async function sendMessage() {
         r = { ok: false };
     }
     typing.remove();
-    if (r.ok) addMessageBubble({role:'client', content: r.reply});
+    if (r.ok) {
+        addMessageBubble({role:'client', content: r.reply});
+        if (r.payment) addPaymentBubble(r.payment);
+    }
     else addMessageBubble({role:'client', content: '⚠️ Не удалось получить ответ, попробуй ещё раз.'});
 }
 document.getElementById('btnSendMsg').onclick = sendMessage;

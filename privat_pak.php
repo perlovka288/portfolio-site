@@ -14,7 +14,10 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/notifications_lib.php';
+require_once __DIR__ . '/includes/notifications_bell.php';
 
+ensureNotificationsSchema($pdo);
 $access = resolvePpkAccess($pdo);
 $isAdmin = $access['isAdmin'];
 $isPackDesigner = $access['isPackDesigner'];
@@ -139,6 +142,7 @@ body::before {
 
 <header class="header-compact">
     <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
+    <?php if ($isPackDesigner): ?><div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);"><?php renderNotificationBell(); ?></div><?php endif; ?>
 </header>
 
 <div class="quick-actions-grid">
@@ -175,6 +179,13 @@ body::before {
                 <span class="support-action-text">
                     PSD-паки, шрифты, кисти и SD
                     <span class="support-action-sub">Все ресурсы пака в одном разделе</span>
+                </span>
+            </a>
+            <a href="useful.php" class="support-action-btn">
+                <span class="support-action-icon">📚</span>
+                <span class="support-action-text">
+                    Полезности
+                    <span class="support-action-sub">Статьи и гайды от Kostlim, с комментариями</span>
                 </span>
             </a>
         </div>

@@ -14,7 +14,32 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/resources_lib.php';
+require_once __DIR__ . '/../includes/notifications_lib.php';
 ensureResourcesSchema($pdo);
+ensureNotificationsSchema($pdo);
+
+/**
+ * Сохраняет реакцию/комментарий Kostlim и (Блок 5.2 ТЗ) отправляет
+ * дизайнеру уведомление в колокольчик — но только если что-то реально
+ * изменилось, чтобы повторное сохранение той же формы не спамило.
+ */
+function saveTrainerFeedback(PDO $pdo, int $id, string $reaction, string $comment): void
+{
+    if ($id <= 0) return;
+    $cur = $pdo->prepare("SELECT tg_id, client_name, topic, admin_reaction, admin_comment FROM trainer_sessions WHERE id = ?");
+    $cur->execute([$id]);
+    $s = $cur->fetch(PDO::FETCH_ASSOC);
+    if (!$s) return;
+    $pdo->prepare("UPDATE trainer_sessions SET admin_reaction = ?, admin_comment = ? WHERE id = ?")
+        ->execute([$reaction, $comment, $id]);
+    $changed = $s['admin_reaction'] !== $reaction || $s['admin_comment'] !== $comment;
+    if ($changed && ($reaction !== '' || $comment !== '')) {
+        createNotification($pdo, (string)$s['tg_id'], 'trainer_feedback',
+            '💬 Kostlim ответил на твою работу',
+            'Тренажёр: ' . $s['client_name'] . ' — ' . $s['topic'],
+            'ai_trainer.php');
+    }
+}
 
 $promptDefaults = [
     'easy'     => 'Клиент дружелюбный, лояльный, легко соглашается с идеями дизайнера, почти не придирается, максимум 1 несущественная правка.',
@@ -33,25 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'prompts
     exit;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'reaction') {
-    $id = (int)($_POST['session_id'] ?? 0);
-    $reaction = trim((string)($_POST['reaction'] ?? ''));
-    $comment = trim((string)($_POST['comment'] ?? ''));
-    if ($id > 0) {
-        $pdo->prepare("UPDATE trainer_sessions SET admin_reaction = ?, admin_comment = ? WHERE id = ?")
-            ->execute([$reaction, $comment, $id]);
-    }
+    saveTrainerFeedback($pdo, (int)($_POST['session_id'] ?? 0), trim((string)($_POST['reaction'] ?? '')), trim((string)($_POST['comment'] ?? '')));
     header('Location: ai_trainer_review.php');
     exit;
 }
 // Обратная совместимость со старой формой реакции без поля "form"
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['session_id']) && !isset($_POST['form'])) {
-    $id = (int)($_POST['session_id'] ?? 0);
-    $reaction = trim((string)($_POST['reaction'] ?? ''));
-    $comment = trim((string)($_POST['comment'] ?? ''));
-    if ($id > 0) {
-        $pdo->prepare("UPDATE trainer_sessions SET admin_reaction = ?, admin_comment = ? WHERE id = ?")
-            ->execute([$reaction, $comment, $id]);
-    }
+    saveTrainerFeedback($pdo, (int)($_POST['session_id'] ?? 0), trim((string)($_POST['reaction'] ?? '')), trim((string)($_POST['comment'] ?? '')));
     header('Location: ai_trainer_review.php');
     exit;
 }
