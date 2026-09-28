@@ -152,7 +152,7 @@ function renderRichEditorAssets(): void
                     const res = await fetch(uploadUrl, { method: 'POST', body: fd });
                     const data = await res.json();
                     quill.deleteText(range.index, 'Загрузка картинки…'.length);
-                    if (data.ok) quill.insertEmbed(range.index, 'image', data.url);
+                    if (data.ok) { quill.insertEmbed(range.index, 'image', data.url); if (data.warning) console.warn(data.warning); }
                     else alert(data.error || 'Не удалось загрузить картинку');
                 } catch (e) {
                     quill.deleteText(range.index, 'Загрузка картинки…'.length);

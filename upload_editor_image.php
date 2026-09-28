@@ -39,9 +39,24 @@ if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
     exit;
 }
 
-$url = uploadPackImageToImgBB($pdo, $_FILES['image']['tmp_name'], 'editor_' . time());
-if ($url === '') {
-    echo json_encode(['ok' => false, 'error' => 'Не удалось загрузить картинку (проверь ключи ImgBB)']);
+$imgbbError = null;
+$url = uploadPackImageToImgBB($pdo, $_FILES['image']['tmp_name'], 'editor_' . time(), $imgbbError);
+if ($url !== '') {
+    echo json_encode(['ok' => true, 'url' => $url]);
     exit;
 }
-echo json_encode(['ok' => true, 'url' => $url]);
+
+// Запасной вариант, если ImgBB не сработал: сохраняем на сервер, чтобы
+// редактор всё равно работал. Минус — такие файлы не переживают деплой,
+// если папка uploads/ не сохраняется (поэтому в ответе есть предупреждение).
+$dir = __DIR__ . '/uploads/editor_images/';
+if (!is_dir($dir)) @mkdir($dir, 0777, true);
+if (is_dir($dir) && is_writable($dir)) {
+    $fname = 'ed_' . time() . '_' . uniqid() . '.' . $ext;
+    if (move_uploaded_file($_FILES['image']['tmp_name'], $dir . $fname)) {
+        echo json_encode(['ok' => true, 'url' => '/uploads/editor_images/' . $fname,
+            'warning' => 'ImgBB не сработал (' . $imgbbError . ') — картинка сохранена на сервере']);
+        exit;
+    }
+}
+echo json_encode(['ok' => false, 'error' => 'Не удалось загрузить картинку. Причина ImgBB: ' . $imgbbError]);
