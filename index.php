@@ -287,7 +287,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <head>
     <script src="/ai_support.php"></script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Kostlim Design | Портфолио</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
@@ -803,8 +803,9 @@ body::after {
     .tg-code-val { font-size: 15px; letter-spacing: 2px; }
 }
 </style>
+<?php include __DIR__ . '/includes/ui_head.php'; ?>
 </head>
-<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
+<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?> kui">
 
 <!-- ══════════════════════════════════════════
      МОДАЛЬНОЕ ОКНО ПРИВЯЗКИ TG
@@ -864,78 +865,53 @@ body::after {
 </div>
 <?php endif; ?>
 
-<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке ══ -->
-<header class="header-compact">
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
-    <?php
-        // Полноценная вкладка «Приват Пак» — сразу после «Поддержка» (раньше
-        // была только иконка-кнопка в сетке ниже, теперь она убрана и место
-        // единое с остальными вкладками меню, с 🔒 у названия).
-        $sectionTabsActive = 'home';
-        $sectionTabsShowPpk = true;
-        $ppkHasAccess = $isAdmin || $isPackDesigner;
-        include __DIR__ . '/includes/section_tabs.php';
-    ?>
-</header>
+<?php
+    // ── KUI: оболочка (боковое меню на ПК / шапка + нижнее меню на телефоне) ──
+    $kuiActive = 'home';
+    $aiWidgetHideFab = true; // круглую ИИ-кнопку заменила иконка ✦ в шапке
+    $kuiCounts = [];
+    foreach ($works as $__w) {
+        $__k = strtolower($__w['category_key'] ?? '');
+        $kuiCounts[$__k] = ($kuiCounts[$__k] ?? 0) + 1;
+    }
+    $kuiFirstKey = !empty($categories[0]['category_key']) ? $categories[0]['category_key'] : 'preview';
+    include __DIR__ . '/includes/ui_shell.php';
+?>
 
-<!-- ══ Сетка быстрых кнопок: Telegram (+ Настройки — только для админа) / Прайс / Отзывы ══ -->
-<div class="quick-actions-grid">
-    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn<?= $isAdmin ? '' : ' quick-action-btn-wide' ?>" title="Telegram">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-    </a>
-    <?php if ($isAdmin): ?>
-    <a href="admin/index.php" class="quick-action-btn" title="Настройки">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    </a>
-    <?php endif; ?>
-    <a href="price.php" class="quick-action-btn" title="Прайс">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Прайс
-    </a>
-    <a href="#reviews" class="quick-action-btn" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});" title="Отзывы">
-        <svg class="qa-star" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        Отзывы
-    </a>
-</div>
-
-<!-- ══ Карточка профиля / привязки TG — растянута на ширину сетки выше ══ -->
-<div class="profile-chip-row">
-    <?php if ($isLinked && !empty($tgProfile)): ?>
-    <a href="profile.php" class="tg-user-chip" title="Личный профиль">
-        <?php if (!empty($tgProfile['tg_photo_url'])): ?>
-           <img src="<?= htmlspecialchars(imgSrc((string)($tgProfile['tg_photo_url'] ?? ''))) ?>" class="tg-user-ava" alt="аватар"
- onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-            <span class="tg-user-ava-fallback" style="display:none;">
-                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-            </span>
-        <?php else: ?>
-            <span class="tg-user-ava-fallback">
-                <?= mb_substr(($tgProfile['tg_first_name'] ?? '') ?: (($tgProfile['tg_username'] ?? '') ?: '?'), 0, 1) ?>
-            </span>
-        <?php endif; ?>
-        <span class="tg-user-name">
-            <?= htmlspecialchars(($tgProfile['tg_first_name'] ?? '') ?: ('@' . ($tgProfile['tg_username'] ?? ''))) ?>
-        </span>
-        <?php if ($isAdmin): ?><span class="tg-admin-tag">ADMIN</span><?php endif; ?>
-        <?php if ($isPackDesigner): ?><span class="tg-admin-tag" title="Designer PPK">PPK</span><?php endif; ?>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:.5"><path d="M9 18l6-6-6-6"/></svg>
-    </a>
+<!-- ══ KUI: герой-блок: заказ + Telegram / Приват Пак ══ -->
+<section class="kui-hero-row">
+    <div class="kui-hero">
+        <div class="kui-hero-head">
+            <img class="kui-hero-ava" src="/assets/img/logo.png" alt="">
+            <div><small>Превью · баннеры · логотипы</small><h2>Kostlim Design</h2></div>
+        </div>
+        <div class="kui-hero-btns">
+            <a class="kui-pill" href="price.php">Прайс</a>
+            <a class="kui-pill" href="#reviews" onclick="event.preventDefault();document.getElementById('reviews').scrollIntoView({behavior:'smooth'});">Отзывы</a>
+            <button type="button" class="kui-pill kui-cta" onclick="handleOrder('<?= htmlspecialchars($kuiFirstKey) ?>')">Заказать ›</button>
+        </div>
+    </div>
+    <?php if (!$isLinked): ?>
+    <div class="kui-promo">
+        <p><b>Привяжи Telegram</b>Уведомления о заказах — прямо в бот</p>
+        <button type="button" class="kui-btn" onclick="openTgModal()">Привязать</button>
+    </div>
     <?php else: ?>
-    <button class="nav-link nav-bot tg-link-trigger-btn" onclick="openTgModal()" title="Привязать Telegram">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-        Привязать TG
-    </button>
+    <div class="kui-promo">
+        <p><b>Приват Пак 🔒</b>Закрытая группа Designer PPK: исходники, шаблоны, ранний доступ</p>
+        <a class="kui-btn" href="<?= htmlspecialchars($kuiPpkHref) ?>"<?= $kuiPpkOnclick ? ' onclick="' . htmlspecialchars($kuiPpkOnclick) . '"' : '' ?>><?= $ppkHasAccess ? 'Открыть' : 'Узнать' ?></a>
+    </div>
     <?php endif; ?>
-</div>
+</section>
 
-<main class="container portfolio-stage">
+<main class="container portfolio-stage kui-stage">
 
-    <!-- ── Категории-фильтры ── -->
-    <div class="tabs-container">
-        <button class="tab-btn active" onclick="filterPortfolio('all', event)">Все работы</button>
+    <!-- ── Фильтры-табы вместо заголовка «Работы»: клик или свайп ←/→ ── -->
+    <div class="kui-tabs" id="kuiTabs">
+        <button class="tab-btn active" onclick="filterPortfolio('all', event)">Все<sup><?= count($works) ?></sup></button>
         <?php foreach ($categories as $category): ?>
             <button class="tab-btn" onclick="filterPortfolio('cat-<?= htmlspecialchars($category['category_key']) ?>', event)">
-                <?= htmlspecialchars($category['title']) ?>
+                <?= htmlspecialchars($category['title']) ?><sup><?= (int)($kuiCounts[strtolower($category['category_key'])] ?? 0) ?></sup>
             </button>
         <?php endforeach; ?>
     </div>
@@ -962,6 +938,7 @@ body::after {
             $showUan  = (int)($plPrice['price_uan'] ?? $work['price_uan'] ?? 0);
         ?>
         <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
+            <div class="kui-ab"><span><?= htmlspecialchars($category['title'] ?? '') ?></span><span><?= htmlspecialchars(str_replace('x', '×', $sizeText)) ?></span></div>
             <div class="portfolio-price-top"><?= number_format($showRub, 0, '', ' ') ?> ₽ / <?= number_format($showUan, 0, '', ' ') ?> ₴</div>
             <div class="portfolio-media">
                 <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
@@ -1499,5 +1476,6 @@ function toggleLike(workId, btn) {
         на 💬 под превью — теперь тот значок ведёт в Telegram, а этот FAB
         отдельно доступен всегда, как на разделе Заказы). */
       include __DIR__ . '/includes/ai_widget.php'; ?>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>
