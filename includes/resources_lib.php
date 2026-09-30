@@ -10,7 +10,7 @@
  * тем же способом, что уже используется для ИИ-промпта/ключей).
  */
 
-function ensureResourcesSchema(PDO $pdo): void
+function ensureResourcesSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS pack_resources (
@@ -54,6 +54,15 @@ function ensureResourcesSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureResourcesSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureResourcesSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureResourcesSchema')) { return; }
+    ensureResourcesSchema__run($pdo);
+    kuiSchemaMark('ensureResourcesSchema');
 }
 
 function getResSetting(PDO $pdo, string $key, string $default = ''): string
@@ -249,43 +258,9 @@ function uploadPackResourcePreview(PDO $pdo, string $field, string $uploadDir): 
  */
 function uploadPackImageToImgBB(PDO $pdo, string $tmpPath, string $name = 'image', ?string &$error = null): string
 {
-    $error = null;
-    if (!is_file($tmpPath)) { $error = 'файл не найден на сервере'; return ''; }
-    // Те же имена ключей, что и в остальном проекте (site_settings → getenv),
-    // плюс IMGBB_KEY — так его называет admin/add_portfolio.php.
-    $names = ['IMGBB_API_KEY', 'IMGBB_API_KEY2', 'IMGBB_API_KEY3', 'IMGBB_KEY'];
-    $keys = [];
-    foreach ($names as $n) {
-        $v = trim(getResSetting($pdo, $n, getenv($n) ?: ''));
-        if ($v !== '') $keys[$v] = $v; // уникальные
-    }
-    if (empty($keys)) { $error = 'ни один ключ ImgBB не найден (ни в «Ключи и API» админки, ни в переменных окружения)'; return ''; }
+    require_once __DIR__ . '/imgbb.php';
     if (!function_exists('curl_init')) { $error = 'на сервере не включён PHP-модуль curl'; return ''; }
-
-    $b64 = base64_encode((string)file_get_contents($tmpPath));
-    $lastErr = '';
-    foreach ($keys as $apiKey) {
-        try {
-            $ch = curl_init('https://api.imgbb.com/1/upload');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_CONNECTTIMEOUT => 15,
-                CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
-            ]);
-            $res = curl_exec($ch);
-            $cerr = curl_error($ch);
-            curl_close($ch);
-            if ($res === false || $res === '') { $lastErr = 'нет ответа от api.imgbb.com' . ($cerr ? " ($cerr)" : ''); continue; }
-            $data = json_decode($res, true);
-            $url  = $data['data']['url'] ?? '';
-            if ($url !== '') return $url;
-            $lastErr = 'ImgBB ответил: ' . ($data['error']['message'] ?? mb_substr($res, 0, 120));
-        } catch (Throwable $e) {
-            $lastErr = $e->getMessage();
-            error_log('uploadPackImageToImgBB error: ' . $e->getMessage());
-        }
-    }
-    $error = $lastErr ?: 'неизвестная ошибка';
-    return '';
+    return imgbbUpload($tmpPath, $name, $pdo, $error);
 }
 
 /**

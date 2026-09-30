@@ -33,9 +33,11 @@ try {
     }
 }
 
-// Создаём таблицу лайков если нет
+// Создаём таблицы лайков и отзывов, если нет (один раз на контейнер — без лишних запросов к БД)
+require_once __DIR__ . '/includes/schema_once.php';
 try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS portfolio_likes (
+    kuiSchemaOnce('index_likes_reviews', function () use ($pdo) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS portfolio_likes (
         id SERIAL PRIMARY KEY,
         portfolio_id INT NOT NULL,
         session_id VARCHAR(128) NOT NULL DEFAULT '',
@@ -43,11 +45,7 @@ try {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(portfolio_id, session_id)
     )");
-} catch (Throwable $e) {}
-
-// Создаём таблицу отзывов если нет
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
+        $pdo->exec("CREATE TABLE IF NOT EXISTS reviews (
         id SERIAL PRIMARY KEY,
         order_id INT NOT NULL,
         tg_username VARCHAR(128) NOT NULL DEFAULT '',
@@ -58,6 +56,7 @@ try {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         approved BOOLEAN NOT NULL DEFAULT TRUE
     )");
+    });
 } catch (Throwable $e) {}
 
 // ── Инициализация профиля и прав (перенесено вверх для работы удаления) ──
@@ -883,7 +882,7 @@ body::after {
     <div class="kui-hero">
         <div class="kui-hero-head">
             <img class="kui-hero-ava" src="/assets/img/logo.png" alt="">
-            <div><small>Превью · баннеры · логотипы</small><h2>Kostlim Design</h2></div>
+            <div><small>Дизайн соц сетей</small><h2>Kostlim Design</h2></div>
         </div>
         <div class="kui-hero-btns">
             <a class="kui-pill" href="price.php">Прайс</a>

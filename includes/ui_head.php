@@ -6,4 +6,7 @@
  */
 $__kuiCss = __DIR__ . '/../assets/kostlim-ui.css';
 ?>
+<link rel="stylesheet" href="/assets/kostlim-modal.css?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-modal.css') ?: time() ?>">
 <link rel="stylesheet" href="/assets/kostlim-ui.css?v=<?= @filemtime($__kuiCss) ?: time() ?>">
+<script src="/assets/kostlim-lock.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-lock.js') ?: time() ?>" defer></script>
+<script src="/assets/kostlim-nav.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-nav.js') ?: time() ?>" defer></script>

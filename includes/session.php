@@ -34,6 +34,9 @@ function startSafeSession(): void {
         'samesite' => $isSecure ? 'None' : 'Lax', // None требует Secure
     ]);
     session_start();
+    // KUI: короткий приватный кэш для навигационных страниц (мгновенные переходы между разделами)
+    require_once __DIR__ . '/ui_cache.php';
+    kuiApplyCacheHeaders();
     // session_set_cookie_params влияет только на будущие session_start(),
     // а сама PHP session garbage collection может убить данные раньше —
     // продлеваем и gc_maxlifetime на бэкенде.
@@ -56,7 +59,7 @@ function startSafeSession(): void {
  * Теперь колонка гарантированно создаётся ЗАРАНЕЕ, одним вызовом рядом с
  * processTgAutoLink(), как и остальные миграции схемы в проекте.
  */
-function ensureTgLinksSchema(PDO $pdo): void
+function ensureTgLinksSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS tg_links (
@@ -82,6 +85,15 @@ function ensureTgLinksSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureTgLinksSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureTgLinksSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureTgLinksSchema')) { return; }
+    ensureTgLinksSchema__run($pdo);
+    kuiSchemaMark('ensureTgLinksSchema');
 }
 
 startSafeSession();

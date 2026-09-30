@@ -6,7 +6,7 @@
 define('UPLOAD_TOKEN_MAX_BYTES', 300 * 1024 * 1024);
 define('UPLOAD_TOKEN_TTL_SECONDS', 7200); // 2 часа
 
-function ensureUploadTokenTable(PDO $pdo): void
+function ensureUploadTokenTable__run(PDO $pdo): void
 {
     $pdo->exec("CREATE TABLE IF NOT EXISTS upload_tokens (
         id SERIAL PRIMARY KEY,
@@ -26,6 +26,15 @@ function ensureUploadTokenTable(PDO $pdo): void
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_upload_tokens_status ON upload_tokens(status, expires_at)");
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureUploadTokenTable(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/../includes/schema_once.php'; }
+    if (kuiSchemaDone('ensureUploadTokenTable')) { return; }
+    ensureUploadTokenTable__run($pdo);
+    kuiSchemaMark('ensureUploadTokenTable');
 }
 
 function generateUploadTokenString(): string

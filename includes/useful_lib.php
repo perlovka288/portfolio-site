@@ -4,7 +4,7 @@
  * от админа, дизайнеры читают и комментируют.
  */
 
-function ensureUsefulSchema(PDO $pdo): void
+function ensureUsefulSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS useful_posts (
@@ -27,6 +27,15 @@ function ensureUsefulSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureUsefulSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureUsefulSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureUsefulSchema')) { return; }
+    ensureUsefulSchema__run($pdo);
+    kuiSchemaMark('ensureUsefulSchema');
 }
 
 function createUsefulPost(PDO $pdo, string $authorTgId, string $authorName, string $title, string $bodyHtml): int

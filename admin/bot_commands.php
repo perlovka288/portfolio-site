@@ -790,7 +790,7 @@ function cmdHelp(PDO $pdo, string $token, int $chatId, array $update): bool
 // ────────────────────────────────────────────────────────────────
 // Миграция таблиц
 // ────────────────────────────────────────────────────────────────
-function ensureBotCommandTables(PDO $pdo): void
+function ensureBotCommandTables__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS bot_commands (
@@ -884,4 +884,13 @@ function ensureBotCommandTables(PDO $pdo): void
     } catch (Exception $e) {
         error_log('[BotCommands] migration error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureBotCommandTables(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/../includes/schema_once.php'; }
+    if (kuiSchemaDone('ensureBotCommandTables')) { return; }
+    ensureBotCommandTables__run($pdo);
+    kuiSchemaMark('ensureBotCommandTables');
 }

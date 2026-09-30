@@ -71,24 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $watermarked = applyWatermark($img_data, $avatar_url, $title, $price_rub, $price_uan, $category_frame);
     $final_data  = $watermarked ?: $img_data; // если GD не сработал — оригинал
 
-    // ── Загружаем на ImgBB ─────────────────────────────────────────
-    $ch = curl_init('https://api.imgbb.com/1/upload');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-        'key'   => $imgbb_key,
-        'image' => base64_encode($final_data),
-        'name'  => 'kostlim_' . time(),
-    ]));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    $imgbb_res  = curl_exec($ch);
-    curl_close($ch);
-    $imgbb_data = json_decode($imgbb_res, true);
-
-    if (!empty($imgbb_data['data']['url'])) {
-        $image_url = $imgbb_data['data']['url'];
-    } else {
-        $error_msg = '❌ Ошибка загрузки на ImgBB: ' . ($imgbb_data['error']['message'] ?? 'неизвестная ошибка');
+    // ── Загружаем на ImgBB (общий загрузчик: ключи через запятую, перебор, логи) ──
+    require_once __DIR__ . '/../includes/imgbb.php';
+    $tmpImg = tempnam(sys_get_temp_dir(), 'kz_');
+    file_put_contents($tmpImg, $final_data);
+    $imgbb_err = null;
+    $image_url = imgbbUpload($tmpImg, 'kostlim_' . time(), (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $imgbb_err);
+    @unlink($tmpImg);
+    if ($image_url === '') {
+        $error_msg = '❌ Ошибка загрузки на ImgBB: ' . ($imgbb_err ?: 'неизвестная ошибка');
         goto render;
     }
 

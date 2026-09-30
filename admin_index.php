@@ -837,20 +837,12 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 
 function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 {
-    if (!is_file($tmpPath)) { error_log("ImgBB: file not found ($tmpPath)"); return ''; }
-    $keys = array_filter([getenv('IMGBB_API_KEY') ?: '', getenv('IMGBB_API_KEY2') ?: '', getenv('IMGBB_API_KEY3') ?: '']);
-    if (empty($keys)) { error_log("ImgBB: no API keys set"); return ''; }
-    $b64 = base64_encode(file_get_contents($tmpPath));
-    foreach ($keys as $index => $apiKey) {
-        $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
-        $res = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($res === false || $res === '') { continue; }
-        $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
-        if ($url !== '') { return $url; }
-    }
-    return '';
+    global $pdo;
+    require_once __DIR__ . '/includes/imgbb.php';
+    $err = null;
+    $url = imgbbUpload($tmpPath, $name, $pdo ?? null, $err);
+    if ($url === '' && $err) { error_log("uploadToImgBB('{$name}') не удалась: {$err}"); }
+    return $url;
 }
 
 function uploadImage(string $field, string $prefix, string $uploadDir): string

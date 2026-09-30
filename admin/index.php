@@ -6,16 +6,20 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once 'auth.php';
 require_once '../config/db.php';
 require_once __DIR__ . '/../includes/order_flow.php';
+require_once __DIR__ . '/../includes/imgbb.php';
 require_once __DIR__ . '/psd_manager.php';
 require_once __DIR__ . '/bot_commands.php';
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
 ensurePromoSchema($pdo);
 
+require_once __DIR__ . '/../includes/schema_once.php';
 try {
-    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
-    $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (id SERIAL PRIMARY KEY, rule_key VARCHAR(100) UNIQUE, rule_text TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);");
+    kuiSchemaOnce('admin_inline_ddl', function () use ($pdo) {
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cooperation BOOLEAN NOT NULL DEFAULT FALSE;");
+        $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS site_rules (id SERIAL PRIMARY KEY, rule_key VARCHAR(100) UNIQUE, rule_text TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);");
+    });
 } catch (PDOException $e) {
     // ignore
 }
@@ -26,11 +30,20 @@ try {
 // без захода в переменные окружения на Render. Если в таблице пусто —
 // используется getenv()/дефолт как раньше (обратная совместимость).
 // ══════════════════════════════════════════════════════════════════
-function ensureSiteSettingsTable(PDO $pdo): void
+function ensureSiteSettingsTable__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     } catch (Throwable $e) {}
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureSiteSettingsTable(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/../includes/schema_once.php'; }
+    if (kuiSchemaDone('ensureSiteSettingsTable')) { return; }
+    ensureSiteSettingsTable__run($pdo);
+    kuiSchemaMark('ensureSiteSettingsTable');
 }
 function getSetting(PDO $pdo, string $key, string $default = ''): string
 {
@@ -1238,24 +1251,12 @@ function publishPortfolioToChannel(PDO $pdo, string $uploadDir, array $case): bo
 function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 {
     global $pdo;
-    if (!is_file($tmpPath)) { error_log("ImgBB: file not found ($tmpPath)"); return ''; }
-    $keys = array_filter([
-        getSetting($pdo, 'IMGBB_API_KEY', getenv('IMGBB_API_KEY') ?: ''),
-        getSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
-        getSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
-    ]);
-    if (empty($keys)) { error_log("ImgBB: no API keys set"); return ''; }
-    $b64 = base64_encode(file_get_contents($tmpPath));
-    foreach ($keys as $index => $apiKey) {
-        $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
-        $res = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($res === false || $res === '') { continue; }
-        $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
-        if ($url !== '') { return $url; }
-    }
-    return '';
+    require_once __DIR__ . '/../includes/imgbb.php';
+    $err = null;
+    $url = imgbbUpload($tmpPath, $name, $pdo ?? null, $err);
+    $GLOBALS['kuiImgLastErr'] = (string)$err;
+    if ($url === '' && $err) { error_log("uploadToImgBB('{$name}') не удалась: {$err}"); }
+    return $url;
 }
 
 /**
@@ -1314,6 +1315,14 @@ function saveUploadedWorkFiles(string $field, int $orderId): array
     return $result;
 }
 
+/** Картинка не ушла на ImgBB и легла на локальный диск (он стирается при деплое) — предупредим в админке. */
+function kuiImgTempWarn(): void
+{
+    $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
+    $GLOBALS['kuiImgWarn'] = '⚠️ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '')
+        . ' — она сохранена на сервере ВРЕМЕННО и пропадёт после следующего деплоя. Проверь ключи ImgBB (Ключи и API / Render → Environment).';
+}
+
 function uploadImage(string $field, string $prefix, string $uploadDir): string
 {
     global $message;
@@ -1331,7 +1340,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
         $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) return $filename;
+        if (move_uploaded_file($tmp, $dest)) { kuiImgTempWarn(); return $filename; }
     }
     $message = '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY.';
     return '';
@@ -1352,7 +1361,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     if (is_writable($uploadDir)) {
         $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
         $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) return $filename;
+        if (move_uploaded_file($tmp, $dest)) { kuiImgTempWarn(); return $filename; }
     }
     return '';
 }
@@ -2132,11 +2141,7 @@ if (isset($_POST['send_order_message'])) {
 
 $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
-$imgbbKeys         = array_filter([
-    getSetting($pdo, 'IMGBB_API_KEY', getenv('IMGBB_API_KEY') ?: ''),
-    getSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
-    getSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
-]);
+$imgbbKeys         = imgbbKeys($pdo);
 $imgbbKeyCount     = count($imgbbKeys);
 $imgbbKeySet       = $imgbbKeyCount > 0;
 ?>
@@ -2442,6 +2447,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         </div>
     </div>
 
+    <?php if (!empty($GLOBALS['kuiImgWarn'])): ?>
+        <div class="notice error"><?= htmlspecialchars($GLOBALS['kuiImgWarn']) ?></div>
+    <?php endif; ?>
     <?php if ($message !== ''): ?>
         <div class="notice <?= str_starts_with($message,'✅')||str_starts_with($message,'💾') ? 'success' : (str_starts_with($message,'❌') ? 'error' : '') ?>">
             <?= htmlspecialchars($message) ?>

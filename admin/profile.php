@@ -7,11 +7,20 @@ require_once 'auth.php';
 require_once '../config/db.php';
 
 // ── те же самые site_settings-хелперы, что и в index.php ──────────
-function ensureSiteSettingsTable(PDO $pdo): void
+function ensureSiteSettingsTable__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     } catch (Throwable $e) {}
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureSiteSettingsTable(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/../includes/schema_once.php'; }
+    if (kuiSchemaDone('ensureSiteSettingsTable')) { return; }
+    ensureSiteSettingsTable__run($pdo);
+    kuiSchemaMark('ensureSiteSettingsTable');
 }
 function getSetting(PDO $pdo, string $key, string $default = ''): string
 {
@@ -40,24 +49,11 @@ ensureSiteSettingsTable($pdo);
 function uploadToImgBB(string $tmpPath, string $name = 'image'): string
 {
     global $pdo;
-    if (!is_file($tmpPath)) return '';
-    $keys = array_filter([
-        getSetting($pdo, 'IMGBB_API_KEY', getenv('IMGBB_API_KEY') ?: ''),
-        getSetting($pdo, 'IMGBB_API_KEY2', getenv('IMGBB_API_KEY2') ?: ''),
-        getSetting($pdo, 'IMGBB_API_KEY3', getenv('IMGBB_API_KEY3') ?: ''),
-    ]);
-    if (empty($keys)) return '';
-    $b64 = base64_encode(file_get_contents($tmpPath));
-    foreach ($keys as $apiKey) {
-        $ch = curl_init('https://api.imgbb.com/1/upload');
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_POSTFIELDS => ['key' => $apiKey, 'image' => $b64, 'name' => $name]]);
-        $res = curl_exec($ch); curl_close($ch);
-        if ($res === false || $res === '') continue;
-        $data = json_decode($res, true); $url = $data['data']['url'] ?? '';
-        if ($url !== '') return $url;
-    }
-    return '';
+    require_once __DIR__ . '/../includes/imgbb.php';
+    $err = null;
+    $url = imgbbUpload($tmpPath, $name, $pdo ?? null, $err);
+    if ($url === '' && $err) { error_log("uploadToImgBB('{$name}') не удалась: {$err}"); }
+    return $url;
 }
 
 function imgSrc(string $val, string $baseUrl = '../uploads/'): string

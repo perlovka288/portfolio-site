@@ -71,7 +71,7 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
 /**
  * Промокоды: таблица + колонка на заказе, куда сохраняется применённый код.
  */
-function ensurePromoSchema(PDO $pdo): void
+function ensurePromoSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS promo_codes (
@@ -95,6 +95,15 @@ function ensurePromoSchema(PDO $pdo): void
     }
 }
 
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensurePromoSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensurePromoSchema')) { return; }
+    ensurePromoSchema__run($pdo);
+    kuiSchemaMark('ensurePromoSchema');
+}
+
 /**
  * РЕФЕРАЛЬНАЯ ПРОГРАММА (удержание клиентов / повторные продажи).
  *
@@ -112,7 +121,7 @@ function ensurePromoSchema(PDO $pdo): void
  *   Бонус начисляется только один раз за каждого приглашённого друга —
  *   это гарантирует таблица referral_awards (UNIQUE по referred_chat_id).
  */
-function ensureReferralSchema(PDO $pdo): void
+function ensureReferralSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS referral_users (
@@ -135,6 +144,15 @@ function ensureReferralSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureReferralSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureReferralSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureReferralSchema')) { return; }
+    ensureReferralSchema__run($pdo);
+    kuiSchemaMark('ensureReferralSchema');
 }
 
 /** Генерирует непересекающийся личный код REF-XXXXXX для клиента. */
@@ -417,7 +435,7 @@ function computeOrderPriceWithPromo(PDO $pdo, array $order): array
     ];
 }
 
-function ensureOrderFlowSchema(PDO $pdo): void
+function ensureOrderFlowSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(32) NOT NULL DEFAULT 'not_requested'");
@@ -509,6 +527,15 @@ function ensureOrderFlowSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureOrderFlowSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureOrderFlowSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureOrderFlowSchema')) { return; }
+    ensureOrderFlowSchema__run($pdo);
+    kuiSchemaMark('ensureOrderFlowSchema');
 }
 
 /**
@@ -776,35 +803,10 @@ function addOrderMessage(PDO $pdo, int $orderId, string $author, string $message
  */
 function uploadReceiptToImgBB(string $tmpPath, string $name = 'receipt'): string
 {
-    if (!is_file($tmpPath)) return '';
-    $keys = array_filter([
-        getenv('IMGBB_API_KEY')  ?: '',
-        getenv('IMGBB_API_KEY2') ?: '',
-        getenv('IMGBB_API_KEY3') ?: '',
-    ]);
-    if (empty($keys)) return '';
-
-    $b64 = base64_encode((string)file_get_contents($tmpPath));
-    foreach ($keys as $apiKey) {
-        try {
-            $ch = curl_init('https://api.imgbb.com/1/upload');
-            curl_setopt_array($ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 10,
-                CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
-            ]);
-            $res = curl_exec($ch);
-            curl_close($ch);
-            if ($res === false || $res === '') continue;
-            $data = json_decode($res, true);
-            $url  = $data['data']['url'] ?? '';
-            if ($url !== '') return $url;
-        } catch (Throwable $e) {
-            error_log('uploadReceiptToImgBB error: ' . $e->getMessage());
-        }
-    }
-    return '';
+    require_once __DIR__ . '/imgbb.php';
+    global $pdo;
+    // чеки: быстро (10 с, 1 попытка на ключ), чтобы не подвешивать ответ клиенту/боту
+    return imgbbUpload($tmpPath, $name, (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $err, 10, 1);
 }
 
 /**

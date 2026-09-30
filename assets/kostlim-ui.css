@@ -15,7 +15,7 @@ body.kui #ai-widget-fab,body.kui #ai-widget-bubble{display:none!important}
 
 /* ── верхняя панель (телефон): ИИ · лого по центру · Прайс+TG ── */
 .kui-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;background:var(--kui-orange);
-  padding:calc(12px + env(safe-area-inset-top,0px)) 16px 14px;color:#fff;position:relative;z-index:3}
+  padding:calc(12px + env(safe-area-inset-top,0px)) 16px 14px;color:#fff;position:relative}
 .kui-logo img{width:48px;height:48px;border-radius:50%;display:block;box-shadow:0 0 18px rgba(0,0,0,.35)}
 .kui-top-r{display:flex;gap:8px;justify-content:flex-end}
 .kui-ic,.kui-pill{border:1.5px solid rgba(255,255,255,.55);background:none;color:#fff;border-radius:20px;height:36px;
@@ -30,6 +30,7 @@ body.kui #ai-widget-fab,body.kui #ai-widget-bubble{display:none!important}
 .kui-hero{position:relative;overflow:hidden;background:rgba(255,255,255,.16);border-radius:var(--kui-r);padding:14px}
 .kui-hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.09) 1px,transparent 1px);background-size:22px 22px;-webkit-mask-image:linear-gradient(90deg,transparent,#000);mask-image:linear-gradient(90deg,transparent,#000)}
 .kui-hero:after{content:"";position:absolute;right:-26px;top:-26px;width:112px;height:112px;border-radius:50%;background:url(/assets/img/logo.png) center/cover;opacity:.18}
+.kui-hero{isolation:isolate}
 .kui-hero>*{position:relative;z-index:1}
 .kui-hero-head{display:flex;gap:12px;align-items:center}
 .kui-hero-ava{width:54px;height:54px;border-radius:50%;box-shadow:0 0 18px rgba(255,190,110,.6)}
@@ -43,7 +44,7 @@ body.kui #ai-widget-fab,body.kui #ai-widget-bubble{display:none!important}
 .kui-promo .kui-btn{height:36px;padding:0 16px;font-size:12.5px}
 
 /* ── основной лист ── */
-body.kui .kui-stage,body.kui .kui-main{background:var(--bg);border-radius:28px 28px 0 0;margin:-18px auto 0;position:relative;z-index:2;
+body.kui .kui-stage,body.kui .kui-main{background:var(--bg);border-radius:28px 28px 0 0;margin:-18px auto 0;position:relative;
   padding:16px 16px 24px;max-width:1240px;width:100%}
 body.kui .kui-main{margin-top:-18px}
 .kui-h1{margin:2px 2px 16px;font-size:24px;font-weight:800}
@@ -135,13 +136,14 @@ body.kui .kui-tabs .tab-btn:focus,body.kui .kui-tabs .tab-btn:focus-visible{outl
 /* ============================================================================
    ПРОФИЛЬ / ЗАКАЗЫ  (profile.php)
    ============================================================================ */
-.kui-pagehead{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-6px;padding:20px 16px 0;position:relative;z-index:2}
-body.kui .profile-wrap{max-width:1000px;width:100%;margin:0 auto;padding:6px 16px 28px;position:relative;z-index:2;background:var(--bg)}
+.kui-pagehead{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-6px;padding:20px 16px 0;position:relative}
+body.kui .profile-wrap{max-width:1000px;width:100%;margin:0 auto;padding:6px 16px 28px;position:relative;background:var(--bg)}
 body.kui .kui-pagehead .kui-h1{margin:0}
 body.kui .profile-hero{position:relative;overflow:hidden;background:linear-gradient(135deg,#f97316,#b93a0a);border:0;border-radius:var(--kui-r);
   padding:20px;gap:18px;box-shadow:0 12px 40px rgba(249,115,22,.22)}
 body.kui .profile-hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px);background-size:22px 22px;-webkit-mask-image:linear-gradient(90deg,transparent,#000);mask-image:linear-gradient(90deg,transparent,#000);pointer-events:none}
 body.kui .profile-hero:after{content:"";position:absolute;right:-30px;top:-30px;width:130px;height:130px;border-radius:50%;background:url(/assets/img/logo.png) center/cover;opacity:.16;pointer-events:none}
+body.kui .profile-hero{isolation:isolate}
 body.kui .profile-hero>*{position:relative;z-index:1}
 body.kui .profile-ava{border:3px solid #fff;box-shadow:0 0 22px rgba(0,0,0,.35)}
 body.kui .profile-ava-fallback{background:#111118;color:#fb923c;border:3px solid #fff}
@@ -164,7 +166,7 @@ body.kui footer{display:none}
 /* ============================================================================
    ЗАКАЗ: правила + форма  (order.php)
    ============================================================================ */
-body.kui .order-wrap{max-width:760px!important;width:100%;margin:-18px auto 0!important;padding:16px 16px 28px!important;background:var(--bg);border-radius:28px 28px 0 0;position:relative;z-index:2}
+body.kui .order-wrap{max-width:760px!important;width:100%;margin:-18px auto 0!important;padding:16px 16px 28px!important;background:var(--bg);border-radius:28px 28px 0 0;position:relative}
 body.kui .slots-wrap{max-width:none!important;padding:0 0 24px!important}
 .kui-steps{display:flex;align-items:center;gap:10px;margin:2px 2px 16px}
 .kui-steps span{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;color:var(--text2)}
@@ -212,7 +214,7 @@ body.kui .profile-actions .profile-action-btn:last-child{grid-column:1/-1}
 body.kui .profile-name span{background:#111118!important;color:#fb923c!important;border:0!important}
 body.kui #rules-scroll,body.kui #rules-scroll *{text-align:left}
 body.kui .kui-sticky-actions a,body.kui .kui-sticky-actions button{display:flex;align-items:center;justify-content:center;min-height:52px}
-body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:36px;z-index:1}
+body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:36px}
 .kui-pagehead{margin-top:-22px}
 @media (min-width:900px){body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:0}}
 @media (min-width:900px){body.kui .kui-pagehead{width:100%;background:none}body.kui .profile-wrap{background:none}}
@@ -223,13 +225,13 @@ body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-
    нижнее меню + шторка «Ещё» (assets/kostlim-admin.js), на ПК — боковая колонка.
    ============================================================================ */
 body.kui-admin{background:var(--bg);padding-left:0!important}
-.kui-admin-top{padding-bottom:36px;z-index:1}
+.kui-admin-top{padding-bottom:36px}
 .kui-admin-top .kui-pill{height:36px;padding:0 14px;font-size:12.5px}
 .kui-admin-badge{gap:7px;font-weight:800;letter-spacing:.4px}
 .kui-admin-badge img{width:22px;height:22px;border-radius:50%;object-fit:cover}
-.kui-admin-head{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-22px;padding:20px 16px 0;position:relative;z-index:2}
+.kui-admin-head{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-22px;padding:20px 16px 0;position:relative}
 .kui-admin-head .kui-h1{margin:0}
-body.kui-admin .admin-shell{max-width:1480px;padding:0 16px 24px;background:var(--bg);position:relative;z-index:2;margin:0 auto}
+body.kui-admin .admin-shell{max-width:1480px;padding:0 16px 24px;background:var(--bg);position:relative;margin:0 auto}
 body.kui-admin .admin-top{display:block;margin:8px 0 14px}
 body.kui-admin .admin-title h1,body.kui-admin .admin-title p,body.kui-admin .admin-top>div:last-child{display:none}
 body.kui-admin .admin-meta{margin:0}
@@ -297,3 +299,84 @@ body.kui-admin .admin-shell,body.kui-admin .kui-admin-head{width:100%;box-sizing
 @media (max-width:899px){.panel.kui-tiles .kui-ord-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel.kui-tiles .admin-order-card{min-height:140px;padding:12px}}
 .panel.kui-tiles .admin-order-card-price{padding-top:8px}
 body.kui-admin .admin-top>div:last-child{display:revert}
+
+
+/* ============================================================================
+   ОКНА / ШТОРКИ: фон статичен и без размытия, двигается только само окно
+   (прокрутку страницы блокирует assets/kostlim-lock.js → html.kui-lock)
+   ============================================================================ */
+body.kui [class*="overlay"],body.kui [id*="modal"],body.kui [class*="modal-"],body.kui .drawer-overlay{
+  backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+html.kui-lock{overflow:hidden!important;overscroll-behavior:none}
+html.kui-lock body{position:fixed!important;left:0;right:0;width:100%;overflow:hidden}
+body.kui .edit-drawer,body.kui [class*="modal-box"],body.kui [class*="modal-content"],body.kui [class*="modal-card"]{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+body.kui .edit-drawer{max-height:88vh;max-height:88dvh}
+
+/* ============================================================================
+   МГНОВЕННЫЕ ПЕРЕХОДЫ: стеклянный индикатор «переползает» на выбранный раздел
+   (cross-document View Transitions; браузеры без поддержки просто переключают страницу)
+   ============================================================================ */
+@view-transition{navigation:auto}
+body.kui{animation:none!important}
+body.kui .knav-loader{display:none!important}
+.kui-nav{view-transition-name:kui-nav}
+.kui-side{view-transition-name:kui-side}
+.kui-top{view-transition-name:kui-top}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.2s}
+::view-transition-group(kui-glass){animation-duration:.5s;animation-timing-function:cubic-bezier(.22,1.2,.3,1)}
+::view-transition-old(kui-glass),::view-transition-new(kui-glass){height:100%}
+.kui-glass{display:none;pointer-events:none}
+.kui-nav a,.kui-nav button,.kui-side-link{position:relative;isolation:isolate}
+.kui-nav .on .kui-glass,.kui-side-link.on .kui-glass{
+  display:block;view-transition-name:kui-glass;position:absolute;z-index:-1;border-radius:18px;
+  background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(249,115,22,.30));
+  border:1px solid rgba(255,255,255,.28);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -8px 16px rgba(249,115,22,.18),0 10px 28px rgba(249,115,22,.30);
+  backdrop-filter:blur(10px) saturate(1.5);-webkit-backdrop-filter:blur(10px) saturate(1.5)}
+.kui-nav .on .kui-glass{inset:-4px 4px -4px 4px}
+.kui-side-link.on .kui-glass{inset:0}
+.kui-nav .on{color:var(--text)}
+.kui-nav .on svg{color:var(--accent2)}
+@media (min-width:900px){.kui-side-link.on{background:none;color:var(--text)}.kui-side-link.on svg{color:var(--accent2)}}
+/* мгновенная реакция на нажатие + тонкая полоса загрузки сверху */
+.kui-nav a:active,.kui-nav button:active,.kui-side-link:active{transform:scale(.94);transition:transform .08s}
+html.kui-loading:after{content:"";position:fixed;left:0;top:0;height:3px;width:100%;z-index:9999;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--accent2),var(--accent),transparent);transform:translateX(-100%);animation:kuiBar 1s ease-in-out infinite}
+@keyframes kuiBar{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:.01s!important}}
+
+/* ============================================================================
+   ПРАЙС  (price.php)
+   ============================================================================ */
+body.kui footer{display:none}
+body.kui .price-page{max-width:1240px;width:100%;margin:-18px auto 0;padding:22px 16px 28px;background:var(--bg);border-radius:28px 28px 0 0;position:relative}
+.kui-price-head{display:flex;flex-direction:column;gap:14px;align-items:flex-start;margin:0 0 18px!important;text-align:left!important}
+.kui-price-head h1{margin:0;font-size:26px;font-weight:800;text-align:left;text-transform:none;letter-spacing:0}
+.kui-price-head h1:after{content:"";display:block;width:58px;height:8px;margin-top:6px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='58' height='8'%3E%3Cpath d='M1 5Q8-1 15 4T29 4T43 4T57 3' fill='none' stroke='%23f97316' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat}
+.kui-price-head p{margin:10px 0 0;color:var(--text2);font-size:14px;max-width:560px}
+.kui-price-tools{display:flex;gap:8px;flex-wrap:wrap}
+.kui-pill-ghost{border:1px solid var(--border2);background:var(--card);color:var(--text);border-radius:999px;padding:0 16px;height:40px;font:700 13px inherit;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
+body.kui .edit-mode-btn{border-radius:999px;height:40px}
+body.kui .price-grid-local{display:grid;grid-template-columns:1fr;gap:14px}
+body.kui .service-card{background:var(--card);border:1px solid var(--border);border-radius:var(--kui-r);padding:10px;display:flex;flex-direction:column;gap:12px;transition:border-color .2s,box-shadow .2s}
+body.kui .service-card:hover{border-color:var(--accent);box-shadow:0 0 28px var(--accent-glow)}
+body.kui .service-cover{border-radius:14px;overflow:hidden;outline:1px dashed rgba(249,115,22,.55);outline-offset:4px;margin:4px 4px 0;aspect-ratio:16/9;background:var(--card2)}
+body.kui .service-cover img{width:100%;height:100%;object-fit:cover;display:block}
+body.kui .service-cover-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text2);font-size:12px}
+body.kui .service-body{padding:2px 8px 6px;display:flex;flex-direction:column;gap:10px;flex:1}
+body.kui .service-body h2{margin:0;font-size:18px;font-weight:800}
+body.kui .service-body p{margin:0;color:var(--text2);font-size:13px;line-height:1.5}
+body.kui .service-features{list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:6px}
+body.kui .service-features li{background:var(--accent-dim);color:var(--accent2);border:1px solid var(--border-accent);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700}
+body.kui .service-features li:before{display:none}
+body.kui .service-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:6px}
+body.kui .service-price{font-size:22px;font-weight:800;line-height:1.1}
+body.kui .service-price small{display:block;font-size:13px;font-weight:600;color:var(--text2)}
+body.kui .service-order{border-radius:999px;min-height:44px;padding:0 22px;display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;font-weight:800;text-decoration:none;box-shadow:0 8px 22px var(--accent-glow2)}
+body.kui .edit-banner{border-radius:18px}
+@media (min-width:700px){body.kui .price-grid-local{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:900px){
+  body.kui .price-page{margin:0 auto;border-radius:0;background:none;padding:22px 32px 32px}
+  .kui-price-head{flex-direction:row;justify-content:space-between;align-items:flex-end}
+}
+@media (min-width:1200px){body.kui .price-grid-local{grid-template-columns:repeat(3,minmax(0,1fr))}}

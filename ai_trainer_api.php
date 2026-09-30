@@ -31,7 +31,7 @@ $tgProfile = $access['tgProfile'];
 ensureTrainerSchema($pdo);
 ensureResourcesSchema($pdo); // гарантирует site_settings для редактируемых промптов (Блок 4.1 ТЗ)
 
-function ensureTrainerSchema(PDO $pdo): void
+function ensureTrainerSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS trainer_sessions (
@@ -73,6 +73,15 @@ function ensureTrainerSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureTrainerSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureTrainerSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/includes/schema_once.php'; }
+    if (kuiSchemaDone('ensureTrainerSchema')) { return; }
+    ensureTrainerSchema__run($pdo);
+    kuiSchemaMark('ensureTrainerSchema');
 }
 
 /**

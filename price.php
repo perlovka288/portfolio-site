@@ -1,12 +1,15 @@
 <?php
 session_start();
+require_once __DIR__ . '/includes/ui_cache.php';
 require_once 'config/db.php';
+
 
 define('ADMIN_TG_ID', '1710365896');
 if (!empty($_GET['tg_id']) && $_GET['tg_id'] === ADMIN_TG_ID) {
     $_SESSION['admin_logged'] = true;
 }
 $isAdmin = isset($_SESSION['admin_logged']) && $_SESSION['admin_logged'] === true;
+kuiApplyCacheHeaders(); // короткий кэш для гостей → мгновенные переходы между разделами
 
 // AJAX сохранение всего прайса одним запросом
 if ($isAdmin && isset($_POST['save_all_inline'])) {
@@ -46,7 +49,7 @@ $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Kostlim Design | Прайс-лист</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
@@ -130,43 +133,32 @@ body::before {
     border-color: rgba(249,115,22,.2);
 }
 </style>
+<link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
+<?php include __DIR__ . '/includes/ui_head.php'; ?>
 </head>
-<body>
-
-<header>
-    <div class="header-left">
-        <a href="index.php" class="nav-link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-            </svg>
-            На главную
-        </a>
-    </div>
-
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
-
-    <div class="header-right">
-        <?php if ($isAdmin): ?>
-        <button class="edit-mode-btn" id="editToggle" onclick="toggleEditMode()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Редактировать
-        </button>
-        <?php endif; ?>
-        <a href="https://t.me/kostlimdznbot" target="_blank" class="nav-link nav-bot">
-            <span class="icon"></span>
-            Бот для заказов
-        </a>
-        <a href="order.php" class="nav-link" style="background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;border-color:transparent;box-shadow:0 0 16px rgba(249,115,22,.3);">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-            К заказу
-        </a>
-    </div>
-</header>
+<body class="kui">
+<?php
+    // ── KUI: оболочка (меню ПК / шапка + нижнее меню) ──
+    $kuiActive = 'price';
+    include __DIR__ . '/includes/ui_identity.php';
+    include __DIR__ . '/includes/ui_shell.php';
+?>
 
 <main class="container price-page" id="priceMain">
-    <div class="price-head">
-        <h1>Прайс-лист</h1>
-        <p>Все услуги подтягиваются из админ-панели и сразу доступны в Telegram-боте.</p>
+    <div class="price-head kui-price-head">
+        <div>
+            <h1>Прайс-лист</h1>
+            <p>Дизайн соц сетей: выбери услугу и нажми «Заказать» — всё подтягивается из админки и доступно в Telegram-боте.</p>
+        </div>
+        <div class="kui-price-tools">
+            <?php if ($isAdmin): ?>
+            <button class="edit-mode-btn" id="editToggle" onclick="toggleEditMode()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Редактировать
+            </button>
+            <?php endif; ?>
+            <a href="https://t.me/kostlimdznbot" target="_blank" rel="noopener" class="kui-pill kui-pill-ghost">🤖 Бот для заказов</a>
+        </div>
     </div>
 
     <?php if ($isAdmin): ?>
@@ -303,5 +295,6 @@ async function saveAll() {
 }
 </script>
 <?php endif; ?>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>

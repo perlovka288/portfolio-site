@@ -48,7 +48,7 @@ function renderRoleBadges(array $flags): string
  * активировал одноразовый ключ — доступ не должен пропасть, если бота
  * временно не удалось опросить.
  */
-function ensurePpkManualSchema(PDO $pdo): void
+function ensurePpkManualSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS ppk_manual_grants (
@@ -68,6 +68,15 @@ function ensurePpkManualSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensurePpkManualSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensurePpkManualSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensurePpkManualSchema')) { return; }
+    ensurePpkManualSchema__run($pdo);
+    kuiSchemaMark('ensurePpkManualSchema');
 }
 
 function hasManualPpkGrant(PDO $pdo, string $tgId): bool

@@ -81,7 +81,7 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
     </a>
     <?php foreach ($kuiSide as $it): ?>
         <a class="kui-side-link<?= $kuiActive === $it[0] ? ' on' : '' ?>" href="<?= htmlspecialchars($it[2]) ?>"<?= ($it[0] === 'ppk' && $kuiPpkOnclick) ? ' onclick="' . htmlspecialchars($kuiPpkOnclick) . '"' : '' ?>>
-            <?= kuiIcon($it[3]) ?><span><?= $it[1] ?></span>
+            <i class="kui-glass"></i><?= kuiIcon($it[3]) ?><span><?= $it[1] ?></span>
         </a>
     <?php endforeach; ?>
     <div class="kui-side-sp"></div>
@@ -101,13 +101,13 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
 
 <!-- KUI: нижнее меню (только телефон) -->
 <nav class="kui-nav" aria-label="Навигация">
-    <a class="<?= $kuiActive === 'home' ? 'on' : '' ?>" href="index.php"><?= kuiIcon('works') ?>Работы</a>
-    <a class="<?= $kuiActive === 'price' ? 'on' : '' ?>" href="price.php"><?= kuiIcon('price') ?>Прайс</a>
+    <a class="<?= $kuiActive === 'home' ? 'on' : '' ?>" href="index.php"><i class="kui-glass"></i><?= kuiIcon('works') ?>Работы</a>
+    <a class="<?= $kuiActive === 'price' ? 'on' : '' ?>" href="price.php"><i class="kui-glass"></i><?= kuiIcon('price') ?>Прайс</a>
     <a class="kui-me<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" aria-label="Профиль">
         <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'">
         <?php if ($kuiBadge): ?><em><?= $kuiBadge ?></em><?php endif; ?>
     </a>
-    <a class="<?= $kuiActive === 'orders' ? 'on' : '' ?>" href="profile.php?view=orders#orders-section"><?= kuiIcon('orders') ?>Заказы</a>
+    <a class="<?= $kuiActive === 'orders' ? 'on' : '' ?>" href="profile.php?view=orders#orders-section"><i class="kui-glass"></i><?= kuiIcon('orders') ?>Заказы</a>
     <button type="button" data-kui-more><?= kuiIcon('more') ?>Ещё</button>
 </nav>
 

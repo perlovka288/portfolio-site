@@ -17,7 +17,7 @@
  *   - в боте — при каждом /start и при заходе в главное меню.
  */
 
-function ensurePackRoleSchema(PDO $pdo): void
+function ensurePackRoleSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS pack_membership_cache (
@@ -28,6 +28,15 @@ function ensurePackRoleSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensurePackRoleSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensurePackRoleSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensurePackRoleSchema')) { return; }
+    ensurePackRoleSchema__run($pdo);
+    kuiSchemaMark('ensurePackRoleSchema');
 }
 
 /**

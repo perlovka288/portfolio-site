@@ -6,7 +6,7 @@
  * тренажёра (admin/ai_trainer_review.php).
  */
 
-function ensureNotificationsSchema(PDO $pdo): void
+function ensureNotificationsSchema__run(PDO $pdo): void
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS pack_notifications (
@@ -22,6 +22,15 @@ function ensureNotificationsSchema(PDO $pdo): void
     } catch (Throwable $e) {
         error_log('ensureNotificationsSchema error: ' . $e->getMessage());
     }
+}
+
+/** KUI: схема проверяется один раз на контейнер (см. includes/schema_once.php) */
+function ensureNotificationsSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensureNotificationsSchema')) { return; }
+    ensureNotificationsSchema__run($pdo);
+    kuiSchemaMark('ensureNotificationsSchema');
 }
 
 function createNotification(PDO $pdo, string $tgId, string $type, string $title, string $body, string $link): void
