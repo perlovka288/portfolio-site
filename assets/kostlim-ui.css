@@ -216,3 +216,59 @@ body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-
 .kui-pagehead{margin-top:-22px}
 @media (min-width:900px){body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:0}}
 @media (min-width:900px){body.kui .kui-pagehead{width:100%;background:none}body.kui .profile-wrap{background:none}}
+
+/* ============================================================================
+   АДМИН-ПАНЕЛЬ  (admin/index.php) — body.kui.kui-admin
+   Старые вкладки .admin-tab остаются источником правды; на телефоне вместо них
+   нижнее меню + шторка «Ещё» (assets/kostlim-admin.js), на ПК — боковая колонка.
+   ============================================================================ */
+body.kui-admin{background:var(--bg);padding-left:0!important}
+.kui-admin-top{padding-bottom:36px;z-index:1}
+.kui-admin-top .kui-pill{height:36px;padding:0 14px;font-size:12.5px}
+.kui-admin-badge{gap:7px;font-weight:800;letter-spacing:.4px}
+.kui-admin-badge img{width:22px;height:22px;border-radius:50%;object-fit:cover}
+.kui-admin-head{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-22px;padding:20px 16px 0;position:relative;z-index:2}
+.kui-admin-head .kui-h1{margin:0}
+body.kui-admin .admin-shell{max-width:1480px;padding:0 16px 24px;background:var(--bg);position:relative;z-index:2;margin:0 auto}
+body.kui-admin .admin-top{display:block;margin:8px 0 14px}
+body.kui-admin .admin-title h1,body.kui-admin .admin-title p,body.kui-admin .admin-top>div:last-child{display:none}
+body.kui-admin .admin-meta{margin:0}
+body.kui-admin .admin-meta span{border-radius:999px}
+body.kui-admin .notice{border-radius:18px}
+/* карточки/панели */
+body.kui-admin .panel,body.kui-admin .create-card{background:var(--card);border:1px solid var(--border);border-radius:var(--kui-r)}
+body.kui-admin .stat-card{background:var(--card);border:1px solid var(--border);border-radius:18px}
+body.kui-admin .stat-card.accent{border-color:var(--border-accent);background:linear-gradient(135deg,var(--accent-dim),var(--card))}
+body.kui-admin .panel h2{font-size:18px;font-weight:800}
+body.kui-admin input:not([type=file]):not([type=checkbox]),body.kui-admin select,body.kui-admin textarea{border-radius:16px}
+body.kui-admin .btn-panel,body.kui-admin .review-btn,body.kui-admin .admin-link-top{border-radius:22px}
+body.kui-admin .admin-order-card,body.kui-admin .review-card,body.kui-admin .item-card{border-radius:18px}
+body.kui-admin .admin-table-wrap{overflow-x:auto;border-radius:16px}
+body.kui-admin .admin-tab{border-radius:14px}
+body.kui-admin .admin-tab.active{background:var(--accent);box-shadow:0 10px 26px var(--accent-glow2)}
+.kui-more-group{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);padding:14px 4px 2px}
+.kui-more-sheet{max-height:82vh;overflow-y:auto}
+@media (max-width:899px){
+  body.kui-admin .admin-tabs{display:none}
+  body.kui-admin .admin-board{display:block}
+  body.kui-admin .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.kui-admin .admin-layout{grid-template-columns:minmax(0,1fr)}
+  body.kui-admin .two-cols{grid-template-columns:1fr!important}
+  body.kui-admin .panel{padding:14px}
+}
+@media (min-width:900px){
+  .kui-admin-top{padding-bottom:0}
+  .kui-admin-head{border-radius:0;margin-top:0;padding:14px 24px 0;max-width:1480px;margin-left:auto;margin-right:auto;background:none}
+  body.kui-admin .admin-shell{background:none;padding:0 24px 40px}
+  body.kui-admin .admin-board{grid-template-columns:248px minmax(0,1fr)}
+  body.kui-admin .admin-tabs{background:var(--card);border:1px solid var(--border);border-radius:var(--kui-r);padding:12px;top:16px}
+  body.kui-admin .admin-tab-group-label{color:var(--text2)}
+}
+body.kui-admin .admin-shell,body.kui-admin .kui-admin-head{width:100%;box-sizing:border-box}
+@media (min-width:900px){
+  body.kui-admin .kui-admin-top{max-width:1480px;padding:16px 24px 0;justify-content:flex-start;gap:0}
+  body.kui-admin .kui-admin-top .kui-logo{display:block!important;order:-1}
+  body.kui-admin .kui-admin-top .kui-logo img{width:46px;height:46px}
+  body.kui-admin .kui-admin-top>.kui-pill:first-of-type{margin-left:auto;margin-right:8px}
+  body.kui-admin .kui-admin-top .kui-top-r{flex:0 0 auto}
+}

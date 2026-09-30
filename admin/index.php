@@ -2138,7 +2138,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Kostlim Admin</title>
     <link rel="icon" type="image/png" href="/assets/notify/fav.png" sizes="16x16">
     <link rel="stylesheet" href="../style.css">
@@ -2411,8 +2411,14 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         input[type="checkbox"]:checked::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
         .tg-checkbox { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 12.5px; color: #d8d8e8; font-weight: 700; }
     </style>
+<?php include __DIR__ . '/../includes/ui_head.php'; ?>
 </head>
-<body>
+<body class="kui kui-admin">
+<?php
+    // ── KUI: оболочка админки (шапка + нижнее меню/шторка на телефоне) ──
+    $kuiAdminTitle = 'Админ-панель';
+    include __DIR__ . '/../includes/ui_admin_shell.php';
+?>
 <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawers()"></div>
 
 <div id="admin-toast"></div>
@@ -3860,5 +3866,6 @@ document.addEventListener('click', function(e) {
     });
 });
 </script>
+<script src="/assets/kostlim-admin.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-admin.js') ?: time() ?>"></script>
 </body>
 </html>

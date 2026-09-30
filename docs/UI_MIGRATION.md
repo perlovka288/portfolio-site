@@ -1,6 +1,6 @@
 # Новый интерфейс KUI — как переносить остальные страницы
 
-Готово: **index.php** (главная), **profile.php** (профиль + «Мои заказы»), **order.php** (правила заказа → форма заказа). Общие файлы:
+Готово: **index.php** (главная), **profile.php** (профиль + «Мои заказы»), **order.php** (правила заказа → форма заказа), **admin/index.php** (админ-панель). Общие файлы:
 
 | Файл | Что делает |
 |---|---|
@@ -29,7 +29,8 @@
 | privat_pak.php | `ppk` | доступ по-прежнему проверяется твоей логикой |
 | support.php | `support` | там уже стоит `$aiWidgetHideFab = true` |
 | useful.php / resources.php / planner.php | `useful` / `ppk` | |
-| admin/* | `admin` | отдельным шагом: у админки свой `header.php`/`footer.php`, сделаем админ-вариант оболочки |
+| admin/index.php ✅ | — | готово: `includes/ui_admin_shell.php` + `assets/kostlim-admin.js` (нижнее меню и шторка «Ещё» строятся из твоих вкладок `.admin-tab`) |
+| admin/profile.php, resources.php, psd_manager.php, ppk_manager.php… | — | тот же приём: `<body class="kui kui-admin">` + `include ui_admin_shell.php` (вкладок там нет — меню покажет только шапку) |
 
 ## Компоненты
 `.kui-card` (+`.accent`) · `.kui-row` · `.kui-grid` · `.kui-btn` (+`.ghost`, `.block`) · `.kui-field` · `.kui-badge` · `.kui-h1` · `.kui-h2` (заголовки с «пером»).
