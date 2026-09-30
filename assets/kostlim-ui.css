@@ -272,3 +272,28 @@ body.kui-admin .admin-shell,body.kui-admin .kui-admin-head{width:100%;box-sizing
   body.kui-admin .kui-admin-top>.kui-pill:first-of-type{margin-left:auto;margin-right:8px}
   body.kui-admin .kui-admin-top .kui-top-r{flex:0 0 auto}
 }
+
+/* ── АДМИНКА: заказы — Активные (закреплены) + Архив, вид «Список / Плитка» ── */
+.kui-ord-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
+.kui-seg{display:inline-flex;background:var(--card2);border:1px solid var(--border2);border-radius:999px;padding:3px}
+.kui-seg button{border:0;background:none;color:var(--text2);font:700 13px inherit;font-family:inherit;padding:8px 14px;border-radius:999px;cursor:pointer}
+.kui-seg button.on{background:var(--accent);color:#fff;box-shadow:0 6px 16px var(--accent-glow2)}
+.kui-arch-toggle{border:1px solid var(--border2);background:var(--card2);color:var(--text);font:700 13px inherit;font-family:inherit;border-radius:999px;padding:9px 16px;cursor:pointer}
+.kui-arch-toggle b{color:var(--accent2)}
+.kui-arch-toggle span{color:var(--text2);font-weight:600;margin-left:4px}
+.kui-ord-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;margin:16px 2px 10px}
+.kui-ord-title b{background:var(--accent-dim);color:var(--accent2);border-radius:999px;padding:2px 10px;font-size:12px}
+.kui-ord-title.active{color:var(--accent2)}
+.kui-ord-empty{color:var(--text2);text-align:center;padding:18px;border:1px dashed var(--border2);border-radius:16px;grid-column:1/-1}
+.kui-arch{display:none}.kui-arch.open{display:block}
+/* активные — «закреплённый» акцент */
+.kui-ord-title.active+.kui-ord-grid .admin-order-card{border-left:3px solid var(--accent)}
+/* плитка */
+.panel.kui-tiles .kui-ord-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.panel.kui-tiles .admin-order-card{flex-direction:column;align-items:flex-start;gap:8px;padding:14px;min-height:150px;position:relative}
+.panel.kui-tiles .admin-order-card-main{width:100%}
+.panel.kui-tiles .admin-order-card-price{text-align:left;margin-top:auto}
+.panel.kui-tiles .admin-order-card-chevron{position:absolute;right:12px;top:12px}
+@media (max-width:899px){.panel.kui-tiles .kui-ord-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel.kui-tiles .admin-order-card{min-height:140px;padding:12px}}
+.panel.kui-tiles .admin-order-card-price{padding-top:8px}
+body.kui-admin .admin-top>div:last-child{display:revert}

@@ -67,3 +67,32 @@
   tabs.forEach(function (b) { mo.observe(b, { attributes: true, attributeFilter: ['class'] }); });
   sync();
 })();
+
+/* ── Заказы: вид «Список / Плитка» и показать/скрыть архив (запоминается в браузере) ── */
+(function () {
+  var panel = document.querySelector('.panel[data-panel="orders"]');
+  var arch = document.getElementById('kuiArch'), tg = document.getElementById('kuiArchToggle');
+  if (!panel) return;
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  function setView(v) {
+    panel.classList.toggle('kui-tiles', v === 'tiles');
+    Array.prototype.slice.call(panel.querySelectorAll('[data-kui-view]')).forEach(function (b) { b.classList.toggle('on', b.dataset.kuiView === v); });
+    store.set('kui_orders_view', v);
+  }
+  panel.addEventListener('click', function (e) { var b = e.target.closest('[data-kui-view]'); if (b) setView(b.dataset.kuiView); });
+  setView(store.get('kui_orders_view') === 'tiles' ? 'tiles' : 'list');
+
+  if (!arch || !tg) return;
+  function setArch(open) {
+    arch.classList.toggle('open', open);
+    tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+    tg.querySelector('span').textContent = open ? 'Скрыть' : 'Показать';
+    store.set('kui_orders_archive', open ? '1' : '0');
+  }
+  tg.addEventListener('click', function () { setArch(!arch.classList.contains('open')); });
+  // открыт, если пришли со страницей архива/фильтром (PHP ставит .open) или пользователь открыл раньше
+  setArch(arch.classList.contains('open') || store.get('kui_orders_archive') === '1');
+})();

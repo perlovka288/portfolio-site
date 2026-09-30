@@ -2001,26 +2001,32 @@ $orders_status  = trim((string)($_GET['orders_status'] ?? ''));
 
 $pendingOrders = $pdo->query("SELECT id, username, telegram, service_key, created_at, cooperation, deadline FROM orders WHERE status = 'pending' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
-$where = ''; $params = [];
-if ($orders_status !== '') { $where = "WHERE o.status = ?"; $params[] = $orders_status; }
-
-$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders o " . $where);
-$countStmt->execute($params);
-$ordersTotal      = (int)$countStmt->fetchColumn();
-$ordersTotalPages = max(1, (int)ceil($ordersTotal / $ordersPerPage));
-
-$offset = ($orders_page - 1) * $ordersPerPage;
-$sql = "SELECT o.id, o.username, o.telegram, o.service_key, o.status, o.created_at, o.cooperation, o.deadline,
+// ── KUI: заказы делятся на АКТИВНЫЕ (закреплены сверху, без пагинации) и АРХИВ (готов/отклонён) ──
+$archiveStatuses = ['ready', 'declined'];
+$archiveIn  = "('" . implode("','", $archiveStatuses) . "')";
+$statusSql  = ($orders_status !== '') ? " AND o.status = ?" : '';
+$statusPar  = ($orders_status !== '') ? [$orders_status] : [];
+$orderCols  = "o.id, o.username, o.telegram, o.service_key, o.status, o.created_at, o.cooperation, o.deadline,
     CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_rub END AS price_rub,
     CASE WHEN o.cooperation AND o.status IN ('in_progress','urgent','ready') THEN 0 ELSE p.price_uan END AS price_uan,
     p.title, p.price_rub AS price_rub_from_price, p.price_uan AS price_uan_from_price
-    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key " . ($where ?: '') . " ORDER BY o.id DESC LIMIT ? OFFSET ?";
-$stmt = $pdo->prepare($sql);
-$execParams = $params;
-$execParams[] = $ordersPerPage;
-$execParams[] = $offset;
-$stmt->execute($execParams);
-$recentOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    FROM orders o LEFT JOIN prices p ON p.category_key=o.service_key";
+
+// активные: срочные выше, дальше новые сверху
+$stmt = $pdo->prepare("SELECT $orderCols WHERE o.status NOT IN $archiveIn" . $statusSql . " ORDER BY (o.status = 'urgent') DESC, o.id DESC");
+$stmt->execute($statusPar);
+$activeOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// архив: с пагинацией
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders o WHERE o.status IN $archiveIn" . $statusSql);
+$countStmt->execute($statusPar);
+$archiveTotal     = (int)$countStmt->fetchColumn();
+$ordersTotalPages = max(1, (int)ceil($archiveTotal / $ordersPerPage));
+$offset = ($orders_page - 1) * $ordersPerPage;
+$stmt = $pdo->prepare("SELECT $orderCols WHERE o.status IN $archiveIn" . $statusSql . " ORDER BY o.id DESC LIMIT ? OFFSET ?");
+$stmt->execute(array_merge($statusPar, [$ordersPerPage, $offset]));
+$recentOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);   // = архив, текущая страница
+$ordersTotal  = count($activeOrders) + $archiveTotal;
 
 $categoryLabels = [];
 foreach ($categories as $category) {
@@ -2429,20 +2435,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <h1>⚙️ Админ-панель Kostlim Design</h1>
             <p>Портфолио, прайс, заказы и деньги в одном месте.</p>
             <div class="admin-meta">
-                <?php if ($imgbbKeySet): ?>
-                    <span class="ok">✅ ImgBB: <?= $imgbbKeyCount ?> <?= $imgbbKeyCount === 1 ? 'ключ' : ($imgbbKeyCount < 5 ? 'ключа' : 'ключей') ?></span>
-                <?php else: ?>
+                <?php if (!$imgbbKeySet): ?>
                     <span class="warn">⚠️ IMGBB_API_KEY не задан!</span>
                 <?php endif; ?>
             </div>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center;">
-            <a href="profile.php" class="admin-link-top" style="display:flex;align-items:center;gap:7px;">
-                <?php $headerAvatarSrc = imgSrc($currentAvatarFile ?? '', '../uploads/'); ?>
-                <img src="<?= htmlspecialchars($headerAvatarSrc ?: 'https://i.imgur.com/w9NThbA.png') ?>" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" onerror="this.src='https://i.imgur.com/w9NThbA.png'">
-                👤 Мой профиль
-            </a>
-            <a href="../index.php" class="admin-link-top">← На сайт</a>
         </div>
     </div>
 
@@ -2892,8 +2888,9 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             </form>
                             <div style="margin-left:auto;color:#8a8a96;font-size:13px;">Всего: <strong><?= $ordersTotal ?></strong></div>
                         </div>
-                        <div class="admin-orders-cards">
-                            <?php foreach ($recentOrders as $order): ?>
+                        <?php
+    // KUI: одна карточка заказа (используется и в «Активных», и в «Архиве»)
+    $renderOrderCard = function (array $order) use ($statusLabels) { ?>
                                 <?php
                                     $isUrgent = $order['status'] === 'urgent';
                                     $deadlineHtml = '';
@@ -2931,11 +2928,35 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                     <?php endif; ?>
                                     <span class="admin-order-card-chevron">→</span>
                                 </div>
-                            <?php endforeach; ?>
-                            <?php if (empty($recentOrders)): ?>
-                                <div style="color:#8a8a96;padding:20px;text-align:center;">Заказов нет.</div>
+                            <?php }; ?>
+
+                        <!-- ═ KUI: панель вида и архива ═ -->
+                        <div class="kui-ord-bar">
+                            <div class="kui-seg" role="group" aria-label="Вид заказов">
+                                <button type="button" data-kui-view="list" class="on">☰ Список</button>
+                                <button type="button" data-kui-view="tiles">▦ Плитка</button>
+                            </div>
+                            <button type="button" class="kui-arch-toggle" id="kuiArchToggle" aria-expanded="false">🗄 Архив · <b><?= (int)$archiveTotal ?></b> <span>Показать</span></button>
+                        </div>
+
+                        <!-- ═ Активные — закреплены сверху ═ -->
+                        <div class="kui-ord-title active">📌 Активные <b><?= count($activeOrders) ?></b></div>
+                        <div class="admin-orders-cards kui-ord-grid">
+                            <?php foreach ($activeOrders as $order) { $renderOrderCard($order); } ?>
+                            <?php if (empty($activeOrders)): ?>
+                                <div class="kui-ord-empty">Активных заказов нет 🎉</div>
                             <?php endif; ?>
                         </div>
+
+                        <!-- ═ Архив — выполненные/отклонённые, можно скрыть ═ -->
+                        <div class="kui-arch<?= ($orders_page > 1 || $orders_status !== '') ? ' open' : '' ?>" id="kuiArch">
+                            <div class="kui-ord-title">🗄 Архив <b><?= (int)$archiveTotal ?></b></div>
+                            <div class="admin-orders-cards kui-ord-grid">
+                                <?php foreach ($recentOrders as $order) { $renderOrderCard($order); } ?>
+                                <?php if (empty($recentOrders)): ?>
+                                    <div class="kui-ord-empty">В архиве пока пусто.</div>
+                                <?php endif; ?>
+                            </div>
                         <?php if ($ordersTotalPages > 1): ?>
                             <div style="display:flex;gap:8px;align-items:center;margin-top:12px;">
                                 <?php for ($p = 1; $p <= $ordersTotalPages; $p++): ?>
@@ -2943,6 +2964,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                                 <?php endfor; ?>
                             </div>
                         <?php endif; ?>
+                        </div><!-- /kui-arch -->
                     </section>
 
                     <!-- ════ ЛОГИ ════ -->
