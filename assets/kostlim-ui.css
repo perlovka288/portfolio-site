@@ -131,3 +131,88 @@ body.kui .portfolio-price-top{align-self:flex-start;background:var(--accent-dim)
   .kui-grid{grid-template-columns:repeat(2,1fr)}
 }
 body.kui .kui-tabs .tab-btn:focus,body.kui .kui-tabs .tab-btn:focus-visible{outline:none}
+
+/* ============================================================================
+   ПРОФИЛЬ / ЗАКАЗЫ  (profile.php)
+   ============================================================================ */
+.kui-pagehead{background:var(--bg);border-radius:28px 28px 0 0;margin-top:-6px;padding:20px 16px 0;position:relative;z-index:2}
+body.kui .profile-wrap{max-width:1000px;width:100%;margin:0 auto;padding:6px 16px 28px;position:relative;z-index:2;background:var(--bg)}
+body.kui .kui-pagehead .kui-h1{margin:0}
+body.kui .profile-hero{position:relative;overflow:hidden;background:linear-gradient(135deg,#f97316,#b93a0a);border:0;border-radius:var(--kui-r);
+  padding:20px;gap:18px;box-shadow:0 12px 40px rgba(249,115,22,.22)}
+body.kui .profile-hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px);background-size:22px 22px;-webkit-mask-image:linear-gradient(90deg,transparent,#000);mask-image:linear-gradient(90deg,transparent,#000);pointer-events:none}
+body.kui .profile-hero:after{content:"";position:absolute;right:-30px;top:-30px;width:130px;height:130px;border-radius:50%;background:url(/assets/img/logo.png) center/cover;opacity:.16;pointer-events:none}
+body.kui .profile-hero>*{position:relative;z-index:1}
+body.kui .profile-ava{border:3px solid #fff;box-shadow:0 0 22px rgba(0,0,0,.35)}
+body.kui .profile-ava-fallback{background:#111118;color:#fb923c;border:3px solid #fff}
+body.kui .profile-name,body.kui .profile-username{color:#fff}
+body.kui .profile-username{opacity:.85}
+body.kui .profile-stat{background:rgba(255,255,255,.16);border:0;border-radius:14px}
+body.kui .profile-stat-num{color:#fff!important}
+body.kui .profile-stat-label{color:rgba(255,255,255,.85)}
+body.kui .profile-actions{display:grid!important;grid-template-columns:1fr 1fr;gap:8px;width:100%;flex-direction:row}
+body.kui .profile-action-btn{border-radius:22px;min-height:44px;justify-content:center;font-size:13px;box-shadow:none}
+body.kui .btn-order{background:#fff!important;color:#1a1005!important;grid-column:1/-1}
+body.kui .btn-catalog,body.kui .btn-bot,body.kui .profile-actions .profile-action-btn[style]{background:rgba(255,255,255,.18)!important;border:1.5px solid rgba(255,255,255,.5)!important;color:#fff!important}
+body.kui .orders-page-title{align-items:flex-start;text-align:left;text-transform:none;letter-spacing:0;font-size:22px;margin:2px 0 16px}
+body.kui .order-card{background:var(--card);border:1px solid var(--border);border-radius:var(--kui-r)}
+body.kui .order-card:hover{border-color:var(--accent);box-shadow:0 0 28px var(--accent-glow)}
+body.kui .order-status-badge{border-radius:999px}
+body.kui .profile-notice{border-radius:18px}
+body.kui footer{display:none}
+
+/* ============================================================================
+   ЗАКАЗ: правила + форма  (order.php)
+   ============================================================================ */
+body.kui .order-wrap{max-width:760px!important;width:100%;margin:-18px auto 0!important;padding:16px 16px 28px!important;background:var(--bg);border-radius:28px 28px 0 0;position:relative;z-index:2}
+body.kui .slots-wrap{max-width:none!important;padding:0 0 24px!important}
+.kui-steps{display:flex;align-items:center;gap:10px;margin:2px 2px 16px}
+.kui-steps span{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;color:var(--text2)}
+.kui-steps span b{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:var(--card3);color:var(--text2)}
+.kui-steps span.on{color:var(--text)}.kui-steps span.on b{background:var(--accent);color:#fff;box-shadow:0 0 14px var(--accent-glow2)}
+.kui-steps i{flex:1;height:2px;background:var(--border2);border-radius:2px;max-width:70px}
+/* правила */
+body.kui .rules-card{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+body.kui .rules-card h2{font-size:24px!important;text-transform:none!important;letter-spacing:0!important;text-align:left}
+body.kui .rules-card h2:after{content:"";display:block;width:58px;height:8px;margin-top:6px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='58' height='8'%3E%3Cpath d='M1 5Q8-1 15 4T29 4T43 4T57 3' fill='none' stroke='%23f97316' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat}
+body.kui .rules-card>div:first-of-type{text-align:left!important}
+body.kui #rules-scroll{background:var(--card);border:1px solid var(--border)!important;border-radius:var(--kui-r);padding:18px!important;margin-bottom:16px!important}
+body.kui #rules-scroll p{margin:0 0 10px}
+body.kui #rules-scroll ol,body.kui #rules-scroll ul{padding-left:20px;margin:0 0 10px}
+body.kui #rules-scroll li{margin-bottom:8px}
+body.kui #rules-scroll strong,body.kui #rules-scroll b{color:var(--accent3)}
+body.kui #rules-scroll h1,body.kui #rules-scroll h2,body.kui #rules-scroll h3,body.kui #rules-scroll h4{color:var(--text);font-size:16px;margin:14px 0 8px;text-align:left;text-transform:none;letter-spacing:0}
+body.kui #rules-scroll h2:after{display:none}
+body.kui .rules-agree-btn,body.kui .order-submit{border-radius:26px!important;min-height:52px;font-size:14px;letter-spacing:.5px;box-shadow:0 8px 26px var(--accent-glow2)}
+body.kui .kui-sticky-actions{position:sticky;bottom:calc(84px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg) 70%,transparent);padding:10px 0 4px;z-index:5}
+body.kui .kui-sticky-actions a{border-radius:26px!important}
+body.kui .order-back{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:8px 14px;margin-bottom:14px}
+/* форма заказа */
+body.kui .order-card{padding:18px}
+body.kui .order-title{text-align:left;text-transform:none;letter-spacing:0;font-size:22px;margin-bottom:18px}
+body.kui .req-block,body.kui .order-summary-card{background:var(--card2);border:1px solid var(--border);border-radius:18px}
+body.kui .order-input,body.kui .order-textarea,body.kui .order-select{background:var(--card2)!important;border:1px solid var(--border2)!important;border-radius:16px!important;color:var(--text)}
+body.kui .order-input:focus,body.kui .order-textarea:focus,body.kui .order-select:focus{border-color:var(--accent)!important;outline:none}
+body.kui .slot-tabs-bar{gap:8px}
+body.kui .slot-pill{border-radius:999px;padding:10px 12px;background:var(--card);border-color:var(--border2)}
+body.kui .add-order-btn{border-radius:22px}
+body.kui .wizard-btn-next,body.kui .wizard-btn-back{border-radius:22px}
+body.kui .tg-banner{border-radius:18px}
+@media (min-width:900px){
+  body.kui .kui-pagehead{border-radius:0;margin-top:0;padding:22px 32px 0;max-width:1240px;margin:0 auto}
+  body.kui .profile-wrap{padding:10px 32px 28px;max-width:1240px}
+  body.kui .profile-actions{width:auto;min-width:230px}
+  body.kui .order-wrap{margin:0 auto!important;border-radius:0;padding:22px 32px 28px!important}
+  body.kui .kui-sticky-actions{bottom:0}
+}
+
+/* --- правки после тест-рендера --- */
+body.kui .profile-actions .btn-order{order:-1}
+body.kui .profile-actions .profile-action-btn:last-child{grid-column:1/-1}
+body.kui .profile-name span{background:#111118!important;color:#fb923c!important;border:0!important}
+body.kui #rules-scroll,body.kui #rules-scroll *{text-align:left}
+body.kui .kui-sticky-actions a,body.kui .kui-sticky-actions button{display:flex;align-items:center;justify-content:center;min-height:52px}
+body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:36px;z-index:1}
+.kui-pagehead{margin-top:-22px}
+@media (min-width:900px){body.kui:has(.order-wrap) .kui-top,body.kui:has(.profile-wrap) .kui-top{padding-bottom:0}}
+@media (min-width:900px){body.kui .kui-pagehead{width:100%;background:none}body.kui .profile-wrap{background:none}}

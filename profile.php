@@ -719,7 +719,7 @@ $editStatus      = $_GET['edit_status'] ?? '';
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Профиль | Kostlim Design</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
@@ -993,18 +993,18 @@ body::before {
 }
 .hidden { display: none !important; }
 </style>
+<?php include __DIR__ . '/includes/ui_head.php'; ?>
 </head>
-<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
+<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?> kui">
 
-<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке —
-     та же структура, что и на index.php / support.php, чтобы меню
-     отображалось ровно и синхронно на всех страницах. Быстрые кнопки
-     (Telegram/админка/прайс) на странице профиля/заказов не нужны —
-     они убраны по правкам ТЗ. ══ -->
-<header class="header-compact">
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
-    <?php $sectionTabsActive = 'orders'; include __DIR__ . '/includes/section_tabs.php'; ?>
-</header>
+<?php
+    // ── KUI: оболочка (меню ПК / шапка + нижнее меню). Аватар в меню — из профиля. ──
+    $kuiActive = !empty($viewOrders) ? 'orders' : 'profile';
+    $tgProfile = (!empty($profile) && is_array($profile)) ? $profile : [];
+    $isLinked  = !empty($profile);
+    include __DIR__ . '/includes/ui_shell.php';
+?>
+<div class="kui-pagehead"><h1 class="kui-h1"><?= !empty($viewOrders) ? 'Мои заказы' : 'Профиль' ?></h1></div>
 
 <div class="profile-wrap">
 
@@ -1633,5 +1633,6 @@ function toggleHistory() {
 })();
 </script>
 <?php include __DIR__ . '/includes/ai_widget.php'; ?>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>

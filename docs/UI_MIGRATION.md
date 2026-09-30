@@ -1,6 +1,6 @@
 # Новый интерфейс KUI — как переносить остальные страницы
 
-Готово: **index.php** (главная). Общие файлы:
+Готово: **index.php** (главная), **profile.php** (профиль + «Мои заказы»), **order.php** (правила заказа → форма заказа). Общие файлы:
 
 | Файл | Что делает |
 |---|---|
@@ -23,9 +23,9 @@
 ## Порядок и значения `$kuiActive`
 | Страница | `$kuiActive` | Заметки |
 |---|---|---|
-| profile.php | `profile` (или `orders` при `?view=orders`) | аватар в центре нижнего меню ведёт сюда |
+| profile.php ✅ | `profile` (или `orders` при `?view=orders`) | готово |
 | price.php | `price` | |
-| order.php | `orders` | форма: `.kui-field`, `.kui-btn`, карточки `.kui-card` |
+| order.php ✅ | `orders` | готово: шаги «1 Правила → 2 Заказ», `includes/ui_identity.php` подставляет профиль в меню |
 | privat_pak.php | `ppk` | доступ по-прежнему проверяется твоей логикой |
 | support.php | `support` | там уже стоит `$aiWidgetHideFab = true` |
 | useful.php / resources.php / planner.php | `useful` / `ppk` | |

@@ -53,7 +53,7 @@ if (isset($_GET['check_promo'])) {
 if (!isOrdersAvailable($pdo)) {
     $returnDate = getOrdersReturnDate($pdo);
     ?><!DOCTYPE html>
-    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Приём заказов приостановлен | Kostlim Design</title>
     <style>
         body{background:#0a0a0f;color:#fff;font-family:Montserrat,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center;}
@@ -928,7 +928,7 @@ render_page:
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
@@ -1289,9 +1289,15 @@ body::before {
     .tg-banner-code { font-size: 12px; letter-spacing: 1px; }
 }
 </style>
+<?php include __DIR__ . '/includes/ui_head.php'; ?>
 </head>
-<body>
-
+<body class="kui">
+<?php
+    // ── KUI: оболочка (меню ПК / шапка + нижнее меню) ──
+    $kuiActive = 'orders';
+    include __DIR__ . '/includes/ui_identity.php';
+    include __DIR__ . '/includes/ui_shell.php';
+?>
 <div class="order-wrap">
 
 <?php if (!empty($success_msg)): ?>
@@ -1443,6 +1449,10 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 <div class="msg-error"><?= htmlspecialchars($error_msg) ?></div>
 <?php endif; ?>
 
+<!-- KUI: шаги заказа: 1 · Правила → 2 · Заказ -->
+<div class="kui-steps">
+    <span class="on"><b>1</b>Правила</span><i></i><span class="<?= !empty($rules_accepted) ? 'on' : '' ?>"><b>2</b>Заказ</span>
+</div>
 <?php if (!$rules_accepted): ?>
 
 <form method="POST" class="rules-card">
@@ -1481,7 +1491,7 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
             <span class="agree-check-label" style="color:#8a8a96;">Больше не спрашивать</span>
         </label>
     </div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+    <div class="kui-sticky-actions" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
         <button type="submit" id="agree-btn" name="accept_rules" class="rules-agree-btn" style="border:none; cursor:pointer; font-family:inherit;">Согласиться</button>
         <a href="index.php" style="background:#171720; color:#fff; text-align:center; text-decoration:none; padding:14px 16px; border-radius:9px; font-weight:900; text-transform:uppercase; border:1px solid #2a2a38; font-size:12px; letter-spacing:.8px; display:block;">Отказаться</a>
     </div>
@@ -2536,5 +2546,6 @@ document.getElementById('archive-modal')?.addEventListener('click', function(e) 
 $aiWidgetHideFab = true;
 include __DIR__ . '/includes/ai_widget.php';
 ?>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>
