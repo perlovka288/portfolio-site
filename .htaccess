@@ -54,6 +54,11 @@ php_value max_input_time 120
     Deny from all
 </FilesMatch>
 
+# ── Сжатие (HTML/CSS/JS в 5–8 раз меньше по сети — заметно на телефоне) ──
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+
 # ── Кэширование статических файлов ──
 <IfModule mod_expires.c>
     ExpiresActive On

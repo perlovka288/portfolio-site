@@ -1,5 +1,5 @@
 <?php
-session_start();
+if (!empty($_SERVER['HTTP_X_KUI_WARM']) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') { session_start(['read_and_close' => true]); } else { session_start(); }
 require_once __DIR__ . '/includes/ui_cache.php';
 require_once 'config/db.php';
 

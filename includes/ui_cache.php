@@ -1,31 +1,70 @@
 <?php
 /**
- * Короткий приватный кэш браузера для «навигационных» страниц (главная, прайс, полезное, поддержка).
+ * Короткий ПРИВАТНЫЙ кэш браузера для разделов сайта → переход между разделами мгновенный.
  *
- * Зачем: PHP по умолчанию шлёт «no-store/no-cache» — поэтому предзагрузка разделов (prefetch) не
- * помогала: браузер выбрасывал ответ и при клике грузил страницу заново (1–3 сек). Теперь ответ
- * можно положить в кэш на 20–60 секунд — переход по уже «прогретому» разделу открывается мгновенно
- * (прогрев делает assets/kostlim-nav.js).
+ * Как это работает:
+ *  1. Раньше PHP слал «no-store», и предзагрузка (prefetch) выбрасывалась — страница грузилась
+ *     заново (1–5 сек). Теперь разделы можно держать в кэше 30–60 сек (+ «stale-while-revalidate»).
+ *  2. assets/kostlim-nav.js при входе прогревает ВСЕ разделы в фоне (заголовок X-Kui-Warm: 1).
+ *  3. «Vary: Cookie» + кука kui_v: любое действие человека (POST, привязка Telegram и т.п.) меняет
+ *     куку → браузер считает закэшированные копии устаревшими и берёт свежие. Поэтому после
+ *     отправки заказа/смены профиля старых данных не видно.
+ *  4. Редиректы, ошибки и страницы админа никогда не кэшируются.
  *
- * НЕ кэшируем: админку, профиль, заказ, любые запросы с параметрами (?tg_id=…, ?service=…),
- * POST-запросы, и сессию администратора (ему всегда нужны свежие данные после правок).
  * Отключить полностью: переменная окружения KUI_NO_PAGE_CACHE=1.
  */
-if (!function_exists('kuiApplyCacheHeaders')) {
+if (!function_exists('kuiCachePolicy')) {
+    /** [ttl, stale-while-revalidate, разрешённые GET-параметры] */
+    function kuiCachePolicy(string $script): ?array
+    {
+        static $p = [
+            'index.php'      => [60, 120, []],
+            'price.php'      => [60, 120, []],
+            'useful.php'     => [60, 120, []],
+            'support.php'    => [60, 120, []],
+            'profile.php'    => [30, 0,   ['view']],
+            'order.php'      => [30, 0,   ['service']],
+            'privat_pak.php' => [30, 0,   []],
+        ];
+        return $p[$script] ?? null;
+    }
+
+    /** Сбросить кэш разделов у этого браузера (вызывать после любого изменения данных человека). */
+    function kuiBumpVersion(): void
+    {
+        if (PHP_SAPI === 'cli' || headers_sent()) { return; }
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        @setcookie('kui_v', (string)round(microtime(true) * 1000), ['expires' => time() + 31536000, 'path' => '/', 'secure' => $secure, 'samesite' => $secure ? 'None' : 'Lax']);
+    }
+
     function kuiApplyCacheHeaders(): void
     {
         if (PHP_SAPI === 'cli' || headers_sent() || getenv('KUI_NO_PAGE_CACHE')) { return; }
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') { return; }
-        $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
-        if (strpos($uri, '?') !== false) { return; }
-        if (!empty($_SESSION['admin_logged'])) { return; }
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if ($method === 'POST') { kuiBumpVersion(); return; }          // действие человека → кэш разделов устарел
+        if ($method !== 'GET') { return; }
+        if (!empty($_SESSION['admin_logged'])) { return; }              // админу всегда свежие данные
 
         $script = basename((string)parse_url((string)($_SERVER['SCRIPT_NAME'] ?? ''), PHP_URL_PATH));
-        $ttl = ['index.php' => 20, 'price.php' => 60, 'useful.php' => 60, 'support.php' => 60][$script] ?? 0;
-        if ($ttl <= 0) { return; }
+        $pol = kuiCachePolicy($script);
+        if (!$pol) { return; }
+        foreach (array_keys($_GET) as $k) { if (!in_array($k, $pol[2], true)) { return; } }   // ?tg_id=, ?token= и т.п. — не кэшируем
 
+        [$ttl, $swr] = $pol;
         header_remove('Pragma');
-        header('Cache-Control: private, max-age=' . $ttl);
+        header('Cache-Control: private, max-age=' . $ttl . ($swr > 0 ? ', stale-while-revalidate=' . $swr : ''));
         header('Expires: ' . gmdate('D, d M Y H:i:s', time() + $ttl) . ' GMT');
+        header('Vary: Cookie');
+
+        // Редирект/ошибку кэшировать нельзя: перед отправкой заголовков проверяем итоговый ответ
+        header_register_callback(function () {
+            $bad = http_response_code() !== 200;
+            foreach (headers_list() as $h) { if (stripos($h, 'Location:') === 0) { $bad = true; break; } }
+            if ($bad) {
+                header('Cache-Control: no-store, no-cache, must-revalidate');
+                header('Pragma: no-cache');
+                header_remove('Expires');
+            }
+        });
     }
 }

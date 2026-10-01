@@ -239,15 +239,11 @@ function uploadPackResourcePreview(PDO $pdo, string $field, string $uploadDir): 
     $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) return '';
 
-    $imgbbUrl = uploadPackImageToImgBB($pdo, $_FILES[$field]['tmp_name'], 'psd_preview_' . time());
+    $imgbbErr = null;
+    $imgbbUrl = uploadPackImageToImgBB($pdo, $_FILES[$field]['tmp_name'], 'psd_preview_' . time(), $imgbbErr);
     if ($imgbbUrl !== '') return $imgbbUrl; // resImg() отдаёт http(s)-ссылки как есть
-
-    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-    if (!is_writable($uploadDir)) return '';
-    $filename = 'psdres_' . time() . '_' . uniqid() . '.' . $ext;
-    if (move_uploaded_file($_FILES[$field]['tmp_name'], $uploadDir . $filename)) {
-        return 'pack_resources/' . $filename;
-    }
+    // KUI: на локальный диск НЕ сохраняем — он стирается при деплое (превью «пропадали»)
+    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял превью' . ($imgbbErr ? " ({$imgbbErr})" : '') . ' — проверь ключи ImgBB и загрузи ещё раз.';
     return '';
 }
 

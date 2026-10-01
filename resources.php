@@ -63,6 +63,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
             if ($type === 'psd') {
                 $data['preview_image'] = uploadPackResourcePreview($pdo, 'resource_image', __DIR__ . '/uploads/pack_resources/');
+                if ($data['preview_image'] === '' && !empty($_FILES['resource_image']['name']) && !empty($GLOBALS['kuiImgWarn'])) { $message = $GLOBALS['kuiImgWarn']; }
                 $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
             } elseif ($type === 'sd_video') {
                 $link = trim((string)($_POST['resource_link'] ?? ''));

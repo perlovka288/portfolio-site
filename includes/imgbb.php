@@ -90,7 +90,7 @@ if (!function_exists('imgbbUpload')) {
                 }
                 $data = json_decode($res, true);
                 $url  = $data['data']['url'] ?? ($data['data']['display_url'] ?? '');
-                if (!empty($data['success']) && $url !== '') { return (string)$url; }
+                if (!empty($data['success']) && $url !== '') { $error = null; return (string)$url; }
 
                 $msg   = (string)($data['error']['message'] ?? ('HTTP ' . $code));
                 $error = $msg;
@@ -100,5 +100,18 @@ if (!function_exists('imgbbUpload')) {
             }
         }
         return '';
+    }
+}
+
+if (!function_exists('imgbbUploadData')) {
+    /** То же, но из строки с байтами картинки (скачанная аватарка и т.п.). */
+    function imgbbUploadData(string $binary, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 20): string
+    {
+        if ($binary === '') { $error = 'пустые данные'; return ''; }
+        $tmp = tempnam(sys_get_temp_dir(), 'ibb_');
+        file_put_contents($tmp, $binary);
+        $url = imgbbUpload($tmp, $name, $pdo, $error, $timeout, 1);
+        @unlink($tmp);
+        return $url;
     }
 }

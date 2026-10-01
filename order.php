@@ -369,11 +369,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             $error_msg = '⚠️ Максимум 40 файлов за один заказ. Пришли до 40 файлов и попробуй ещё раз.';
             goto render_page;
         }
-        $cloudinaryConfigured = getenv('CLOUDINARY_CLOUD_NAME') && getenv('CLOUDINARY_API_KEY') && getenv('CLOUDINARY_API_SECRET');
-        if ($uploadedCount > 0 && !$cloudinaryConfigured) {
-            // Cloudinary не настроен (нет env-переменных) — не блокируем заказ,
-            // как раньше, а сохраняем файлы прямо на сервер в uploads/orders/.
-            error_log('[order.php] Cloudinary env vars missing — falling back to local storage for this order\'s files.');
+        // KUI: картинки уходят на ImgBB, прочие файлы — на Cloudinary (если настроен); локальный диск — последний запас
+        require_once __DIR__ . '/includes/imgbb.php';
+        $cloudinaryConfigured = true;   // uploadToCloudinary() сам выберет ImgBB/Cloudinary и вернёт '' при неудаче
+        if ($uploadedCount > 0 && !imgbbKeys($pdo) && !(getenv('CLOUDINARY_CLOUD_NAME') && getenv('CLOUDINARY_API_KEY'))) {
+            error_log('[order.php] нет ни ImgBB, ни Cloudinary ключей — файлы заказа сохраняются локально (пропадут при деплое).');
         }
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (empty($tmp) || $_FILES['example_photos']['error'][$i] !== UPLOAD_ERR_OK) continue;
@@ -395,7 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         if (is_array($decoded)) {
             foreach ($decoded as $u) {
                 $u = filter_var(trim($u), FILTER_VALIDATE_URL);
-                if ($u && str_contains($u, 'cloudinary.com')) $example_imgs[] = $u;
+                if ($u && (str_contains($u, 'cloudinary.com') || str_contains($u, 'ibb.co'))) $example_imgs[] = $u;
             }
         }
     }

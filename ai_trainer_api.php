@@ -473,7 +473,11 @@ case 'submit_work': {
     if (!is_dir($dir)) @mkdir($dir, 0777, true);
     $filename = 'sub_' . $sessionId . '_' . time() . '.' . $ext;
     if (!move_uploaded_file($_FILES['file']['tmp_name'], $dir . $filename)) jexit(['ok' => false, 'error' => 'Не удалось сохранить файл']);
-    $publicUrl = '/uploads/trainer_submits/' . $filename;
+    $publicUrl = '/uploads/trainer_submits/' . $filename;   // локальный файл нужен только для оценки ИИ (ниже удаляется)
+    require_once __DIR__ . '/includes/imgbb.php';
+    $__ie = null;
+    $__iu = imgbbUpload($dir . $filename, 'trainer_' . $sessionId . '_' . time(), $pdo ?? null, $__ie);
+    if ($__iu !== '') { $publicUrl = $__iu; }               // сохраняем в БД постоянную ссылку, а не путь к удалённому файлу
 
     $mimeMap = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp'];
     $transcript = buildTrainerTranscript($pdo, $sessionId);

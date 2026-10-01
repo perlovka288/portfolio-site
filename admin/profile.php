@@ -106,20 +106,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_profile'])) {
         if (in_array($ext, ['jpg','jpeg','png','webp','gif'], true) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
             $tmp = $_FILES['avatar']['tmp_name'];
             $url = uploadToImgBB($tmp, 'avatar_' . time());
-            $newAvatarVal = $url;
-            if ($newAvatarVal === '') {
-                if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-                $filename = 'avatar_' . time() . '_' . uniqid() . '.' . $ext;
-                if (is_writable($uploadDir) && move_uploaded_file($tmp, $uploadDir . $filename)) {
-                    $newAvatarVal = $filename;
-                }
-            }
+            $newAvatarVal = $url;   // только ImgBB: на диск не сохраняем (пропадёт при деплое)
             if ($newAvatarVal !== '') {
                 $pdo->prepare("UPDATE users SET avatar = ? WHERE username = ?")->execute([$newAvatarVal, $currentUsername]);
                 $currentAvatar = $newAvatarVal;
                 $message .= ' Аватарка обновлена.';
             } else {
-                $message .= ' ⚠️ Не удалось загрузить аватарку.';
+                $message .= ' ⚠️ Не удалось загрузить аватарку на ImgBB — проверь ключи (IMGBB_API_KEY через запятую допустимо) и попробуй ещё раз.';
             }
         }
     }

@@ -33,7 +33,13 @@ function startSafeSession(): void {
         'httponly' => true,
         'samesite' => $isSecure ? 'None' : 'Lax', // None требует Secure
     ]);
-    session_start();
+    // KUI: прогревающий запрос (X-Kui-Warm) только ЧИТАЕТ сессию и сразу отпускает блокировку —
+    // иначе фоновая загрузка разделов задерживала бы настоящий клик человека.
+    if (!empty($_SERVER['HTTP_X_KUI_WARM']) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+        session_start(['read_and_close' => true]);
+    } else {
+        session_start();
+    }
     // KUI: короткий приватный кэш для навигационных страниц (мгновенные переходы между разделами)
     require_once __DIR__ . '/ui_cache.php';
     kuiApplyCacheHeaders();
@@ -178,9 +184,16 @@ function _persistAvatarToCloudinary(string $rawUrl, string $tg_id): string
 
         $tmpFile = tempnam(sys_get_temp_dir(), 'tgava_');
         file_put_contents($tmpFile, $imgData);
+        // KUI: аватарки хранятся на ImgBB (постоянная ссылка); Cloudinary — только запасной вариант
+        require_once __DIR__ . '/imgbb.php';
+        global $pdo;
+        $__e = null;
+        $__u = imgbbUpload($tmpFile, 'tgava_' . $tg_id, ($pdo instanceof PDO) ? $pdo : null, $__e, 8, 1);
+        if ($__u !== '') { @unlink($tmpFile); return $__u; }
         $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
         $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
         $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
+        if ($cloudName === '') { @unlink($tmpFile); return $rawUrl; }
         $ts  = time();
         $sig = sha1("folder=avatars&public_id=tg_{$tg_id}&timestamp={$ts}{$cloudSecret}");
         $cch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
@@ -214,6 +227,8 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
     $_SESSION['tg_chat_id']   = $tg_id;
     $_SESSION['tg_username']  = $uname;
     $_SESSION['_tg_linked']   = true;
+    require_once __DIR__ . '/ui_cache.php';
+    kuiBumpVersion(); // профиль/аватар в меню изменились — сбрасываем кэш разделов
 
     // Приоритет — фото, пришедшее напрямую из Telegram Mini App (initData),
     // если оно есть: оно доступно ВСЕГДА, когда у пользователя открыт публичный
@@ -330,6 +345,14 @@ function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $curre
 
         if ($imgData !== false && strlen((string)$imgData) > 100) {
             file_put_contents($tmpFile, $imgData);
+            require_once __DIR__ . '/imgbb.php';
+            $__e = null;
+            $__u = imgbbUpload($tmpFile, 'tgava_' . $tg_id, $pdo, $__e, 8, 1);
+            if ($__u !== '') {
+                @unlink($tmpFile);
+                $pdo->prepare("UPDATE tg_links SET tg_photo_url = ? WHERE session_id = ?")->execute([$__u, $sid]);
+                return $__u;
+            }
             $cloudName   = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
             $cloudKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
             $cloudSecret = getenv('CLOUDINARY_API_SECRET') ?: '';

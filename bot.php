@@ -1900,8 +1900,16 @@ function linkTgAccount($pdo, $token, $chat_id, $message, $site_code) {
                     $localPath = $avatarDir . $localName;
                     $imgData = @file_get_contents($tgFileUrl);
                     if ($imgData !== false && strlen($imgData) > 100) {
-                        file_put_contents($localPath, $imgData);
-                        $photo_url = 'uploads/avatars/' . $localName;
+                        // KUI: сначала ImgBB (постоянная ссылка), локальный файл — только если ImgBB недоступен
+                        require_once __DIR__ . '/includes/imgbb.php';
+                        $__e = null;
+                        $__u = imgbbUploadData($imgData, 'tg_' . $tg_id, isset($pdo) && $pdo instanceof PDO ? $pdo : null, $__e, 10);
+                        if ($__u !== '') {
+                            $photo_url = $__u;
+                        } else {
+                            file_put_contents($localPath, $imgData);
+                            $photo_url = 'uploads/avatars/' . $localName;
+                        }
                     }
                     // Не сохраняем TG URL — он истекает через ~1 час, будет показана буква-заглушка
                 }

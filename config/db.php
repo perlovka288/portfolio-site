@@ -18,6 +18,10 @@ class Database {
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES   => true,
+                    // Постоянное соединение: не открываем новое TLS-подключение к Neon на КАЖДЫЙ запрос
+                    // (это 0.3–0.8 сек на странице). Отключить: DB_PERSISTENT=0 в окружении.
+                    PDO::ATTR_PERSISTENT         => (getenv('DB_PERSISTENT') !== '0'),
+                    PDO::ATTR_TIMEOUT            => 10,
                 ]
             );
             self::$pdo->exec("SET NAMES 'UTF8'");

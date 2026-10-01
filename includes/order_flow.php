@@ -23,6 +23,16 @@
  */
 if (!function_exists('uploadToCloudinary')) {
 function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
+    // KUI: КАРТИНКИ всегда идут на ImgBB (основное хранилище). Cloudinary остаётся только для
+    // файлов, которые ImgBB не принимает (zip/psd/pdf…), и как запасной вариант для картинок.
+    if (is_file($filePath) && @getimagesize($filePath) !== false) {
+        require_once __DIR__ . '/imgbb.php';
+        global $pdo;
+        $__e = null;
+        $__u = imgbbUpload($filePath, str_replace('/', '_', $folder) . '_' . time(), (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $__e, 30, 1);
+        if ($__u !== '') { return $__u; }
+        error_log('[uploadToCloudinary] ImgBB не принял картинку (' . (string)$__e . ') — пробуем Cloudinary');
+    }
     $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
     $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
     $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';

@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo pdo_pgsql gd zip
 
-RUN a2enmod rewrite headers
+RUN a2enmod rewrite headers deflate expires
 
 # До 40 файлов в заказе: post_max_size и max_file_uploads подняты под этот лимит
 # (PHP по умолчанию режет max_file_uploads=20 — без этого файлы 21-40 молча терялись бы).
@@ -21,6 +21,10 @@ memory_limit = 256M\n\
 max_execution_time = 120\n\
 max_input_time = 120\n\
 max_file_uploads = 45" > /usr/local/etc/php/conf.d/uploads.ini
+
+# OPcache: PHP не перекомпилирует 3000-строчные страницы на каждый запрос
+RUN docker-php-ext-install opcache \
+    && echo "opcache.enable=1\nopcache.memory_consumption=128\nopcache.interned_strings_buffer=16\nopcache.max_accelerated_files=10000\nopcache.validate_timestamps=1\nopcache.revalidate_freq=30" > /usr/local/etc/php/conf.d/opcache.ini
 
 COPY . /var/www/html/
 

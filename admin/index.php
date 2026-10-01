@@ -1336,13 +1336,8 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     $tmp = $_FILES[$field]['tmp_name'];
     $url = uploadToImgBB($tmp, $prefix . '_' . time());
     if ($url !== '') return $url;
-    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-    if (is_writable($uploadDir)) {
-        $filename = $prefix . '_' . time() . '_' . uniqid() . '.' . $ext;
-        $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) { kuiImgTempWarn(); return $filename; }
-    }
-    $message = '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY.';
+    $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
+    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь ключи ImgBB и загрузи ещё раз.';
     return '';
 }
 
@@ -1357,12 +1352,8 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     $tmp = $_FILES[$field]['tmp_name'][$id];
     $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
     if ($url !== '') return $url;
-    if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
-    if (is_writable($uploadDir)) {
-        $filename = $prefix . '_' . time() . '_' . $id . '_' . uniqid() . '.' . $ext;
-        $dest = $uploadDir . $filename;
-        if (move_uploaded_file($tmp, $dest)) { kuiImgTempWarn(); return $filename; }
-    }
+    $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
+    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь ключи ImgBB и загрузи ещё раз.';
     return '';
 }
 
