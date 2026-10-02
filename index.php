@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/includes/image_store.php';   // kuiImgOpt/kuiImgBlur: AVIF/WebP + размытая заглушка
 // Скрываем ошибки от пользователей
 error_reporting(E_ALL);     // Собирать все типы ошибок
 ini_set('display_errors', 0); // Не выводить их в браузер
@@ -917,7 +918,7 @@ body::after {
 
     <!-- ── Сетка работ ── -->
     <section class="portfolio-grid">
-        <?php foreach ($works as $work): ?>
+        <?php $workIdx = -1; foreach ($works as $work): $workIdx++; ?>
         <?php
             $img_file  = $work['image'] ?? '';
             $ava_file  = $work['avatar_image'] ?? '';
@@ -939,8 +940,11 @@ body::after {
         <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
             <div class="kui-ab"><span><?= htmlspecialchars($category['title'] ?? '') ?></span><span><?= htmlspecialchars(str_replace('x', '×', $sizeText)) ?></span></div>
             <div class="portfolio-price-top"><?= number_format($showRub, 0, '', ' ') ?> ₽ / <?= number_format($showUan, 0, '', ' ') ?> ₴</div>
-            <div class="portfolio-media">
-                <img src="<?= htmlspecialchars(imgSrc($img_file)) ?>"
+            <?php $__iu = imgSrc($img_file); $__ph = kuiImgBlur($__iu); $__ss = kuiImgSrcset($__iu); ?>
+            <div class="portfolio-media"<?= $__ph ? ' style="background-image:url(\'' . htmlspecialchars($__ph) . '\')"' : '' ?>>
+                <img src="<?= htmlspecialchars(kuiImgOpt($__iu, 900)) ?>"
+                     <?= $__ss ? 'srcset="' . htmlspecialchars($__ss) . '" sizes="(min-width:1200px) 33vw, (min-width:700px) 50vw, 100vw"' : '' ?>
+                     loading="<?= $workIdx < 2 ? 'eager' : 'lazy' ?>" decoding="async"
                      class="<?= $isDesign ? 'design-banner' : '' ?>"
                      alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
                      draggable="false"

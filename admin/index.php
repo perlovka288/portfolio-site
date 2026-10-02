@@ -83,18 +83,25 @@ $API_KEY_FIELDS = [
         ['key' => 'PRIVATE_CHAT_INVITE_LINK','label' => '🔗 Пригласительная ссылка на приватный чат', 'secret' => false,
             'hint' => 'А сюда, наоборот, можно вставлять именно ссылку (t.me/+...) — она используется только для показа/отправки клиентам, не для проверки участников.'],
         ['key' => 'SITE_URL',               'label' => '🌐 Публичный URL сайта',                 'secret' => false],
-        ['key' => 'IMGBB_API_KEY',          'label' => '🖼 ImgBB — ключ №1',                     'secret' => true],
+        ['key' => 'IMAGE_STORAGE',          'label' => '🗂 Хранилище картинок: auto / cloudinary / imgbb', 'secret' => false],
+        ['key' => 'CLOUDINARY_CLOUD_NAME',  'label' => '☁️ Cloudinary — cloud name (главное хранилище)', 'secret' => false],
+        ['key' => 'CLOUDINARY_API_KEY',     'label' => '☁️ Cloudinary — API key',                'secret' => true],
+        ['key' => 'CLOUDINARY_API_SECRET',  'label' => '☁️ Cloudinary — API secret',             'secret' => true],
+        ['key' => 'IMGBB_API_KEY',          'label' => '🖼 ImgBB — ключ №1 (запасной, можно не заполнять)',                     'secret' => true],
         ['key' => 'IMGBB_API_KEY2',         'label' => '🖼 ImgBB — ключ №2 (резерв)',            'secret' => true],
         ['key' => 'IMGBB_API_KEY3',         'label' => '🖼 ImgBB — ключ №3 (резерв)',            'secret' => true],
         ['key' => 'ADMIN_EMAIL',            'label' => '📧 Email администратора',                'secret' => false],
         ['key' => 'ADMIN_TELEGRAM_ID',      'label' => '🆔 Telegram ID администратора',          'secret' => false],
     ],
+    'meta' => [
+        ['key' => 'KEYSET_IMGBB',  'label' => 'ImgBB — набор ключей', 'secret' => true],
+        ['key' => 'KEYSET_GEMINI', 'label' => 'Gemini — набор ключей', 'secret' => true],
+        ['key' => 'KEYSET_YT',     'label' => 'YouTube — набор ключей', 'secret' => true],
+        ['key' => 'IMGBB_FALLBACK','label' => 'ImgBB как запасное хранилище', 'secret' => false],
+    ],
     'other' => [
         ['key' => 'GEMINI_API_KEY',            'label' => '✨ Gemini API ключ (ИИ-помощник)', 'secret' => true],
         ['key' => 'GEMINI_MODEL',              'label' => '✨ Gemini модель',                 'secret' => false],
-        ['key' => 'CLOUDINARY_CLOUD_NAME',     'label' => '☁️ Cloudinary — cloud name',       'secret' => false],
-        ['key' => 'CLOUDINARY_API_KEY',        'label' => '☁️ Cloudinary — API key',          'secret' => true],
-        ['key' => 'CLOUDINARY_API_SECRET',     'label' => '☁️ Cloudinary — API secret',       'secret' => true],
         ['key' => 'GDRIVE_FOLDER_ID',          'label' => '📁 Google Drive — ID папки',       'secret' => false],
         ['key' => 'PAYMENT_REQUISITES_RUB',    'label' => '💳 Реквизиты для оплаты ₽',        'secret' => false],
         ['key' => 'PAYMENT_REQUISITES_UAH',    'label' => '💳 Реквизиты для оплаты ₴',        'secret' => false],
@@ -109,12 +116,26 @@ $API_KEY_FIELDS = [
 // ── Сохранение ключей (AJAX) ──────────────────────────────────────
 if (isset($_POST['save_api_keys']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     header('Content-Type: application/json; charset=utf-8');
-    foreach (array_merge($API_KEY_FIELDS['core'], $API_KEY_FIELDS['other']) as $f) {
-        if (array_key_exists($f['key'], $_POST)) {
-            setSetting($pdo, $f['key'], trim((string)$_POST[$f['key']]));
+    $saved = 0;
+    foreach (array_merge($API_KEY_FIELDS['core'], $API_KEY_FIELDS['meta'], $API_KEY_FIELDS['other']) as $f) {
+        if (!array_key_exists($f['key'], $_POST)) { continue; }
+        $v = trim((string)$_POST[$f['key']]);
+        if (strpos($f['key'], 'KEYSET_') === 0 && $v !== '') {          // проверяем и чистим набор ключей
+            $d = json_decode($v, true);
+            if (!is_array($d) || !isset($d['keys']) || !is_array($d['keys'])) { continue; }
+            $clean = [];
+            foreach (array_slice($d['keys'], 0, 20) as $k) {
+                $kv = trim(preg_replace('/[\x00-\x1F\x7F\s]+/u', '', (string)($k['v'] ?? '')));
+                if ($kv === '' || mb_strlen($kv) > 400) { continue; }
+                $clean[] = ['v' => $kv, 'on' => !array_key_exists('on', $k) || !empty($k['on']), 'label' => mb_substr(trim((string)($k['label'] ?? '')), 0, 40)];
+            }
+            $act = max(0, min((int)($d['active'] ?? 0), max(0, count($clean) - 1)));
+            $v = $clean ? json_encode(['active' => $act, 'keys' => $clean], JSON_UNESCAPED_UNICODE) : '';
         }
+        setSetting($pdo, $f['key'], $v);
+        $saved++;
     }
-    echo json_encode(['ok' => true, 'msg' => '✅ Ключи сохранены и уже применяются.']);
+    echo json_encode(['ok' => true, 'saved' => $saved, 'msg' => '✅ Сохранено (' . $saved . '). Значения уже применяются — проверь статус кнопкой «Проверить».']);
     exit;
 }
 
@@ -436,7 +457,7 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     }
     if ($filename_main === '') {
         ob_end_clean();
-        echo json_encode(['ok' => false, 'msg' => '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY в Render.']);
+        echo json_encode(['ok' => false, 'msg' => '❌ Не удалось загрузить изображение. Проверь Cloudinary во вкладке «Ключи и API».']);
         exit;
     }
 
@@ -1337,7 +1358,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     $url = uploadToImgBB($tmp, $prefix . '_' . time());
     if ($url !== '') return $url;
     $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
-    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь ключи ImgBB и загрузи ещё раз.';
+    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.';
     return '';
 }
 
@@ -1353,7 +1374,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
     if ($url !== '') return $url;
     $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
-    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь ключи ImgBB и загрузи ещё раз.';
+    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.';
     return '';
 }
 
@@ -2134,7 +2155,8 @@ $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
 $imgbbKeys         = imgbbKeys($pdo);
 $imgbbKeyCount     = count($imgbbKeys);
-$imgbbKeySet       = $imgbbKeyCount > 0;
+require_once __DIR__ . '/../includes/image_store.php';
+$imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -2432,7 +2454,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
             <p>Портфолио, прайс, заказы и деньги в одном месте.</p>
             <div class="admin-meta">
                 <?php if (!$imgbbKeySet): ?>
-                    <span class="warn">⚠️ IMGBB_API_KEY не задан!</span>
+                    <span class="warn">⚠️ Не настроено хранилище картинок — добавь Cloudinary во вкладке «Ключи и API»</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -2474,6 +2496,10 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
         </nav>
 
         <div class="admin-content">
+            <section class="panel ios-panel kui-analytics" data-panel="analytics">
+                <?php include __DIR__ . '/analytics_ui.php'; ?>
+            </section>
+
             <section class="stats-grid">
                 <?php /* Заработано / В активе — денежная статистика, убрана
                          по просьбе (см. блок "Статистика заработка" ниже —
@@ -3028,55 +3054,8 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                     </section>
 
                     <!-- ════ КЛЮЧИ И API ════ -->
-                    <section class="panel" data-panel="keys">
-                        <h2><span class="ico">🔑</span> Ключи и API</h2>
-                        <p style="color:#8a8a96;font-size:13px;margin:-4px 0 14px;">
-                            Все чувствительные значения — токен бота, ImgBB, Gemini, Cloudinary, реквизиты
-                            оплаты и т.п. — теперь редактируются прямо тут, без переменных окружения на Render.
-                            Сохраняется мгновенно, без перезагрузки страницы.
-                        </p>
-                        <form id="api-keys-form" onsubmit="return false;">
-                            <div class="section-heading" style="font-size:14px;"><span class="neon-ico">⚙️</span> Используются в этом файле сразу</div>
-                            <div style="display:grid;gap:12px;margin-bottom:26px;">
-                                <?php foreach ($API_KEY_FIELDS['core'] as $f): $cur = getSetting($pdo, $f['key'], ''); ?>
-                                    <div>
-                                        <label style="display:flex;align-items:center;justify-content:space-between;">
-                                            <span><?= htmlspecialchars($f['label']) ?></span>
-                                            <span style="color:#4a4a58;font-size:10px;font-weight:600;text-transform:none;">env: <?= htmlspecialchars($f['key']) ?></span>
-                                        </label>
-                                        <div class="file-upload-wrap" style="gap:6px;">
-                                            <input type="<?= $f['secret'] ? 'password' : 'text' ?>" name="<?= htmlspecialchars($f['key']) ?>" id="key-<?= htmlspecialchars($f['key']) ?>" value="<?= htmlspecialchars($cur) ?>" placeholder="не задано — используется значение по умолчанию" style="margin:0;">
-                                            <?php if ($f['secret']): ?>
-                                            <button type="button" onclick="const i=document.getElementById('key-<?= htmlspecialchars($f['key']) ?>'); i.type = i.type==='password'?'text':'password';" class="mini-file-btn" style="flex-shrink:0;">👁</button>
-                                            <?php endif; ?>
-                                        </div>
-                                        <?php if (!empty($f['hint'])): ?>
-                                        <p style="color:#6a6a78;font-size:11px;margin:4px 0 0;"><?= htmlspecialchars($f['hint']) ?></p>
-                                        <?php endif; ?>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-
-                            <div class="section-heading" style="font-size:14px;"><span class="neon-ico">📓</span> Записная книжка (используются в других файлах проекта)</div>
-                            <div class="avatar-hint" style="margin-bottom:14px;">Эти значения читают bot.php, ai_widget.php, donationalerts.php и т.д. напрямую из переменных окружения — сохранённое здесь пока служит удобным хранилищем и подставится туда автоматически только после того, как в тех файлах тоже будет вызван <code>getSetting()</code> вместо <code>getenv()</code>. Спроси меня, если хочешь, чтобы я довёл это до конца.</div>
-                            <div style="display:grid;gap:12px;margin-bottom:20px;">
-                                <?php foreach ($API_KEY_FIELDS['other'] as $f): $cur = getSetting($pdo, $f['key'], ''); ?>
-                                    <div>
-                                        <label style="display:flex;align-items:center;justify-content:space-between;">
-                                            <span><?= htmlspecialchars($f['label']) ?></span>
-                                            <span style="color:#4a4a58;font-size:10px;font-weight:600;text-transform:none;">env: <?= htmlspecialchars($f['key']) ?></span>
-                                        </label>
-                                        <div class="file-upload-wrap" style="gap:6px;">
-                                            <input type="<?= $f['secret'] ? 'password' : 'text' ?>" name="<?= htmlspecialchars($f['key']) ?>" id="key-<?= htmlspecialchars($f['key']) ?>" value="<?= htmlspecialchars($cur) ?>" placeholder="не задано" style="margin:0;">
-                                            <?php if ($f['secret']): ?>
-                                            <button type="button" onclick="const i=document.getElementById('key-<?= htmlspecialchars($f['key']) ?>'); i.type = i.type==='password'?'text':'password';" class="mini-file-btn" style="flex-shrink:0;">👁</button>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                            <button type="button" onclick="saveApiKeys()" class="btn-panel" id="keys-submit-btn" style="max-width:320px;">💾 Сохранить все ключи</button>
-                        </form>
+                    <section class="panel ios-panel" data-panel="keys">
+                        <?php include __DIR__ . '/settings_ui.php'; ?>
                     </section>
 
                     <!-- ════ ДОБАВИТЬ УСЛУГУ В ПРАЙС ════ -->
@@ -3752,7 +3731,7 @@ function activateAdminTab(tab) {
         document.querySelectorAll(`.panel[data-panel="${n}"]`).forEach(el => el.classList.remove('tab-hidden'));
     });
 
-    if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
+    if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('analytics','orders'); }
     else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); }
     else if (tab === 'price')     { show('price-add','price-manager'); }
     else if (tab === 'orders')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
@@ -3888,5 +3867,7 @@ document.addEventListener('click', function(e) {
 });
 </script>
 <script src="/assets/kostlim-admin.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-admin.js') ?: time() ?>"></script>
+<script src="/assets/kostlim-settings.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-settings.js') ?: time() ?>"></script>
+<script src="/assets/kostlim-analytics.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-analytics.js') ?: time() ?>"></script>
 </body>
 </html>

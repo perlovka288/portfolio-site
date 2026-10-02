@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_profile'])) {
                 $currentAvatar = $newAvatarVal;
                 $message .= ' Аватарка обновлена.';
             } else {
-                $message .= ' ⚠️ Не удалось загрузить аватарку на ImgBB — проверь ключи (IMGBB_API_KEY через запятую допустимо) и попробуй ещё раз.';
+                $message .= ' ⚠️ Не удалось загрузить аватарку — проверь Cloudinary (или ImgBB) в «Ключи и API» и попробуй ещё раз.';
             }
         }
     }

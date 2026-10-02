@@ -243,7 +243,7 @@ function uploadPackResourcePreview(PDO $pdo, string $field, string $uploadDir): 
     $imgbbUrl = uploadPackImageToImgBB($pdo, $_FILES[$field]['tmp_name'], 'psd_preview_' . time(), $imgbbErr);
     if ($imgbbUrl !== '') return $imgbbUrl; // resImg() отдаёт http(s)-ссылки как есть
     // KUI: на локальный диск НЕ сохраняем — он стирается при деплое (превью «пропадали»)
-    $GLOBALS['kuiImgWarn'] = '❌ ImgBB не принял превью' . ($imgbbErr ? " ({$imgbbErr})" : '') . ' — проверь ключи ImgBB и загрузи ещё раз.';
+    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло превью' . ($imgbbErr ? " ({$imgbbErr})" : '') . ' — проверь Cloudinary/ImgBB в «Ключи и API» и загрузи ещё раз.';
     return '';
 }
 

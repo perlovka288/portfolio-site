@@ -33,11 +33,14 @@ function uploadToCloudinary(string $filePath, string $folder = 'orders'): string
         if ($__u !== '') { return $__u; }
         error_log('[uploadToCloudinary] ImgBB не принял картинку (' . (string)$__e . ') — пробуем Cloudinary');
     }
-    $cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
-    $apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
-    $apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
-    if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
-        error_log('[uploadToCloudinary] CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET env vars are not set — upload skipped.');
+    require_once __DIR__ . '/image_store.php';
+    global $pdo;
+    $__c = cloudinaryCreds((isset($pdo) && $pdo instanceof PDO) ? $pdo : null);   // env ИЛИ «Ключи и API» в админке
+    $cloudName = $__c['cloud'] ?? '';
+    $apiKey    = $__c['key'] ?? '';
+    $apiSecret = $__c['secret'] ?? '';
+    if ($cloudName === '') {
+        error_log('[uploadToCloudinary] Cloudinary не настроен — для не-картинок (zip/psd/pdf) загрузка пропущена.');
         return '';
     }
     if (!is_file($filePath)) {

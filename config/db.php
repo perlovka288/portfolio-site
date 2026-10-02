@@ -32,3 +32,6 @@ class Database {
 
 // Обратная совместимость — $pdo доступен везде как раньше
 $pdo = Database::getConnection();
+// Значения из админки («Ключи и API») подкладываются в окружение — их увидит любой getenv() (includes/settings_bridge.php)
+require_once __DIR__ . '/../includes/settings_bridge.php';
+kuiSettingsBridge($pdo);

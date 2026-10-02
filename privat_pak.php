@@ -33,243 +33,150 @@ function imgSrcPpk(?string $url): string
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Приват Пак | Kostlim Design</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Приват Пак — Kostlim Design</title>
     <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
-<style>
-/* Тот же язык, что и support.php — используем родные классы сайта, плюс
-   несколько новых, названных так же аккуратно (pp- префикс), чтобы не
-   пересекаться ни с чем существующим. */
-body::before {
-    content:'';position:fixed;top:-120px;left:50%;transform:translateX(-50%);
-    width:700px;height:400px;background:radial-gradient(ellipse at center,rgba(249,115,22,0.13) 0%,transparent 70%);
-    pointer-events:none;z-index:0;
-}
-.support-wrap { max-width: 560px; margin: 0 auto; padding: 26px 20px 70px; position: relative; z-index: 1; }
-.support-title { font-size: 20px; font-weight: 900; margin-bottom: 4px; display:flex; align-items:center; gap:8px; }
-.support-sub { color: var(--text2); font-size: 13px; margin-bottom: 26px; }
-.support-admin-card {
-    display: flex; align-items: center; gap: 14px;
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 20px; padding: 18px 20px; margin-bottom: 22px;
-}
-.support-admin-ava, .support-admin-ava-fallback {
-    width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
-    border: 2px solid var(--border-accent); flex-shrink: 0;
-}
-.support-admin-ava-fallback {
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    display: flex; align-items: center; justify-content: center;
-    font-size: 22px; font-weight: 900; color: #fff;
-}
-.support-admin-name { font-size: 15px; font-weight: 800; color: var(--text); }
-.support-admin-handle { font-size: 12px; color: var(--text2); }
-.pp-badges { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.role-badge {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 9px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase;
-    padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-accent);
-}
-.role-badge--admin { color: #4ade80; background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.35); }
-.role-badge--ppk { color: var(--accent3); background: var(--accent-dim); border-color: var(--border-accent); }
-
-.support-actions { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
-.support-action-btn {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 16px; padding: 16px 18px;
-    color: var(--text); font-size: 14px; font-weight: 700;
-    transition: all var(--t); cursor: pointer; font-family: inherit; text-align: left; width: 100%;
-    text-decoration: none;
-}
-.support-action-btn:hover { border-color: var(--border-accent); background: var(--accent-dim); transform: translateY(-1px); }
-.support-action-icon {
-    width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; font-size: 18px;
-    background: var(--accent-dim); color: var(--accent);
-}
-.support-action-text { display: flex; flex-direction: column; gap: 2px; }
-.support-action-sub { font-size: 11.5px; font-weight: 500; color: var(--text2); }
-.support-action-btn.primary {
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    border-color: transparent; color: #fff;
-    box-shadow: inset 0 1px rgba(255,255,255,.22), var(--shadow-accent);
-}
-.support-action-btn.primary .support-action-icon { background: rgba(255,255,255,.18); color: #fff; }
-.support-action-btn.primary .support-action-sub { color: rgba(255,255,255,.8); }
-.support-action-badge {
-    margin-left: auto; flex-shrink: 0; font-size: 9px; font-weight: 900; text-transform: uppercase;
-    background: rgba(255,255,255,.15); padding: 3px 7px; border-radius: 6px;
-}
-
-.pp-section-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--text2); margin: 22px 0 10px; }
-
-.support-note {
-    background: var(--accent-dim); border: 1px solid var(--border-accent);
-    border-radius: 14px; padding: 14px 16px; color: var(--text2); font-size: 12.5px; line-height: 1.6;
-}
-
-/* ── Состояние "нет доступа" ── */
-.pp-locked-card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 20px;
-    padding: 26px 22px; text-align: center; margin-bottom: 20px;
-}
-.pp-locked-card .pp-lock-icon { font-size: 40px; margin-bottom: 10px; }
-.pp-locked-card h2 { margin: 0 0 8px; font-size: 18px; }
-.pp-locked-card p { color: var(--text2); font-size: 13px; line-height: 1.6; margin: 0 0 18px; }
-.pp-buy-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    width: 100%; box-sizing: border-box; background: linear-gradient(135deg, var(--accent2), var(--accent));
-    color: #fff; padding: 15px; border-radius: 12px; border: none; font-size: 13px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 1px; text-decoration: none; box-shadow: var(--shadow-accent);
-    transition: all var(--t);
-}
-.pp-buy-btn:hover { transform: translateY(-2px); }
-.pp-key-row { display: flex; gap: 8px; margin-top: 16px; }
-.pp-key-row input {
-    flex: 1; background: rgba(0,0,0,.15); border: 1px solid var(--border); color: var(--text);
-    padding: 11px 13px; border-radius: 10px; font-family: inherit; font-size: 13px;
-}
-.pp-key-row button {
-    background: var(--card2, rgba(255,255,255,.06)); border: 1px solid var(--border); color: var(--text);
-    padding: 0 16px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12.5px; white-space: nowrap;
-}
-.pp-key-msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
-</style>
+    <?php include __DIR__ . '/includes/ui_head.php'; ?>
 </head>
-<body>
+<body class="kui">
+<?php
+    // ── KUI: оболочка (меню ПК / шапка + нижнее меню) ──
+    $kuiActive = 'ppk';
+    $isLinked  = !empty($tgProfile);
+    include __DIR__ . '/includes/ui_shell.php';
 
-<header class="header-compact">
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
-    <?php if ($isPackDesigner): ?><div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);"><?php renderNotificationBell(); ?></div><?php endif; ?>
-</header>
+    $ppkName   = htmlspecialchars((string)($tgProfile['tg_first_name'] ?? 'Вы'));
+    $ppkHandle = !empty($tgProfile['tg_username']) ? '@' . htmlspecialchars((string)$tgProfile['tg_username']) : '';
+    $ppkAva    = htmlspecialchars(imgSrcPpk($tgProfile['tg_photo_url'] ?? ''));
+    $ppkLetter = htmlspecialchars(mb_strtoupper(mb_substr((string)($tgProfile['tg_first_name'] ?? 'K'), 0, 1)));
+?>
 
-<div class="quick-actions-grid">
-    <a href="index.php" class="quick-action-btn quick-action-btn-wide" title="На главную">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-        На главную
-    </a>
-</div>
-
-<div class="support-wrap">
-    <div class="support-title">🔒 Приват Пак</div>
-    <div class="support-sub">Материалы и инструменты для дизайнеров пака.</div>
-
-    <?php if ($isPackDesigner): ?>
-
-        <div class="support-admin-card">
-            <?php $ava = imgSrcPpk($tgProfile['tg_photo_url'] ?? ''); ?>
-            <img src="<?= htmlspecialchars($ava) ?>" class="support-admin-ava" alt="Аватар" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-            <div class="support-admin-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr((string)($tgProfile['tg_first_name'] ?? 'K'), 0, 1)) ?></div>
-            <div>
-                <div class="support-admin-name"><?= htmlspecialchars($tgProfile['tg_first_name'] ?? 'Вы') ?></div>
-                <?php if (!empty($tgProfile['tg_username'])): ?><div class="support-admin-handle">@<?= htmlspecialchars($tgProfile['tg_username']) ?></div><?php endif; ?>
+<section class="kui-hero-row kui-ppk-hero-row">
+    <div class="kui-hero kui-ppk-hero">
+        <?php if ($isPackDesigner): ?>
+            <div class="kui-ppk-bell"><?php renderNotificationBell(); ?></div>
+            <div class="kui-hero-head">
+                <img class="kui-hero-ava" src="<?= $ppkAva ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+                <div>
+                    <small>🔒 Приват Пак</small>
+                    <h2><?= $ppkName ?></h2>
+                    <?php if ($ppkHandle): ?><div class="kui-ppk-handle"><?= $ppkHandle ?></div><?php endif; ?>
+                </div>
             </div>
-            <div class="pp-badges">
-                <?php if ($isAdmin): ?><span class="role-badge role-badge--admin">⚡ Admin</span><?php endif; ?>
-                <span class="role-badge role-badge--ppk">🎨 PPK</span>
+            <div class="kui-ppk-badges">
+                <?php if ($isAdmin): ?><span class="kui-ppk-badge admin">⚡ Admin</span><?php endif; ?>
+                <span class="kui-ppk-badge">🎨 PPK</span>
             </div>
-        </div>
-
-        <div class="pp-section-label">Материалы</div>
-        <div class="support-actions">
-            <a href="resources.php" class="support-action-btn">
-                <span class="support-action-icon">📁</span>
-                <span class="support-action-text">
-                    PSD-паки, шрифты, кисти и SD
-                    <span class="support-action-sub">Все ресурсы пака в одном разделе</span>
-                </span>
-            </a>
-            <a href="useful.php" class="support-action-btn">
-                <span class="support-action-icon">📚</span>
-                <span class="support-action-text">
-                    Полезности
-                    <span class="support-action-sub">Статьи и гайды от Kostlim, с комментариями</span>
-                </span>
-            </a>
-        </div>
-
-        <div class="pp-section-label">Инструменты</div>
-        <div class="support-actions">
-            <a href="ai_trainer.php" class="support-action-btn primary">
-                <span class="support-action-icon">🎮</span>
-                <span class="support-action-text">
-                    Тренировка общения с клиентом
-                    <span class="support-action-sub">Отыграй заказ от анкеты до сдачи — ИИ в роли заказчика</span>
-                </span>
-            </a>
-            <a href="planner.php" class="support-action-btn">
-                <span class="support-action-icon">🗂</span>
-                <span class="support-action-text">
-                    Личный планер клиентов
-                    <span class="support-action-sub">Учёт заказов: статус, дедлайн, сумма</span>
-                </span>
-            </a>
-            <?php if ($isAdmin): ?>
-            <a href="admin/ppk_manager.php" class="support-action-btn">
-                <span class="support-action-icon">🛠</span>
-                <span class="support-action-text">
-                    Управление доступом PPK
-                    <span class="support-action-sub">Ручная выдача роли, ключи активации</span>
-                </span>
-                <span class="support-action-badge">ADMIN</span>
-            </a>
-            <a href="admin/ai_trainer_review.php" class="support-action-btn">
-                <span class="support-action-icon">📨</span>
-                <span class="support-action-text">
-                    Результаты тренажёра
-                    <span class="support-action-sub">Что прислали дизайнеры на проверку</span>
-                </span>
-                <span class="support-action-badge">ADMIN</span>
-            </a>
-            <?php endif; ?>
-        </div>
-
-        <div class="support-note">Материалы обновляются в приватном Telegram-канале — если чего-то не хватает, напишите в поддержку.</div>
-
-    <?php else: ?>
-
-        <div class="pp-locked-card">
-            <div class="pp-lock-icon">🔒</div>
-            <h2>Доступно владельцам пака</h2>
-            <p>PSD-исходники, шрифты, кисти и стили, гайд по Stable Diffusion, ИИ-тренажёр общения с клиентом и личный планер заказов — всё в одном месте после покупки пака.</p>
-            <a href="https://t.me/Perlo_ovka" target="_blank" class="pp-buy-btn">🛒 Приобрести пак</a>
-        </div>
-
-        <div class="support-note">
-            Уже купили пак и получили код?
-            <div class="pp-key-row">
-                <input type="text" id="ppkKeyInput" placeholder="PPK-XXXX-XXXX">
-                <button type="button" id="ppkKeyBtn">Активировать</button>
+        <?php else: ?>
+            <div class="kui-hero-head">
+                <img class="kui-hero-ava" src="/assets/img/logo.png" alt="">
+                <div><small>Закрытый раздел</small><h2>Приват Пак</h2></div>
             </div>
-            <div class="pp-key-msg" id="ppkKeyMsg"></div>
-        </div>
+            <div class="kui-ppk-badges"><span class="kui-ppk-badge">🔒 Доступ после покупки пака</span></div>
+        <?php endif; ?>
+    </div>
+    <div class="kui-promo kui-ppk-promo">
+        <p><b>Материалы и инструменты</b>для дизайнеров пака: исходники, шрифты, кисти и ИИ-тренажёр</p>
+        <a class="kui-btn" href="support.php">Поддержка</a>
+    </div>
+</section>
 
-        <script>
-        document.getElementById('ppkKeyBtn').onclick = async function () {
-            var input = document.getElementById('ppkKeyInput');
-            var msg = document.getElementById('ppkKeyMsg');
-            this.disabled = true;
-            try {
-                const res = await fetch('activate_ppk_key.php', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ code: input.value })
-                });
-                const r = await res.json();
-                msg.style.color = r.ok ? '#4ade80' : '#ef4444';
-                msg.textContent = r.ok ? 'Готово! Обновляем страницу…' : (r.error || 'Ошибка');
-                if (r.ok) setTimeout(() => location.reload(), 1000);
-            } catch (e) {
-                msg.style.color = '#ef4444';
-                msg.textContent = 'Ошибка сети, попробуйте ещё раз.';
-            }
-            this.disabled = false;
-        };
-        </script>
+<main class="kui-main kui-ppk-main">
 
+<?php if ($isPackDesigner): ?>
+
+    <h2 class="kui-h2">Материалы</h2>
+    <div class="kui-ppk-grid">
+        <a href="resources.php" class="kui-ppk-tile">
+            <span class="kui-ppk-ic">📁</span>
+            <span class="kui-ppk-txt"><b>PSD-паки, шрифты, кисти и SD</b><small>Все ресурсы пака в одном разделе</small></span>
+            <span class="kui-ppk-go">›</span>
+        </a>
+        <a href="useful.php" class="kui-ppk-tile">
+            <span class="kui-ppk-ic">📚</span>
+            <span class="kui-ppk-txt"><b>Полезности</b><small>Статьи и гайды от Kostlim, с комментариями</small></span>
+            <span class="kui-ppk-go">›</span>
+        </a>
+    </div>
+
+    <h2 class="kui-h2">Инструменты</h2>
+    <div class="kui-ppk-grid">
+        <a href="ai_trainer.php" class="kui-ppk-tile primary">
+            <span class="kui-ppk-ic">🎮</span>
+            <span class="kui-ppk-txt"><b>Тренировка общения с клиентом</b><small>Отыграй заказ от анкеты до сдачи — ИИ в роли заказчика</small></span>
+            <span class="kui-ppk-go">›</span>
+        </a>
+        <a href="planner.php" class="kui-ppk-tile">
+            <span class="kui-ppk-ic">🗂</span>
+            <span class="kui-ppk-txt"><b>Личный планер клиентов</b><small>Учёт заказов: статус, дедлайн, сумма</small></span>
+            <span class="kui-ppk-go">›</span>
+        </a>
+    </div>
+
+    <?php if ($isAdmin): ?>
+    <h2 class="kui-h2">Для администратора</h2>
+    <div class="kui-ppk-grid">
+        <a href="admin/ppk_manager.php" class="kui-ppk-tile">
+            <span class="kui-ppk-ic">🛠</span>
+            <span class="kui-ppk-txt"><b>Управление доступом PPK</b><small>Ручная выдача роли, ключи активации</small></span>
+            <span class="kui-ppk-tag">ADMIN</span>
+        </a>
+        <a href="admin/ai_trainer_review.php" class="kui-ppk-tile">
+            <span class="kui-ppk-ic">📨</span>
+            <span class="kui-ppk-txt"><b>Результаты тренажёра</b><small>Что прислали дизайнеры на проверку</small></span>
+            <span class="kui-ppk-tag">ADMIN</span>
+        </a>
+    </div>
     <?php endif; ?>
-</div>
 
+    <div class="kui-card kui-ppk-note">Материалы обновляются в приватном Telegram-канале — если чего-то не хватает, напишите в поддержку.</div>
+
+<?php else: ?>
+
+    <div class="kui-card accent kui-ppk-lock">
+        <div class="kui-ppk-lock-ic">🔒</div>
+        <h2>Доступно владельцам пака</h2>
+        <p>После покупки пака открывается всё это в одном месте:</p>
+        <div class="kui-ppk-chips">
+            <span>PSD-исходники</span><span>Шрифты</span><span>Кисти и стили</span><span>Гайд по Stable Diffusion</span><span>ИИ-тренажёр клиента</span><span>Личный планер заказов</span>
+        </div>
+        <a href="https://t.me/Perlo_ovka" target="_blank" rel="noopener" class="kui-btn block">🛒 Приобрести пак</a>
+    </div>
+
+    <div class="kui-card kui-ppk-key">
+        <b>Уже купили пак и получили код?</b>
+        <div class="kui-ppk-key-row">
+            <input class="kui-field" type="text" id="ppkKeyInput" placeholder="PPK-XXXX-XXXX" autocomplete="off">
+            <button class="kui-btn" type="button" id="ppkKeyBtn">Активировать</button>
+        </div>
+        <div class="kui-ppk-key-msg" id="ppkKeyMsg"></div>
+    </div>
+
+    <script>
+    document.getElementById('ppkKeyBtn').onclick = async function () {
+        var input = document.getElementById('ppkKeyInput');
+        var msg = document.getElementById('ppkKeyMsg');
+        this.disabled = true;
+        try {
+            const res = await fetch('activate_ppk_key.php', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ code: input.value })
+            });
+            const r = await res.json();
+            msg.style.color = r.ok ? '#4ade80' : '#ef4444';
+            msg.textContent = r.ok ? 'Готово! Обновляем страницу…' : (r.error || 'Ошибка');
+            if (r.ok) setTimeout(() => location.reload(), 1000);
+        } catch (e) {
+            msg.style.color = '#ef4444';
+            msg.textContent = 'Ошибка сети, попробуйте ещё раз.';
+        }
+        this.disabled = false;
+    };
+    </script>
+
+<?php endif; ?>
+</main>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>

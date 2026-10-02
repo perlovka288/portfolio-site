@@ -55,12 +55,12 @@ if (!function_exists('imgbbKeys')) {
     }
 }
 
-if (!function_exists('imgbbUpload')) {
+if (!function_exists('imgbbUploadRaw')) {
     /**
-     * Загружает файл на ImgBB, возвращает постоянный https-URL или '' при неудаче.
-     * $error получает человекочитаемую причину последней неудачи.
+     * Загружает файл именно на ImgBB (перебор ключей, логи). Возвращает https-URL или ''.
+     * Для остального кода используй imgbbUpload()/imageStoreUpload() — они выберут Cloudinary или ImgBB.
      */
-    function imgbbUpload(string $tmpPath, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, int $tries = 2): string
+    function imgbbUploadRaw(string $tmpPath, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, int $tries = 2): string
     {
         $error = null;
         if (!is_file($tmpPath) || !is_readable($tmpPath)) { $error = 'файл не найден'; error_log("ImgBB: file not found ($tmpPath)"); return ''; }
@@ -113,5 +113,17 @@ if (!function_exists('imgbbUploadData')) {
         $url = imgbbUpload($tmp, $name, $pdo, $error, $timeout, 1);
         @unlink($tmp);
         return $url;
+    }
+}
+
+if (!function_exists('imgbbUpload')) {
+    /**
+     * Историческое имя (его вызывают все загрузки сайта). Теперь это «загрузить картинку в хранилище»:
+     * Cloudinary, если настроен, иначе ImgBB — см. includes/image_store.php.
+     */
+    function imgbbUpload(string $tmpPath, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, int $tries = 2): string
+    {
+        require_once __DIR__ . '/image_store.php';
+        return imageStoreUpload($tmpPath, $name, $pdo, $error, $timeout, $tries);
     }
 }

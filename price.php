@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/includes/image_store.php';
 if (!empty($_SERVER['HTTP_X_KUI_WARM']) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') { session_start(['read_and_close' => true]); } else { session_start(); }
 require_once __DIR__ . '/includes/ui_cache.php';
 require_once 'config/db.php';
@@ -175,10 +176,10 @@ body::before {
     <section class="price-grid-local">
     <?php foreach ($services as $service): ?>
     <article class="service-card" data-id="<?= (int)$service['id'] ?>">
-        <div class="service-cover">
-            <?php $coverSrc = imgSrc($service['image'] ?? ''); ?>
+        <?php $coverSrc = imgSrc($service['image'] ?? ''); $__ph = kuiImgBlur($coverSrc); $__ss = kuiImgSrcset($coverSrc); ?>
+        <div class="service-cover"<?= $__ph ? ' style="background-image:url(\'' . htmlspecialchars($__ph) . '\')"' : '' ?>>
             <?php if ($coverSrc !== ''): ?>
-            <img src="<?= htmlspecialchars($coverSrc) ?>" alt="<?= htmlspecialchars($service['title']) ?>"
+            <img src="<?= htmlspecialchars(kuiImgOpt($coverSrc, 900)) ?>" <?= $__ss ? 'srcset="' . htmlspecialchars($__ss) . '" sizes="(min-width:1200px) 33vw, (min-width:700px) 50vw, 100vw"' : '' ?> loading="lazy" decoding="async" alt="<?= htmlspecialchars($service['title']) ?>"
                  onerror="this.parentElement.innerHTML='<div class=\'service-cover-placeholder\'><svg width=\'32\' height=\'32\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'1.5\'><rect x=\'3\' y=\'3\' width=\'18\' height=\'18\' rx=\'3\'/><circle cx=\'8.5\' cy=\'8.5\' r=\'1.5\'/><polyline points=\'21 15 16 10 5 21\'/></svg><span>Нет фото</span></div>'">
             <?php else: ?>
             <div class="service-cover-placeholder">

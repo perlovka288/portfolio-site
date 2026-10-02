@@ -370,10 +370,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
             goto render_page;
         }
         // KUI: картинки уходят на ImgBB, прочие файлы — на Cloudinary (если настроен); локальный диск — последний запас
-        require_once __DIR__ . '/includes/imgbb.php';
+        require_once __DIR__ . '/includes/image_store.php';
         $cloudinaryConfigured = true;   // uploadToCloudinary() сам выберет ImgBB/Cloudinary и вернёт '' при неудаче
-        if ($uploadedCount > 0 && !imgbbKeys($pdo) && !(getenv('CLOUDINARY_CLOUD_NAME') && getenv('CLOUDINARY_API_KEY'))) {
-            error_log('[order.php] нет ни ImgBB, ни Cloudinary ключей — файлы заказа сохраняются локально (пропадут при деплое).');
+        if ($uploadedCount > 0 && !imageStoreConfigured($pdo)) {
+            error_log('[order.php] не настроено хранилище картинок (Cloudinary/ImgBB) — файлы заказа сохраняются локально (пропадут при деплое).');
         }
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (empty($tmp) || $_FILES['example_photos']['error'][$i] !== UPLOAD_ERR_OK) continue;

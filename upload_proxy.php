@@ -1,6 +1,6 @@
 <?php
 // Прокси для загрузки фото из JS (архивирование заказа).
-// KUI: основное хранилище — ImgBB (ключи через запятую поддерживаются); Cloudinary — только запасной вариант.
+// KUI: картинки уходят в единое хранилище (Cloudinary, при его отсутствии ImgBB) — includes/image_store.php.
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -30,25 +30,5 @@ if ($url !== '') {
     exit;
 }
 
-// Запасной вариант — Cloudinary (если настроен)
-$cloudName = getenv('CLOUDINARY_CLOUD_NAME') ?: '';
-$apiKey    = getenv('CLOUDINARY_API_KEY')    ?: '';
-$apiSecret = getenv('CLOUDINARY_API_SECRET') ?: '';
-if ($cloudName === '' || $apiKey === '' || $apiSecret === '') {
-    echo json_encode(['ok' => false, 'error' => 'ImgBB: ' . ($err ?: 'не удалось загрузить')]);
-    exit;
-}
-$folder    = 'orders/archive';
-$timestamp = time();
-$sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
-$ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/image/upload");
-curl_setopt_array($ch, [
-    CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_POSTFIELDS => ['file' => new CURLFile($fileTmp), 'api_key' => $apiKey, 'timestamp' => $timestamp, 'signature' => $sig, 'folder' => $folder],
-]);
-$resp = curl_exec($ch);
-curl_close($ch);
-$data = $resp ? json_decode($resp, true) : null;
-echo json_encode(!empty($data['secure_url'])
-    ? ['ok' => true, 'url' => $data['secure_url']]
-    : ['ok' => false, 'error' => 'ImgBB: ' . ($err ?: '—') . '; Cloudinary error']);
+echo json_encode(['ok' => false, 'error' => 'Не удалось загрузить: ' . ($err ?: 'хранилище картинок не настроено')]);
+exit;

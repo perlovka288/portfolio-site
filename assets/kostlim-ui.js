@@ -44,3 +44,20 @@
     if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1);
   });
 })();
+
+/* ── мягкая подгрузка картинок: скелетон → плавное появление (работает и для уже закэшированных) ── */
+(function () {
+  function ok(img) { img.classList.add('kui-ok'); }
+  function watch(img) {
+    if (img.complete && img.naturalWidth > 0) { ok(img); return; }
+    img.addEventListener('load', function () { ok(img); }, { once: true });
+    img.addEventListener('error', function () { ok(img); }, { once: true });   // не оставляем вечный скелетон
+  }
+  function init() {
+    Array.prototype.forEach.call(document.querySelectorAll('.portfolio-media img,.service-cover img'), function (img, i) {
+      if (!img.hasAttribute('loading') && i > 1) img.setAttribute('loading', 'lazy');
+      img.setAttribute('decoding', 'async'); watch(img);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
