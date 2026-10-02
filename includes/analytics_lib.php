@@ -94,25 +94,30 @@ if (!function_exists('kuiAnalyticsReport')) {
         $local  = "(created_at AT TIME ZONE 'UTC') AT TIME ZONE '" . $tzName . "'";
         $bucket = $monthly ? "date_trunc('month', $local)::date" : "($local)::date";
 
-        $st = $pdo->prepare("SELECT $bucket AS d, COUNT(*) AS v, COUNT(DISTINCT vid) AS u
-                             FROM site_visits WHERE created_at >= ? AND created_at < ? GROUP BY 1 ORDER BY 1");
+        // «Визит» = сессия: если человек молчал 30+ минут (или пришёл впервые) — это новый визит.
+        // Просмотры страниц считаются отдельно. Уникальные = разные браузеры/устройства (по анонимной куке).
+        $sess = "WITH s AS (SELECT vid, created_at, LAG(created_at) OVER (PARTITION BY vid ORDER BY created_at) AS prev
+                            FROM site_visits WHERE created_at >= ? AND created_at < ?)";
+        $isNew = "(prev IS NULL OR created_at - prev > INTERVAL '30 minutes')";
+        $st = $pdo->prepare("$sess SELECT $bucket AS d, COUNT(*) FILTER (WHERE $isNew) AS v, COUNT(*) AS pv, COUNT(DISTINCT vid) AS u
+                             FROM s GROUP BY 1 ORDER BY 1");
         $st->execute([$u($first), $u($end)]);
         $byDay = [];
-        foreach ($st as $r) { $byDay[(string)$r['d']] = ['v' => (int)$r['v'], 'u' => (int)$r['u']]; }
+        foreach ($st as $r) { $byDay[(string)$r['d']] = ['v' => (int)$r['v'], 'pv' => (int)$r['pv'], 'u' => (int)$r['u']]; }
 
         $series = [];
         $cur = $first;
         for ($i = 0; $i < $n; $i++) {
             $key = $cur->format('Y-m-d');
             $series[] = ['label' => $monthly ? $cur->format('m.Y') : $cur->format('d.m'), 'date' => $key,
-                         'visits' => $byDay[$key]['v'] ?? 0, 'unique' => $byDay[$key]['u'] ?? 0];
+                         'visits' => $byDay[$key]['v'] ?? 0, 'pageviews' => $byDay[$key]['pv'] ?? 0, 'unique' => $byDay[$key]['u'] ?? 0];
             $cur = $monthly ? $cur->modify('+1 month') : $cur->modify('+1 day');
         }
 
-        $tot = function (DateTimeImmutable $a, DateTimeImmutable $b) use ($pdo, $u): array {
-            $s = $pdo->prepare("SELECT COUNT(*) v, COUNT(DISTINCT vid) u FROM site_visits WHERE created_at >= ? AND created_at < ?");
+        $tot = function (DateTimeImmutable $a, DateTimeImmutable $b) use ($pdo, $u, $sess, $isNew): array {
+            $s = $pdo->prepare("$sess SELECT COUNT(*) FILTER (WHERE $isNew) v, COUNT(*) pv, COUNT(DISTINCT vid) u FROM s");
             $s->execute([$u($a), $u($b)]);
-            $r = $s->fetch(PDO::FETCH_ASSOC) ?: ['v' => 0, 'u' => 0];
+            $r = $s->fetch(PDO::FETCH_ASSOC) ?: ['v' => 0, 'pv' => 0, 'u' => 0];
             $orders = 0;
             try {
                 $o = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE created_at >= ? AND created_at < ?");
@@ -120,7 +125,7 @@ if (!function_exists('kuiAnalyticsReport')) {
                 $orders = (int)$o->fetchColumn();
             } catch (Throwable $e) {}
             $uniq = (int)$r['u'];
-            return ['visits' => (int)$r['v'], 'unique' => $uniq, 'orders' => $orders, 'conversion' => $uniq > 0 ? round($orders * 100 / $uniq, 2) : 0.0];
+            return ['visits' => (int)$r['v'], 'pageviews' => (int)$r['pv'], 'unique' => $uniq, 'orders' => $orders, 'conversion' => $uniq > 0 ? round($orders * 100 / $uniq, 2) : 0.0];
         };
         $cur = $tot($first, $end);
         $prev = $tot($prevFirst, $first);
@@ -128,8 +133,13 @@ if (!function_exists('kuiAnalyticsReport')) {
 
         return [
             'range'  => $range, 'series' => $series, 'totals' => $cur, 'prev' => $prev,
-            'delta'  => ['visits' => $delta($cur['visits'], $prev['visits']), 'unique' => $delta($cur['unique'], $prev['unique']),
+            'delta'  => ['visits' => $delta($cur['visits'], $prev['visits']), 'pageviews' => $delta($cur['pageviews'], $prev['pageviews']), 'unique' => $delta($cur['unique'], $prev['unique']),
                          'conversion' => ($prev['conversion'] > 0) ? round($cur['conversion'] - $prev['conversion'], 2) : null],
         ];
     }
+}
+
+if (!function_exists('kuiAnalyticsReset')) {
+    /** Полностью очистить статистику (например, после тестов). */
+    function kuiAnalyticsReset(PDO $pdo): void { $pdo->exec("TRUNCATE site_visits, site_online"); }
 }

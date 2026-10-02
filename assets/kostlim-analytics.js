@@ -22,6 +22,7 @@
   }
   function renderTotals(d) {
     $('anVisits').textContent = fmt(d.totals.visits); $('anUnique').textContent = fmt(d.totals.unique);
+    $('anPages').textContent = 'просмотров страниц: ' + fmt(d.totals.pageviews);
     $('anConv').textContent = String(d.totals.conversion).replace('.', ',') + '%';
     $('anOrders').textContent = fmt(d.totals.orders) + ' заказ(ов) за период';
     delta($('anVisitsD'), d.delta.visits); delta($('anUniqueD'), d.delta.unique); delta($('anConvD'), d.delta.conversion, ' п.п.');
@@ -74,7 +75,7 @@
       var p = s[i], px = X(i);
       guide.setAttribute('x1', px); guide.setAttribute('x2', px); d1.setAttribute('cx', px); d1.setAttribute('cy', Y(p.visits)); d2.setAttribute('cx', px); d2.setAttribute('cy', Y(p.unique));
       [guide, d1, d2].forEach(function (n) { n.setAttribute('visibility', 'visible'); });
-      tipEl.innerHTML = '<b>' + p.label + '</b><span><i style="background:var(--accent)"></i>Визиты <em>' + fmt(p.visits) + '</em></span><span><i style="background:#34c759"></i>Уникальные <em>' + fmt(p.unique) + '</em></span>';
+      tipEl.innerHTML = '<b>' + p.label + '</b><span><i style="background:var(--accent)"></i>Визиты <em>' + fmt(p.visits) + '</em></span><span><i style="background:#34c759"></i>Уникальные <em>' + fmt(p.unique) + '</em></span><span><i style="background:var(--text2)"></i>Просмотры стр. <em>' + fmt(p.pageviews) + '</em></span>';
       tipEl.style.display = 'block';
       var left = px * (r.width / W) + 12, tw = tipEl.offsetWidth; if (left + tw > r.width) left = px * (r.width / W) - tw - 12;
       tipEl.style.left = Math.max(0, left) + 'px'; tipEl.style.top = '8px';
@@ -97,5 +98,21 @@
   document.addEventListener('visibilitychange', function () { if (visible()) load(); });
   if (window.ResizeObserver) new ResizeObserver(function () { if (data && root.offsetParent) drawChart(); }).observe($('anChart'));
   new MutationObserver(function () { if (root.offsetParent) load(); }).observe(root.closest('.panel') || root, { attributes: true, attributeFilter: ['class'] });
+  /* ── «Не считать мои заходы» (кука на этом устройстве; по умолчанию включено) и сброс ── */
+  var ign = $('anIgnore'), hasCookie = function () { return /(?:^|; )kui_ignore=1/.test(document.cookie); };
+  function setIgnore(on) {
+    document.cookie = 'kui_ignore=' + (on ? '1' : '') + '; path=/; max-age=' + (on ? 31536000 : 0) + '; SameSite=Lax';
+    try { localStorage.setItem('kui_ignore_pref', on ? 'on' : 'off'); } catch (e) {}
+    ign.checked = on;
+    $('anIgnoreHint').textContent = on ? 'Включено: заходы с этого устройства не попадают в статистику' : 'Выключено: твои заходы с этого устройства считаются как обычные';
+  }
+  var pref = null; try { pref = localStorage.getItem('kui_ignore_pref'); } catch (e) {}
+  if (pref === 'off') setIgnore(false); else setIgnore(true);      // по умолчанию свои заходы не считаем; выбор «выключено» запоминается
+  ign.addEventListener('change', function () { setIgnore(ign.checked); });
+  $('anReset').addEventListener('click', function () {
+    if (!confirm('Удалить ВСЮ собранную статистику посещений? Это нельзя отменить.')) return;
+    var fd = new FormData(); fd.append('action', 'reset');
+    fetch('analytics_api.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function () { load(); });
+  });
   load();
 })();

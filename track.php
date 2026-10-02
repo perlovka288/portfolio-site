@@ -10,6 +10,8 @@ header('Cache-Control: no-store');
 $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
 if ($ua === '' || preg_match('/bot|crawl|spider|slurp|facebookexternalhit|preview|monitor|uptime|curl|wget|python|headless|lighthouse|pingdom/i', $ua)) { http_response_code(204); exit; }
 
+if (!empty($_COOKIE['kui_ignore'])) { http_response_code(204); exit; }   // устройство помечено «не считать» (переключатель в админке)
+
 // администратор свои просмотры не накручивает (читаем сессию без блокировки)
 if (!empty($_COOKIE[session_name()])) {
     @session_start(['read_and_close' => true]);

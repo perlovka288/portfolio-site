@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/analytics_lib.php';
 try {
     ensureAnalyticsSchema($pdo);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'reset') { kuiAnalyticsReset($pdo); echo json_encode(['ok' => true]); exit; }
     if (!empty($_GET['online'])) { echo json_encode(['online' => kuiAnalyticsOnline($pdo)]); exit; }
     $range = in_array($_GET['range'] ?? '7d', ['7d', '30d', '12m'], true) ? $_GET['range'] : '7d';
     echo json_encode(['online' => kuiAnalyticsOnline($pdo)] + kuiAnalyticsReport($pdo, $range), JSON_UNESCAPED_UNICODE);

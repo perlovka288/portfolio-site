@@ -596,5 +596,15 @@ body.kui-admin .panel.kui-analytics{background:none;border:0;padding:0;margin-bo
 body.kui .portfolio-media[style*="background-image"],body.kui .service-cover[style*="background-image"]{animation:none;background-size:cover!important;background-position:center!important}
 @keyframes kuiIn{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:no-preference){
-  body.kui .kui-stage,body.kui .kui-main,body.kui .price-page,body.kui .order-wrap,body.kui .profile-wrap,body.kui .admin-shell{animation:kuiIn .28s ease both}
+  /* fill-mode «backwards», НЕ «both»: после анимации эффект полностью снимается. Иначе элемент остаётся слоем (stacking context),
+     и окна/шторки внутри него оказываются ПОД затемнением (баг v8). */
+  body.kui .kui-stage,body.kui .kui-main,body.kui .price-page,body.kui .order-wrap,body.kui .profile-wrap,body.kui .admin-shell{animation:kuiIn .28s ease backwards}
 }
+
+.kui-an-set{margin:10px 0}
+.kui-an-help{margin-top:10px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:0 16px}
+.kui-an-help>summary{cursor:pointer;font-weight:700;font-size:14px;padding:14px 0;list-style:none}
+.kui-an-help>summary::-webkit-details-marker{display:none}
+.kui-an-helpbody{padding:0 0 16px;font-size:13px;line-height:1.55;color:var(--text2)}
+.kui-an-helpbody p{margin:0 0 10px}.kui-an-helpbody b{color:var(--text)}
+.ios-btn.danger-btn{color:#ff453a;background:rgba(255,69,58,.12);margin-top:4px}
