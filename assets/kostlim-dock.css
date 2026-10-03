@@ -229,53 +229,81 @@ body.kui .kd-stack .kui-nav .kui-me.on { background: rgba(249,115,22,.15); }
 .kd-manager { text-decoration: none; }
 
 /* ============================================================================
-   ПК (≥900px, мышь): боковая панель сайта РАСКРЫВАЕТСЯ при наведении (как sidebar 21st.dev).
-   В покое — узкая рейка с иконками, при наведении плавно растёт вправо и показывает подписи
-   прямо в пунктах (вместо всплывающих подсказок). Раскрывается поверх контента.
-   Телефон и сенсорные экраны не затронуты (там нижнее меню).
+   ПК (≥900px): САЙДБАР как в компоненте 21st.dev (Sidebar): в покое узкая рейка 60px
+   (логотип + иконки), при наведении раскрывается до 300px с подписями, группами, кнопкой
+   «Сделать заказ» и профилем внизу. Раскрывается ПОВЕРХ контента. Телефон — как было
+   (нижнее меню). Разметка — includes/ui_shell.php (<aside class="ksb">).
    ============================================================================ */
-@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
-    body.kui .kd-stack .kui-nav {
-        width: 72px; box-sizing: border-box; overflow: hidden; align-items: stretch;
-        transition: width .28s cubic-bezier(.4, 0, .2, 1), box-shadow .28s ease, border-color .28s ease;
-    }
-    body.kui .kd-stack .kui-nav:hover,
-    body.kui .kd-stack .kui-nav:focus-within {
-        width: 212px; border-color: rgba(249,115,22,.45);
-        box-shadow: 0 24px 60px rgba(0,0,0,.7), 0 0 36px rgba(249,115,22,.22), inset 0 0 0 1px rgba(255,255,255,.03);
-    }
-    body.kui .kd-stack .kui-nav > a,
-    body.kui .kd-stack .kui-nav > button {
-        width: 100%; height: 52px; flex-direction: row; justify-content: flex-start; align-items: center;
-        gap: 14px; padding: 0 0 0 15px; transform: none !important; white-space: nowrap; overflow: visible;
-        font-size: 13px;
-    }
-    body.kui .kd-stack .kui-nav > a.kui-me { padding-left: 13px; }
-    body.kui .kd-stack .kui-nav svg { flex: 0 0 22px; }
-    body.kui .kd-stack .kui-nav > a:hover svg,
-    body.kui .kd-stack .kui-nav > button:hover svg { color: #fb923c; }
+.ksb{display:none}
+@media (min-width: 900px) {
+    html body.kui:not(.kui-admin) { --kui-side: 60px; }
+    body.kui .kd-stack .kui-nav { display: none !important; }     /* плавающий док заменён сайдбаром */
 
-    /* подпись — внутри пункта, плавно проявляется */
-    body.kui .kd-stack .kui-nav .kd-l {
-        position: static; transform: translateX(-8px); opacity: 0; pointer-events: none;
-        padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
-        font-size: 13px; font-weight: 700; color: inherit;
-        transition: opacity .2s ease .06s, transform .2s ease .06s;
+    .ksb {
+        display: flex; flex-direction: column; position: fixed; left: 0; top: 0; bottom: 0; z-index: 70;
+        width: 60px; box-sizing: border-box; padding: 14px 10px; overflow: hidden;
+        background: #0d0d10; border-right: 1px solid rgba(255,255,255,.07);
+        transition: width .3s cubic-bezier(.4,0,.2,1), box-shadow .3s ease, border-color .3s ease;
     }
-    body.kui .kd-stack .kui-nav .kd-l::after { display: none; }
-    body.kui .kd-stack .kui-nav:hover .kd-l,
-    body.kui .kd-stack .kui-nav:focus-within .kd-l { opacity: 1; transform: none; }
-    body.kui .kd-stack .kui-nav:hover > a:hover .kd-l,
-    body.kui .kd-stack .kui-nav:hover > button:hover .kd-l { transform: translateX(3px); }   /* лёгкий сдвиг подписи */
-    body.kui .kd-stack .kui-nav > a:hover .kd-l,
-    body.kui .kd-stack .kui-nav > button:hover .kd-l { transform: none; }
+    .ksb:hover, .ksb:focus-within {
+        width: 300px; border-right-color: rgba(249,115,22,.35);
+        box-shadow: 24px 0 60px rgba(0,0,0,.55), 0 0 40px rgba(249,115,22,.10);
+    }
+    .ksb a, .ksb button { text-decoration: none; font-family: inherit; }
 
-    /* значок ADMIN/PPK — над аватаркой, не уезжает вправо при раскрытии */
-    body.kui .kd-stack .kui-nav .kui-me em { left: 11px; right: auto; top: -3px; }
+    /* подписи: проявляются при раскрытии */
+    .ksb .ksb-t { display: flex; flex-direction: column; min-width: 0; white-space: nowrap; opacity: 0; transform: translateX(-8px);
+        transition: opacity .2s ease .06s, transform .2s ease .06s; text-align: left; }
+    .ksb .ksb-t b { font-size: 13.5px; font-weight: 700; line-height: 1.2; color: inherit; }
+    .ksb .ksb-t small { font-size: 11px; font-weight: 500; line-height: 1.3; color: #7c7c88; margin-top: 1px; }
+    .ksb:hover .ksb-t, .ksb:focus-within .ksb-t { opacity: 1; transform: none; }
 
-    /* шторка «Ещё» открывается правее раскрытой панели */
-    body.kui .kui-more.open { padding-left: 244px; }
+    /* логотип */
+    .ksb-logo { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 0 0 5px; color: #fff; flex: 0 0 auto; }
+    .ksb-logo img { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 30px; box-shadow: 0 0 14px rgba(249,115,22,.35); }
+    .ksb-logo .ksb-t b { font-size: 15px; font-weight: 800; }
+
+    .ksb-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 10px -10px 0; padding: 0 10px; scrollbar-width: none; }
+    .ksb-body::-webkit-scrollbar { display: none; }
+
+    /* кнопка «Сделать заказ» */
+    .ksb-cta { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 10px; margin-bottom: 4px; border-radius: 14px; color: #fff;
+        background: linear-gradient(135deg, #fb923c, #ea580c); box-shadow: 0 10px 26px rgba(249,115,22,.28); transition: filter .2s, transform .2s; }
+    .ksb-cta:hover { filter: brightness(1.08); }
+    .ksb-cta svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* группы: в покое — линия-разделитель, при раскрытии — подпись */
+    .ksb-grp { height: 0; margin: 14px 8px 6px; border-top: 1px solid rgba(255,255,255,.08); overflow: hidden; white-space: nowrap;
+        font-size: 10.5px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #5a5a66; line-height: 22px;
+        transition: height .3s ease, margin .3s ease, border-color .3s ease; }
+    .ksb-grp span { opacity: 0; transition: opacity .2s ease .08s; }
+    .ksb:hover .ksb-grp, .ksb:focus-within .ksb-grp { height: 22px; margin: 14px 0 2px; padding: 0 10px; border-top-color: transparent; }
+    .ksb:hover .ksb-grp span, .ksb:focus-within .ksb-grp span { opacity: 1; }
+
+    /* пункты */
+    .ksb-link { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; height: 46px; padding: 0 10px;
+        border: 0; border-radius: 12px; background: transparent; color: #c9c9d2; cursor: pointer; transition: background .2s, color .2s; }
+    .ksb-link svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; color: #a3a3ae; transition: color .2s, transform .2s; }
+    .ksb-link:hover, .ksb-link:focus-visible { background: rgba(255,255,255,.06); color: #fff; outline: none; }
+    .ksb-link:hover svg { color: #fb923c; }
+    .ksb:hover .ksb-link:hover .ksb-t { transform: translateX(4px); }          /* group-hover/sidebar:translate-x-1 */
+    .ksb-link.on { background: rgba(249,115,22,.14); color: #fff; }
+    .ksb-link.on svg { color: #fb923c; }
+    .ksb-link.on::before { content: ""; position: absolute; left: -10px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: #f97316; box-shadow: 0 0 10px #f97316; }
+
+    /* профиль внизу */
+    .ksb-user { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: 52px; margin-top: 10px; padding: 0 5px; border-radius: 14px; color: #fff;
+        border-top: 1px solid transparent; transition: background .2s; }
+    .ksb-user:hover, .ksb-user.on { background: rgba(255,255,255,.06); }
+    .ksb-ava img { display: block; box-sizing: border-box; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: #111; border: 2px solid #f97316; box-shadow: 0 0 12px rgba(249,115,22,.45); }
+    .ksb-ava { flex: 0 0 30px; }
+
+    /* промпт ИИ снизу — по центру области контента правее рейки */
+    body.kui .kd-stack { left: var(--kui-side); }
 }
-@media (min-width: 900px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: reduce) {
-    body.kui .kd-stack .kui-nav, body.kui .kd-stack .kui-nav .kd-l { transition: none; }
+@media (min-width: 900px) and (max-height: 640px) {
+    .ksb-link { height: 40px; } .ksb-grp { margin-top: 8px; }
+}
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
+    .ksb, .ksb .ksb-t, .ksb-grp, .ksb-grp span { transition: none; }
 }

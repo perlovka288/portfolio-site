@@ -43,6 +43,7 @@ if (!function_exists('kuiIcon')) {
             'admin'   => '<path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/>',
             'more'    => '<path d="M4 7h16M4 12h16M4 17h16"/>',
             'tg'      => '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
+            'plus'    => '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
             'ai'      => '<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
         ];
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($i[$n] ?? '') . '</svg>';
@@ -106,6 +107,47 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
         <button type="button" data-kui-more><?= kuiIcon('more') ?><span class="kd-l">Ещё</span></button>
     </nav>
 </div>
+
+<!-- KUI: ПК (≥900px) — боковое меню-сайдбар: узкая рейка, при наведении раскрывается (стили — assets/kostlim-dock.css, в конце) -->
+<?php
+$ksbItem = static function (string $key, string $label, string $sub, string $href, string $icon, string $onclick = '', bool $ext = false) use ($kuiActive): string {
+    $on = ($kuiActive === $key) ? ' on' : '';
+    return '<a class="ksb-link' . $on . '" href="' . htmlspecialchars($href) . '"' . ($onclick !== '' ? ' onclick="' . htmlspecialchars($onclick) . '"' : '') . ($ext ? ' target="_blank" rel="noopener"' : '') . ' title="' . htmlspecialchars($label) . '">'
+        . kuiIcon($icon) . '<span class="ksb-t"><b>' . htmlspecialchars($label) . '</b>' . ($sub !== '' ? '<small>' . htmlspecialchars($sub) . '</small>' : '') . '</span></a>';
+};
+?>
+<aside class="kui-side ksb" id="kuiSide" aria-label="Меню сайта">
+    <a class="ksb-logo" href="index.php" aria-label="Kostlim Design">
+        <img src="/assets/img/logo.png" alt="">
+        <span class="ksb-t"><b>Kostlim Design</b><small>Дизайн соцсетей</small></span>
+    </a>
+    <div class="ksb-body">
+        <a class="ksb-cta" href="order.php" title="Сделать заказ"><?= kuiIcon('plus') ?><span class="ksb-t"><b>Сделать заказ</b></span></a>
+
+        <div class="ksb-grp"><span>Меню</span></div>
+        <?= $ksbItem('home',   'Работы',  'Портфолио',        'index.php', 'works') ?>
+        <?= $ksbItem('price',  'Прайс',   'Услуги и цены',    'price.php', 'price') ?>
+        <?= $ksbItem('orders', 'Заказы',  'Мои заказы',       'profile.php?view=orders#orders-section', 'orders') ?>
+        <?= $ksbItem('',       'Отзывы',  'Что говорят клиенты', 'index.php#reviews', 'reviews') ?>
+
+        <div class="ksb-grp"><span>Для дизайнеров</span></div>
+        <?= $ksbItem('useful', 'Полезное',    'Гайды и материалы',     'useful.php', 'useful') ?>
+        <?= $ksbItem('ppk',    'Приват Пак',  'Исходники и шаблоны',   $kuiPpkHref, 'ppk', $kuiPpkOnclick) ?>
+
+        <div class="ksb-grp"><span>Связь</span></div>
+        <?= $ksbItem('support', 'Поддержка', 'Ответим на вопросы', 'support.php', 'support') ?>
+        <button type="button" class="ksb-link" data-open-ai-chat title="ИИ-помощник"><?= kuiIcon('ai') ?><span class="ksb-t"><b>ИИ-помощник</b><small>Превью, цена, заказ</small></span></button>
+        <?= $ksbItem('', 'Telegram', '@designkostlim', 'https://t.me/designkostlim', 'tg', '', true) ?>
+        <?php if ($isAdmin): ?>
+            <div class="ksb-grp"><span>Владелец</span></div>
+            <?= $ksbItem('admin', 'Админ-панель', 'Заказы, прайс, ключи', 'admin/index.php', 'admin') ?>
+        <?php endif; ?>
+    </div>
+    <a class="ksb-user<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" title="Профиль">
+        <span class="ksb-ava"><img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'"></span>
+        <span class="ksb-t"><b><?= htmlspecialchars($kuiName) ?></b><small><?= $kuiBadge ? htmlspecialchars($kuiBadge) . ' · ' : '' ?>Профиль</small></span>
+    </a>
+</aside>
 
 <!-- KUI: шторка «Ещё» -->
 <div class="kui-more" id="kuiMore">
