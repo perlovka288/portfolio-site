@@ -1,15 +1,7 @@
-/* assets/geo.js — при первом заходе ставит валюту по стране. Подключать на всех страницах с ценами. */
+/* assets/geo.js — если сервер не смог определить страну сам (нет Cloudflare), узнаём по IP через /geoip.php и ставим цены региона. */
 (function () {
-  var SITE = { UAH: 'UAH', RUB: 'RUB', USD: 'USD', KZT: 'RUB', EUR: 'USD' }; // что умеет switchCurrency на сайте
-  function apply(cur) {
-    try { localStorage.setItem('currency', cur); } catch (e) {}
-    if (typeof window.switchCurrency === 'function') window.switchCurrency(SITE[cur] || 'USD');
-  }
-  var saved = null;
-  try { saved = localStorage.getItem('currency'); } catch (e) {}
-  if (saved) { document.addEventListener('DOMContentLoaded', function () { apply(saved); }); return; }
+  if (window.__geoKnown) return;
   fetch('/geoip.php', { cache: 'no-store' }).then(function (r) { return r.json(); })
-    .then(function (j) { document.addEventListener('DOMContentLoaded', function () { apply(j.currency || 'USD'); });
-                         if (document.readyState !== 'loading') apply(j.currency || 'USD'); })
+    .then(function (j) { if (typeof window.switchCurrency === 'function') window.switchCurrency(j.currency || 'USD'); })
     .catch(function () {});
 })();

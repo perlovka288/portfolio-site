@@ -747,7 +747,11 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
         ? "⚡ <b>Заказ #{$orderId} принят как СРОЧНЫЙ.</b>\nОжидается оплата.\n\n"
         : "✅ <b>Заказ #{$orderId} принят.</b>\nОжидается оплата.\n\n";
 
-    $priceBlock = "💰 <b>Итого:</b>\n<b>{$rub} ₽ / {$uan} ₴</b>\n\n";
+    $usdRate = (float)str_replace(',', '.', (string)(getenv('USD_UAH') ?: '41.5'));
+    if ($usdRate <= 0) $usdRate = 41.5;
+    $usdVal  = $uan > 0 ? ceil($uan / $usdRate * 100) / 100 : 0;
+    $usdText = '$' . rtrim(rtrim(number_format($usdVal, 2, '.', ''), '0'), '.');
+    $priceBlock = "💰 <b>Итого:</b>\n<b>{$rub} ₽ / {$uan} ₴ / {$usdText}</b>\n\n";
 
     $footNotes = [];
     if ($isUrgent && !$isCooperation) {
@@ -761,17 +765,16 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
     }
 
     $text = $header
-        . $priceBlock
-        . "💳 Нажмите «Оплатить на сайте» — оплата подтвердится автоматически, чек не нужен.\nИли переведите по реквизитам и скиньте чек:\n"
-        . "📍 <b>Рубли:</b> {$rubLine}\n"
-        . "📍 <b>Гривны:</b> <code>{$uanDetails}</code>\n"
-        . "📍 <b>Крипта:</b> <code>{$cryptoDetails}</code>\n";
+        . $priceBlock;
 
     if (!empty($footNotes)) {
-        $text .= "\n" . implode("\n", $footNotes) . "\n";
+        $text .= implode("\n", $footNotes) . "\n\n";
     }
 
-    $text .= "\n❓ @Perlo_ovka";
+    $text .= "💳 Для оплаты нажмите кнопку «Оплатить на сайте» ниже.\n"
+        . "После проведения платежа статус обновится автоматически.\n\n"
+        . "⚠️ Если сайт не засчитал оплату автоматически, нажмите кнопку «Отправить чек» ниже и прикрепите квитанцию.\n\n"
+        . "❓ Поддержка: @Perlo_ovka";
 
     return $text;
 }
@@ -790,7 +793,7 @@ function paymentKeyboard(int $orderId, string $payUrl): array
     return [
         'inline_keyboard' => [
             [['text' => '💻 Оплатить на сайте', 'url' => $payUrl]],
-            [['text' => '📸 Скинуть чек в ТГ', 'callback_data' => "cli_pay_tg_{$orderId}"]],
+            [['text' => '🧾 Отправить чек', 'callback_data' => "cli_pay_tg_{$orderId}"]],
         ],
     ];
 }
