@@ -99,17 +99,39 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
     </div>
 </header>
 
-<!-- KUI: нижнее меню (только телефон) -->
-<nav class="kui-nav" aria-label="Навигация">
-    <a class="<?= $kuiActive === 'home' ? 'on' : '' ?>" href="index.php"><i class="kui-glass"></i><?= kuiIcon('works') ?>Работы</a>
-    <a class="<?= $kuiActive === 'price' ? 'on' : '' ?>" href="price.php"><i class="kui-glass"></i><?= kuiIcon('price') ?>Прайс</a>
-    <a class="kui-me<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" aria-label="Профиль">
-        <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'">
-        <?php if ($kuiBadge): ?><em><?= $kuiBadge ?></em><?php endif; ?>
-    </a>
-    <a class="<?= $kuiActive === 'orders' ? 'on' : '' ?>" href="profile.php?view=orders#orders-section"><i class="kui-glass"></i><?= kuiIcon('orders') ?>Заказы</a>
-    <button type="button" data-kui-more><?= kuiIcon('more') ?>Ещё</button>
-</nav>
+<!-- KUI: нижний блок — строка-промпт ИИ (бегущая рамка) + док-навигация под ней -->
+<div class="kd-stack">
+    <form class="kd-prompt" id="kdPrompt" action="#" autocomplete="off">
+        <div class="kd-beam"><div class="kd-box">
+            <div class="kd-row">
+                <button type="button" class="kd-chip kd-at" data-kd="attach" title="Прикрепить превью — оценю CTR" aria-label="Прикрепить фото">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 5.6v3a1.9 1.9 0 003.8 0V8a6.4 6.4 0 10-2.5 5.1"/></svg>
+                </button>
+                <textarea id="kdInput" class="kd-text" rows="1" maxlength="2000" placeholder="Спроси ИИ: превью, цена, заказ…" enterkeyhint="send" aria-label="Вопрос ИИ-помощнику"></textarea>
+                <button type="submit" class="kd-send" aria-label="Отправить">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                </button>
+            </div>
+            <div class="kd-chips"><div>
+                <button type="button" class="kd-chip" data-kd="ideas">💡 Идеи для превью</button>
+                <button type="button" class="kd-chip" data-kd="ctr">📊 Оценить CTR</button>
+                <button type="button" class="kd-chip" data-kd="price">💰 Прайс</button>
+            </div></div>
+        </div></div>
+    </form>
+
+    <nav class="kui-nav" aria-label="Навигация">
+        <a class="<?= $kuiActive === 'home' ? 'on' : '' ?>" href="index.php"><i class="kui-glass"></i><?= kuiIcon('works') ?><span class="kd-l">Работы</span></a>
+        <a class="<?= $kuiActive === 'price' ? 'on' : '' ?>" href="price.php"><i class="kui-glass"></i><?= kuiIcon('price') ?><span class="kd-l">Прайс</span></a>
+        <a class="kui-me<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" aria-label="Профиль">
+            <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+            <?php if ($kuiBadge): ?><em><?= $kuiBadge ?></em><?php endif; ?>
+            <span class="kd-l">Профиль</span>
+        </a>
+        <a class="<?= $kuiActive === 'orders' ? 'on' : '' ?>" href="profile.php?view=orders#orders-section"><i class="kui-glass"></i><?= kuiIcon('orders') ?><span class="kd-l">Заказы</span></a>
+        <button type="button" data-kui-more><?= kuiIcon('more') ?><span class="kd-l">Ещё</span></button>
+    </nav>
+</div>
 
 <!-- KUI: шторка «Ещё» -->
 <div class="kui-more" id="kuiMore">
@@ -121,3 +143,9 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
         <?php endforeach; ?>
     </div>
 </div>
+
+<?php
+// ИИ-чат нужен строке-промпту на КАЖДОЙ странице: подключаем виджет здесь, если страница не подключила его сама раньше.
+// (Большая плавающая иконка на kui-страницах скрыта стилями, поэтому её не показываем.)
+if (empty($GLOBALS['__kuiAiWidgetDone'])) { $aiWidgetHideFab = true; include __DIR__ . '/ai_widget.php'; }
+?>

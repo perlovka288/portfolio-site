@@ -40,7 +40,8 @@ if ($isAdmin && isset($_POST['save_all_inline'])) {
 function imgSrc(string $val, string $base = 'uploads/'): string {
     if ($val === '') return '';
     if (str_starts_with($val, 'http://') || str_starts_with($val, 'https://')) return $val;
-    return $base . $val;
+    if (kuiLocalMissing($val)) return '';   // файл стёрт при деплое — покажем заглушку «Нет фото»
+    return '/' . ltrim($base . $val, '/');
 }
 
 $stmt     = $pdo->query("SELECT * FROM prices ORDER BY id ASC");

@@ -12,9 +12,14 @@
  *                              // режиме ИИ сам поймёт, что он тут помогает
  *                              // составить ТЗ, и начнёт разговор с вопросов.
  */
+// Виджет подключается один раз на страницу: ui_shell.php включает его сам (для строки-промпта внизу),
+// а страницы, которые подключают его вручную, при повторном include просто пропускаются.
+if (!empty($GLOBALS['__kuiAiWidgetDone'])) { return; }
+$GLOBALS['__kuiAiWidgetDone'] = true;
 $aiWidgetHideFab = $aiWidgetHideFab ?? false;
 $aiWidgetContext = $aiWidgetContext ?? '';
 ?>
+<link rel="stylesheet" href="/assets/kostlim-dock.css?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-dock.css') ?: time() ?>">
 <!--
     ВАЖНО: раньше этот тег стоял только на index.php, поэтому на order.php и
     profile.php окно чата всегда падало в "Ошибка соединения" — window.fetch
@@ -66,14 +71,22 @@ $aiWidgetContext = $aiWidgetContext ?? '';
             <button type="button" id="ai-widget-attach-remove" aria-label="Убрать фото">✕</button>
         </div>
 
-        <div class="ai-widget-footer">
-            <a href="https://t.me/Perlo_ovka" target="_blank" rel="noopener" class="ai-widget-manager-btn" title="Задать вопрос менеджеру">👤</a>
-            <button type="button" id="ai-widget-attach-btn" class="ai-widget-attach-btn" title="Прикрепить фото превью для оценки CTR">📎</button>
-            <input type="file" id="ai-widget-photo-input" accept="image/*" style="display:none">
-            <input type="text" id="ai-widget-input" placeholder="Напиши сообщение…" maxlength="2000" autocomplete="off">
-            <button type="button" id="ai-widget-send" aria-label="Отправить">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
+        <div class="ai-widget-footer kd-footer">
+            <div class="kd-beam"><div class="kd-box">
+                <div class="kd-row">
+                    <button type="button" id="ai-widget-attach-btn" class="ai-widget-attach-btn kd-chip kd-at" title="Прикрепить фото превью для оценки CTR" aria-label="Прикрепить фото">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 5.6v3a1.9 1.9 0 003.8 0V8a6.4 6.4 0 10-2.5 5.1"/></svg>
+                    </button>
+                    <input type="file" id="ai-widget-photo-input" accept="image/*" style="display:none">
+                    <input type="text" id="ai-widget-input" class="kd-text" placeholder="Спроси про превью, цену, заказ…" maxlength="2000" autocomplete="off" enterkeyhint="send">
+                    <button type="button" id="ai-widget-send" class="kd-send on" aria-label="Отправить">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                    </button>
+                </div>
+                <div class="kd-chips" style="grid-template-rows:1fr"><div style="padding-top:8px">
+                    <a href="https://t.me/Perlo_ovka" target="_blank" rel="noopener" class="ai-widget-manager-btn kd-chip kd-manager" title="Задать вопрос менеджеру">👤 Менеджер</a>
+                </div></div>
+            </div></div>
         </div>
     </div>
 </div>
@@ -128,7 +141,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     height: min(86vh, 680px);
     max-height: 86vh;
     background: #1a1a22; border: 1px solid #33333f;
-    border-radius: 20px;
+    border-radius: 20px; overflow: hidden;
     display: flex; flex-direction: column; z-index: 9600;
     box-shadow: 0 24px 70px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
     opacity: 0; visibility: hidden;
@@ -180,27 +193,13 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 .ai-widget-quick-btn:hover { border-color: rgba(249,115,22,.8); color: #fff; background: #33333f; }
 
 .ai-widget-footer { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid #2a2a34; flex-shrink: 0; background: #1a1a22; }
-.ai-widget-manager-btn {
-    width: 36px; height: 36px; border-radius: 50%; background: #24242e; border: 1px solid #33333f;
-    display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 16px;
-    flex-shrink: 0; transition: border-color .15s;
-}
-.ai-widget-manager-btn:hover { border-color: rgba(249,115,22,.5); }
+.ai-widget-manager-btn { text-decoration: none; }
 #ai-widget-input {
-    /* font-size ниже 16px — iOS Safari при фокусе на таком поле сам зумит
-       страницу (считает, что текст слишком мелкий), и после этого зум не
-       всегда корректно возвращается обратно — именно это и было на скрине:
-       "приближает" при открытии клавиатуры. 16px — стандартный порог, при
-       котором Safari зум не включает. */
-    flex: 1; background: #24242e; border: 1px solid #33333f; border-radius: 20px;
-    padding: 10px 16px; color: #fff; font-size: 16px; font-family: inherit; min-width: 0;
+    /* font-size 16px — иначе iOS Safari при фокусе сам зумит страницу. Рамку и фон теперь рисует .kd-box (бегущая рамка). */
+    flex: 1; min-width: 0; background: transparent; border: 0; border-radius: 0;
+    padding: 4px 2px; color: #f2f2f6; font-size: 16px; font-family: inherit;
 }
-#ai-widget-input:focus { outline: none; border-color: rgba(249,115,22,.5); }
-#ai-widget-send {
-    width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0;
-    background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; display: flex; align-items: center; justify-content: center;
-    transition: transform .15s;
-}
+#ai-widget-input:focus { outline: none; border: 0; }
 #ai-widget-send:hover { transform: scale(1.08); }
 
 /* ── Прикреплённое фото над строкой ввода ── */
@@ -215,12 +214,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
 }
 #ai-widget-attach-remove:hover { color: #fb7185; }
-.ai-widget-attach-btn {
-    width: 36px; height: 36px; border-radius: 50%; background: #24242e; border: 1px solid #33333f;
-    display: flex; align-items: center; justify-content: center; font-size: 16px; color: #9a9aa8;
-    flex-shrink: 0; cursor: pointer; transition: border-color .15s, color .15s;
-}
-.ai-widget-attach-btn:hover { border-color: rgba(249,115,22,.5); color: #fdba74; }
+.ai-widget-attach-btn { font-family: inherit; }
 .ai-widget-msg-img { max-width: 100%; border-radius: 12px; display: block; margin-bottom: 6px; }
 
 /* ── Печатает: анимированные точки вместо статичного текста ── */

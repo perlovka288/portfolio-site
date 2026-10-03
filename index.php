@@ -276,7 +276,12 @@ try {
 $admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
 
-$settings     = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
+// Колонка со значением называется value (так её создаёт админка); setting_value — старое имя. Пробуем обе, чтобы страница не падала.
+$settings = [];
+foreach (['value', 'setting_value'] as $__col) {
+    try { $settings = $pdo->query("SELECT setting_key, {$__col} FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR); break; }
+    catch (Throwable $e) { $settings = []; }
+}
 $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
 $themeDensity = $settings['theme_density'] ?? 'normal';
@@ -942,6 +947,9 @@ body::after {
             <div class="portfolio-price-top"><?= number_format($showRub, 0, '', ' ') ?> ₽ / <?= number_format($showUan, 0, '', ' ') ?> ₴</div>
             <?php $__iu = imgSrc($img_file); $__ph = kuiImgBlur($__iu); $__ss = kuiImgSrcset($__iu); ?>
             <div class="portfolio-media"<?= $__ph ? ' style="background-image:url(\'' . htmlspecialchars($__ph) . '\')"' : '' ?>>
+                <?php if ($__iu === '' || kuiLocalMissing($img_file)): ?>
+                <div class="portfolio-media-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>Превью загружается</span></div>
+                <?php else: ?>
                 <img src="<?= htmlspecialchars(kuiImgOpt($__iu, 900)) ?>"
                      <?= $__ss ? 'srcset="' . htmlspecialchars($__ss) . '" sizes="(min-width:1200px) 33vw, (min-width:700px) 50vw, 100vw"' : '' ?>
                      loading="<?= $workIdx < 2 ? 'eager' : 'lazy' ?>" decoding="async"
@@ -949,8 +957,9 @@ body::after {
                      alt="<?= htmlspecialchars($work['title'] ?? 'Портфолио') ?>"
                      draggable="false"
                      onerror="this.style.opacity='0.3'">
+                <?php endif; ?>
                 <!-- Плашка с размером/категорией поверх превью убрана по ТЗ. -->
-                <?php if ($isDesign && $ava_file !== ''): ?>
+                <?php if ($isDesign && $ava_file !== '' && !kuiLocalMissing($ava_file)): ?>
                     <div class="design-avatar-frame">
                         <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
                     </div>

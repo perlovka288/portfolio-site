@@ -1,0 +1,173 @@
+/* ============================================================================
+   kostlim-dock.css — нижний блок: строка-промпт ИИ (с бегущей рамкой «border beam»)
+   + навигация-док под ней. Тёмная тема сайта, оранжевые акценты (#f97316).
+   Порт React-компонентов border-beam и floating-dock-navigation на чистый CSS/JS.
+   Подключается в includes/ui_head.php и в includes/ai_widget.php.
+   ============================================================================ */
+
+@property --kd-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes kd-spin { to { --kd-a: 360deg; } }
+
+/* ── Бегущая рамка ─────────────────────────────────────────────────────────── */
+.kd-beam { position: relative; border-radius: 22px; isolation: isolate; }
+.kd-beam::before,
+.kd-beam::after {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px;
+    background: conic-gradient(from var(--kd-a),
+        transparent 0 58%, rgba(228,86,13,0) 58%, #e4560d 70%, #f97316 80%, #fdba74 90%, #fff1e0 95%, transparent 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+    animation: kd-spin 4.8s linear infinite;
+    pointer-events: none; z-index: 2;
+}
+.kd-beam::after { padding: 3px; filter: blur(9px); opacity: .7; }
+.kd-beam:focus-within::before, .kd-beam:focus-within::after { animation-duration: 2.6s; }
+@media (prefers-reduced-motion: reduce) { .kd-beam::before, .kd-beam::after { animation: none; } }
+
+/* ── Внутренняя «коробка» строки ввода ─────────────────────────────────────── */
+.kd-box {
+    position: relative; z-index: 1; border-radius: inherit; overflow: hidden;
+    background: #141416;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06), inset 0 0 40px rgba(249,115,22,.04);
+    padding: 7px;
+}
+.kd-row { display: flex; align-items: center; gap: 8px; }
+.kd-chip {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0;
+    height: 28px; padding: 0 10px; border: 0; border-radius: 36px; cursor: pointer;
+    background: rgba(255,255,255,.05); color: #caccd2; font-weight: 600; font-size: 12px; line-height: 1; font-family: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04), inset 0 1px 0 rgba(255,255,255,.05);
+    transition: background .15s, color .15s, box-shadow .15s;
+}
+.kd-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.kd-chip:hover { background: rgba(249,115,22,.14); color: #fdba74; box-shadow: inset 0 0 0 1px rgba(249,115,22,.4); }
+.kd-at { width: 30px; padding: 0; height: 30px; border-radius: 50%; }
+.kd-text {
+    flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: #f2f2f6;
+    font-weight: 500; font-size: 16px; line-height: 22px; font-family: inherit; padding: 4px 2px; max-height: 88px; overflow-y: auto;
+}
+.kd-text::placeholder { color: #6d6d78; }
+.kd-send {
+    width: 32px; height: 32px; flex-shrink: 0; border: 0; border-radius: 50%; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; color: #8b8b94;
+    background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    transition: background .18s, color .18s, transform .15s, box-shadow .18s;
+}
+.kd-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.kd-send:hover { transform: scale(1.08); }
+.kd-prompt.has-text .kd-send, .kd-beam:focus-within .kd-send.on {
+    background: linear-gradient(135deg, #fb923c, #f97316); color: #fff; box-shadow: 0 0 16px rgba(249,115,22,.55);
+}
+.kd-send.on { background: linear-gradient(135deg, #fb923c, #f97316); color: #fff; box-shadow: 0 0 16px rgba(249,115,22,.55); }
+
+/* быстрые чипы: раскрываются при фокусе / наличии текста */
+.kd-chips { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease; }
+.kd-chips > div { overflow: hidden; display: flex; gap: 6px; flex-wrap: wrap; min-height: 0; }
+.kd-prompt:focus-within .kd-chips, .kd-prompt.has-text .kd-chips { grid-template-rows: 1fr; }
+.kd-prompt:focus-within .kd-chips > div, .kd-prompt.has-text .kd-chips > div { padding-top: 8px; }
+
+/* ── Нижний стек: промпт + док ─────────────────────────────────────────────── */
+.kd-stack {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+}
+.kd-stack > * { pointer-events: auto; }
+.kd-prompt { width: min(560px, 100%); margin: 0; }
+.kd-stack::before {                      /* мягкое затемнение под стеком, чтобы контент не «рвался» */
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 170px; z-index: -1; pointer-events: none;
+    background: linear-gradient(to top, rgba(8,8,8,.92) 20%, rgba(8,8,8,0));
+}
+body.kui:has(.kd-stack) { padding-bottom: calc(172px + env(safe-area-inset-bottom, 0px)); }
+
+/* ── Док-навигация (вместо старого .kui-nav) ───────────────────────────────── */
+body.kui .kd-stack .kui-nav {
+    position: static !important; display: flex !important; align-items: flex-end; justify-content: center; gap: 6px;
+    left: auto; right: auto; bottom: auto; width: auto; max-width: 100%; box-sizing: border-box;
+    padding: 8px; border-radius: 22px; text-align: center;
+    background: rgba(14,14,17,.84); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4);
+    border: 1px solid rgba(249,115,22,.24);
+    box-shadow: 0 18px 50px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.03), 0 0 30px rgba(249,115,22,.10);
+}
+body.kui .kd-stack .kui-nav .kui-glass { display: none !important; }
+body.kui .kd-stack .kui-nav > a,
+body.kui .kd-stack .kui-nav > button {
+    position: relative; flex: 0 0 auto; width: 52px; height: 52px; padding: 0; margin: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    border: 0; border-radius: 15px; background: transparent; color: #b4b4be; text-decoration: none;
+    font-weight: 600; font-size: 9.5px; line-height: 1; font-family: inherit; cursor: pointer;
+    transform: scale(var(--kd-s, 1)); transform-origin: bottom center;
+    transition: transform .28s cubic-bezier(.2,.8,.3,1), background .2s, color .2s;
+}
+body.kui .kd-stack .kui-nav svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; transition: color .2s; }
+body.kui .kd-stack .kui-nav > a:hover,
+body.kui .kd-stack .kui-nav > button:hover { background: rgba(255,255,255,.07); color: #fff; }
+body.kui .kd-stack .kui-nav .on { background: rgba(249,115,22,.15); color: #fb923c; }
+body.kui .kd-stack .kui-nav .on svg { color: #fb923c; }
+body.kui .kd-stack .kui-nav .on::after {             /* точка-индикатор активного пункта */
+    content: ""; position: absolute; left: 50%; bottom: 3px; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: #f97316; box-shadow: 0 0 8px #f97316;
+}
+body.kui .kd-stack .kui-nav > a:active,
+body.kui .kd-stack .kui-nav > button:active { transform: scale(.92); }
+
+/* подпись пункта */
+.kd-l { display: block; white-space: nowrap; line-height: 1; }
+
+/* аватар профиля — в центре дока, с оранжевым кольцом */
+body.kui .kd-stack .kui-nav .kui-me { margin: 0; }
+body.kui .kd-stack .kui-nav .kui-me img {
+    box-sizing: border-box; width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: #111;
+    border: 2px solid #f97316; box-shadow: 0 0 14px rgba(249,115,22,.5);
+}
+body.kui .kd-stack .kui-nav .kui-me em {
+    position: absolute; top: 1px; right: -2px; margin: 0; padding: 2px 5px; border-radius: 8px;
+    font-weight: 800; font-size: 7.5px; line-height: 1; font-family: inherit; font-style: normal; letter-spacing: .3px;
+    background: #f97316; color: #fff;
+}
+body.kui .kd-stack .kui-nav .kui-me.on { background: rgba(249,115,22,.15); }
+
+/* ПК / мышь: только иконки + всплывающая подпись, как в macOS-доке */
+@media (hover: hover) and (pointer: fine) {
+    body.kui .kd-stack .kui-nav > a,
+    body.kui .kd-stack .kui-nav > button { width: 48px; height: 48px; }
+    body.kui .kd-stack .kui-nav .kd-l {
+        position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translate(-50%, 4px);
+        padding: 6px 11px; border-radius: 9px; font-weight: 700; font-size: 11.5px; line-height: 1; font-family: inherit;
+        background: #17171d; color: #fff; border: 1px solid rgba(249,115,22,.35);
+        box-shadow: 0 8px 22px rgba(0,0,0,.55); opacity: 0; pointer-events: none;
+        transition: opacity .15s, transform .15s;
+    }
+    body.kui .kd-stack .kui-nav .kd-l::after {
+        content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px;
+        border: 5px solid transparent; border-top-color: #17171d;
+    }
+    body.kui .kd-stack .kui-nav > a:hover .kd-l,
+    body.kui .kd-stack .kui-nav > button:hover .kd-l { opacity: 1; transform: translate(-50%, 0); }
+    body.kui .kd-stack .kui-nav .on::after { bottom: 2px; }
+}
+/* телефон / палец: подписи видны под иконками, без увеличения */
+@media (hover: none), (pointer: coarse) {
+    body.kui .kd-stack .kui-nav > a, body.kui .kd-stack .kui-nav > button { transform: none; }
+}
+@media (max-width: 380px) {
+    body.kui .kd-stack .kui-nav { gap: 2px; padding: 6px; }
+    body.kui .kd-stack .kui-nav > a, body.kui .kd-stack .kui-nav > button { width: 48px; }
+}
+
+/* ПК (≥900px): док показывается тоже; центрируем по области контента (правее бокового меню) */
+@media (min-width: 900px) {
+    body.kui:has(.kd-stack) { padding-bottom: 150px; }
+    body.kui .kd-stack { left: var(--kui-side, 248px); }
+    body.kui .kd-stack .kui-nav { display: flex !important; }
+    /* шторка «Ещё» на ПК раньше была скрыта — теперь открывается по кнопке дока */
+    body.kui .kui-more.open { display: flex !important; }
+}
+
+/* ── Панель чата: подвал в стиле промпт-строки ─────────────────────────────── */
+.ai-widget-footer.kd-footer { padding: 12px 14px 14px; display: block; }
+.ai-widget-footer .kd-beam { border-radius: 20px; }
+.kd-manager { text-decoration: none; }

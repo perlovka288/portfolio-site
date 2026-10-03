@@ -1358,7 +1358,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
     $url = uploadToImgBB($tmp, $prefix . '_' . time());
     if ($url !== '') return $url;
     $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
-    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.';
+    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.' . ' Диагностика с точной причиной: /admin/storage_test.php';
     return '';
 }
 
@@ -1374,7 +1374,7 @@ function uploadNestedImage(string $field, int $id, string $prefix, string $uploa
     $url = uploadToImgBB($tmp, $prefix . '_' . time() . '_' . $id);
     if ($url !== '') return $url;
     $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
-    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.';
+    $GLOBALS['kuiImgWarn'] = '❌ Хранилище картинок не приняло файл' . ($e !== '' ? " ({$e})" : '') . '. На сервер она НЕ сохранялась (там файлы пропадают при деплое) — проверь Cloudinary/ImgBB во вкладке «Ключи и API» и загрузи ещё раз.' . ' Диагностика с точной причиной: /admin/storage_test.php';
     return '';
 }
 
@@ -1693,7 +1693,7 @@ if (isset($_POST['update_portfolio_media'])) {
         if ($newPriceRub !== null && $newPriceUan !== null) {
             $pdo->prepare("UPDATE portfolio SET price_rub = ?, price_uan = ? WHERE id = ?")->execute([$newPriceRub, $newPriceUan, $caseId]);
         }
-        $message = '✅ Кейс обновлён.';
+        $message = !empty($GLOBALS['kuiImgWarn']) ? '⚠️ Кейс обновлён, но новая картинка НЕ загрузилась — причина ниже.' : '✅ Кейс обновлён.';
     }
 }
 
@@ -1720,7 +1720,7 @@ if (isset($_POST['save_all_prices'])) {
         }
     }
     $message = empty($priceSaveErrors)
-        ? '💾 Прайс-лист обновлен.'
+        ? (!empty($GLOBALS['kuiImgWarn']) ? '⚠️ Прайс сохранён, но картинка НЕ загрузилась — причина ниже.' : '💾 Прайс-лист обновлен.')
         : '⚠️ Прайс обновлён частично. Не сохранено: ' . implode('; ', $priceSaveErrors);
 }
 
