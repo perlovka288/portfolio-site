@@ -944,7 +944,7 @@ body::after {
         ?>
         <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
             <div class="kui-ab"><span><?= htmlspecialchars($category['title'] ?? '') ?></span><span><?= htmlspecialchars(str_replace('x', '×', $sizeText)) ?></span></div>
-            <div class="portfolio-price-top"><?= number_format($showRub, 0, '', ' ') ?> ₽ / <?= number_format($showUan, 0, '', ' ') ?> ₴</div>
+            <div class="portfolio-price-top"><b><?= number_format($showRub, 0, '', ' ') ?> ₽</b><small><?= number_format($showUan, 0, '', ' ') ?> ₴</small></div>
             <?php $__iu = imgSrc($img_file); $__ph = kuiImgBlur($__iu); $__ss = kuiImgSrcset($__iu); ?>
             <div class="portfolio-media"<?= $__ph ? ' style="background-image:url(\'' . htmlspecialchars($__ph) . '\')"' : '' ?>>
                 <?php if ($__iu === '' || kuiLocalMissing($img_file)): ?>

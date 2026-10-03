@@ -77,7 +77,14 @@ if (!function_exists('imgbbUploadRaw')) {
                     CURLOPT_CONNECTTIMEOUT => 10,
                     CURLOPT_TIMEOUT        => max(5, $timeout),
                     CURLOPT_POSTFIELDS     => ['key' => $apiKey, 'image' => $b64, 'name' => $name],
+                    // ImgBB (Cloudflare) часто режет «голые» запросы без User-Agent — представляемся браузером
+                    CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                    CURLOPT_HTTPHEADER     => ['Accept: application/json, text/plain, */*', 'Accept-Language: en-US,en;q=0.9', 'Origin: https://imgbb.com', 'Referer: https://imgbb.com/'],
+                    CURLOPT_ENCODING       => '',
                 ]);
+                // Если ImgBB блокирует IP хостинга — можно пустить запросы через прокси: IMGBB_PROXY=http://user:pass@host:port
+                $proxy = getenv('IMGBB_PROXY');
+                if ($proxy !== false && trim((string)$proxy) !== '') { curl_setopt($ch, CURLOPT_PROXY, trim((string)$proxy)); }
                 $res  = curl_exec($ch);
                 $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 $cerr = curl_error($ch);
@@ -95,6 +102,11 @@ if (!function_exists('imgbbUploadRaw')) {
                 $msg   = (string)($data['error']['message'] ?? ('HTTP ' . $code));
                 $error = $msg;
                 error_log("ImgBB key#" . ($idx + 1) . " (…" . substr($apiKey, -4) . ") HTTP $code: $msg");
+                if ($code === 403 || stripos($msg, 'forbidden') !== false) {
+                    // блокируется IP сервера, а не ключ — перебор остальных ключей бесполезен
+                    $error = $msg . ' (ImgBB блокирует IP сервера — нужен Cloudinary или прокси IMGBB_PROXY)';
+                    return '';
+                }
                 if ($code >= 500) { continue; }             // сбой на их стороне — повторим
                 break;                                      // ключ неверный/лимит — сразу следующий ключ
             }

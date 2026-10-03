@@ -1,7 +1,7 @@
 <?php
 /**
  * KUI shell — общая оболочка интерфейса для ВСЕХ страниц:
- *   • ПК (≥900px): боковое меню слева
+ *   • ПК (≥900px): то же меню-док, но вертикальной панелью слева (старое боковое меню убрано)
  *   • Телефон: оранжевая шапка (ИИ · логотип по центру · Прайс/TG) + нижнее меню
  *     с аватаром в центре и шторкой «Ещё»
  *
@@ -49,16 +49,7 @@ if (!function_exists('kuiIcon')) {
     }
 }
 
-// Пункты бокового меню (ПК) и шторки «Ещё» (телефон)
-$kuiSide = [
-    ['home',   'Работы',      'index.php',                              'works'],
-    ['price',  'Прайс',       'price.php',                              'price'],
-    ['orders', 'Заказы',      'profile.php?view=orders#orders-section', 'orders'],
-    ['reviews','Отзывы',      'index.php#reviews',                      'reviews'],
-    ['useful', 'Полезное',    'useful.php',                             'useful'],
-    ['ppk',    'Приват Пак',  $kuiPpkHref,                              'ppk'],
-    ['support','Поддержка',   'support.php',                            'support'],
-];
+// Пункты шторки «Ещё» (на ПК открывается рядом с боковой панелью, на телефоне — снизу)
 $kuiMore = [
     ['reviews','Отзывы',      'index.php#reviews',   'reviews'],
     ['useful', 'Полезное',    'useful.php',          'useful'],
@@ -71,23 +62,6 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
 <div class="kui-legacy" hidden><?php $sectionTabsActive = $kuiActive; $sectionTabsShowPpk = false; include __DIR__ . '/section_tabs.php'; ?></div>
 <?php $__sec = $sectionTabsActive; include __DIR__ . '/ppk_nav_modal.php'; ?>
 
-<!-- KUI: боковое меню (только ПК) -->
-<aside class="kui-side" aria-label="Разделы">
-    <a class="kui-side-logo" href="index.php"><img src="/assets/img/logo.png" alt="Kostlim Design"></a>
-    <a class="kui-side-prof" href="profile.php">
-        <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'">
-        <span><?= htmlspecialchars($kuiName) ?></span>
-        <?php if ($kuiBadge): ?><em><?= $kuiBadge ?></em><?php endif; ?>
-    </a>
-    <?php foreach ($kuiSide as $it): ?>
-        <a class="kui-side-link<?= $kuiActive === $it[0] ? ' on' : '' ?>" href="<?= htmlspecialchars($it[2]) ?>"<?= ($it[0] === 'ppk' && $kuiPpkOnclick) ? ' onclick="' . htmlspecialchars($kuiPpkOnclick) . '"' : '' ?>>
-            <i class="kui-glass"></i><?= kuiIcon($it[3]) ?><span><?= $it[1] ?></span>
-        </a>
-    <?php endforeach; ?>
-    <div class="kui-side-sp"></div>
-    <button type="button" class="kui-side-link" data-open-ai-chat><?= kuiIcon('ai') ?><span>ИИ-помощник</span></button>
-    <?php if ($isAdmin): ?><a class="kui-side-link<?= $kuiActive === 'admin' ? ' on' : '' ?>" href="admin/index.php"><?= kuiIcon('admin') ?><span>Админ-панель</span></a><?php endif; ?>
-</aside>
 
 <!-- KUI: верхняя панель: ИИ · логотип по центру · Прайс + Telegram -->
 <header class="kui-top">

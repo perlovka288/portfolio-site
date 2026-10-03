@@ -14,15 +14,19 @@
  * Все старые вызовы imgbbUpload()/uploadToImgBB()/uploadReceiptToImgBB() теперь идут сюда.
  */
 
-if (!function_exists('kuiCfg')) {
-    /** Значение настройки: сначала окружение (Render), потом таблица site_settings (админка). */
-    function kuiCfg(string $key, ?PDO $pdo = null): string
+if (!function_exists('kuiCfgSrc')) {
+    /**
+     * Значение настройки + откуда оно взято: 'env' (окружение Render) | 'admin' (таблица site_settings) | ''.
+     * @return array{0:string,1:string}
+     */
+    function kuiCfgSrc(string $key, ?PDO $pdo = null): array
     {
         static $db = [];
-        $env = getenv($key);
-        if ($env !== false && trim((string)$env) !== '') { return trim((string)$env); }
+        foreach ([getenv($key), $_SERVER[$key] ?? false, $_ENV[$key] ?? false] as $env) {
+            if ($env !== false && $env !== null && trim((string)$env) !== '') { return [trim((string)$env), 'env']; }
+        }
         if (!$pdo) { global $pdo; }
-        if (!($pdo instanceof PDO)) { return ''; }
+        if (!($pdo instanceof PDO)) { return ['', '']; }
         if (!array_key_exists($key, $db)) {
             $db[$key] = '';
             try {
@@ -32,7 +36,30 @@ if (!function_exists('kuiCfg')) {
                 if ($v !== false) { $db[$key] = trim((string)$v); }
             } catch (Throwable $e) {}
         }
-        return $db[$key];
+        return [$db[$key], $db[$key] !== '' ? 'admin' : ''];
+    }
+}
+
+if (!function_exists('kuiCfg')) {
+    /** Значение настройки: сначала окружение (Render), потом таблица site_settings (админка). */
+    function kuiCfg(string $key, ?PDO $pdo = null): string
+    {
+        return kuiCfgSrc($key, $pdo)[0];
+    }
+}
+
+if (!function_exists('kuiCfgFirst')) {
+    /**
+     * Первое непустое значение из нескольких возможных имён настройки (на случай опечаток в названии переменной).
+     * @return array{0:string,1:string,2:string} [значение, источник, имя]
+     */
+    function kuiCfgFirst(array $names, ?PDO $pdo = null): array
+    {
+        foreach ($names as $n) {
+            [$v, $src] = kuiCfgSrc($n, $pdo);
+            if ($v !== '') { return [$v, $src, $n]; }
+        }
+        return ['', '', ''];
     }
 }
 
@@ -48,9 +75,13 @@ if (!function_exists('cloudinaryCreds')) {
     function cloudinaryCreds(?PDO $pdo = null): ?array
     {
         $clean = static function (string $v): string { return trim($v, " \t\n\r\0\x0B\"'`"); };
-        $cloud = $clean(kuiCfg('CLOUDINARY_CLOUD_NAME', $pdo));
-        $key   = $clean(kuiCfg('CLOUDINARY_API_KEY', $pdo));
-        $sec   = $clean(kuiCfg('CLOUDINARY_API_SECRET', $pdo));
+        // Принимаем и «правильные» имена, и частые варианты (CLOUDINARY_NAME, CLOUDINARY_KEY, CLOUDINARY_SECRET…)
+        $cloudR = kuiCfgFirst(['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_NAME', 'CLOUDINARY_CLOUD', 'CLOUD_NAME'], $pdo);
+        $keyR   = kuiCfgFirst(['CLOUDINARY_API_KEY', 'CLOUDINARY_KEY', 'CLOUDINARY_APIKEY'], $pdo);
+        $secR   = kuiCfgFirst(['CLOUDINARY_API_SECRET', 'CLOUDINARY_SECRET', 'CLOUDINARY_APISECRET'], $pdo);
+        $cloud = $clean($cloudR[0]);
+        $key   = $clean($keyR[0]);
+        $sec   = $clean($secR[0]);
         $url   = $clean(kuiCfg('CLOUDINARY_URL', $pdo));
 
         // cloudinary://KEY:SECRET@CLOUD — может лежать в любом из полей
@@ -207,6 +238,8 @@ if (!function_exists('imageStoreUpload')) {
 
         [$use, $isTmp] = kuiPrepareImage($path);          // слишком тяжёлые картинки уменьшаем
         $order = ($pref === 'imgbb') ? ['imgbb', 'cloudinary'] : ['cloudinary', 'imgbb'];   // auto/cloudinary → Cloudinary первым
+        // тумблер «ImgBB как запасное»: выключен (0) и Cloudinary настроен → ImgBB не трогаем
+        if ($pref !== 'imgbb' && $hasC && kuiCfg('IMGBB_FALLBACK', $pdo) === '0') { $order = ['cloudinary']; }
         $errors = [];
         $result = '';
         foreach ($order as $svc) {

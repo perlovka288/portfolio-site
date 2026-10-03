@@ -158,13 +158,69 @@ body.kui .kd-stack .kui-nav .kui-me.on { background: rgba(249,115,22,.15); }
     body.kui .kd-stack .kui-nav > a, body.kui .kd-stack .kui-nav > button { width: 48px; }
 }
 
-/* ПК (≥900px): док показывается тоже; центрируем по области контента (правее бокового меню) */
+/* ============================================================================
+   ПК (≥900px): ТО ЖЕ меню, но ВЕРТИКАЛЬНОЙ панелью слева по центру экрана.
+   (Старое боковое меню на 248px убрано.) Строка-промпт остаётся снизу по центру контента.
+   Увеличение иконок под курсором — вправо; подпись всплывает справа от иконки.
+   ============================================================================ */
 @media (min-width: 900px) {
+    html body.kui { --kui-side: 104px; }
     body.kui:has(.kd-stack) { padding-bottom: 150px; }
-    body.kui .kd-stack { left: var(--kui-side, 248px); }
-    body.kui .kd-stack .kui-nav { display: flex !important; }
-    /* шторка «Ещё» на ПК раньше была скрыта — теперь открывается по кнопке дока */
-    body.kui .kui-more.open { display: flex !important; }
+    body.kui .kd-stack { left: var(--kui-side); }          /* промпт центрируем по области контента */
+
+    body.kui .kd-stack .kui-nav {
+        position: fixed !important; left: 16px; top: 50%; right: auto; bottom: auto;
+        transform: translateY(-50%);
+        display: flex !important; flex-direction: column; align-items: center; justify-content: center;
+        gap: 6px; padding: 10px; border-radius: 26px; z-index: 55;
+        max-height: calc(100vh - 32px);
+    }
+    body.kui .kd-stack .kui-nav > a,
+    body.kui .kd-stack .kui-nav > button {
+        width: 52px; height: 52px; transform-origin: left center;
+    }
+
+    /* подпись — справа от иконки */
+    body.kui .kd-stack .kui-nav .kd-l {
+        position: absolute; top: 50%; bottom: auto; left: calc(100% + 16px);
+        transform: translate(-6px, -50%);
+        padding: 7px 12px; border-radius: 9px; font-weight: 700; font-size: 12px; line-height: 1; font-family: inherit;
+        background: #17171d; color: #fff; border: 1px solid rgba(249,115,22,.35);
+        box-shadow: 0 8px 22px rgba(0,0,0,.55); opacity: 0; pointer-events: none;
+        transition: opacity .15s, transform .15s; z-index: 5;
+    }
+    body.kui .kd-stack .kui-nav .kd-l::after {
+        content: ""; position: absolute; top: 50%; left: auto; right: 100%; margin: -5px 0 0 0;
+        border: 5px solid transparent; border-top-color: transparent; border-right-color: #17171d;
+    }
+    body.kui .kd-stack .kui-nav > a:hover .kd-l,
+    body.kui .kd-stack .kui-nav > button:hover .kd-l,
+    body.kui .kd-stack .kui-nav > a:focus-visible .kd-l,
+    body.kui .kd-stack .kui-nav > button:focus-visible .kd-l { opacity: 1; transform: translate(0, -50%); }
+
+    /* индикатор активного пункта — полоска слева */
+    body.kui .kd-stack .kui-nav .on::after {
+        left: -7px; bottom: auto; top: 50%; width: 4px; height: 22px; margin: -11px 0 0 0; border-radius: 4px;
+    }
+    /* значок ADMIN/PPK у аватарки */
+    body.kui .kd-stack .kui-nav .kui-me em { right: -4px; top: -2px; }
+
+    /* шторка «Ещё» — всплывающее окно рядом с панелью, а не снизу */
+    body.kui .kui-more.open {
+        display: flex !important; align-items: center; justify-content: flex-start;
+        padding-left: calc(var(--kui-side) + 8px); background: rgba(0,0,0,.45);
+    }
+    body.kui .kui-more .kui-more-sheet {
+        margin: 0; max-width: 380px; width: 380px; border-radius: 26px; max-height: 84vh;
+        border: 1px solid rgba(249,115,22,.28); padding-bottom: 18px;
+        box-shadow: 0 24px 70px rgba(0,0,0,.7), 0 0 40px rgba(249,115,22,.10);
+    }
+    body.kui .kui-more .kui-grab { display: none; }
+}
+/* низкие окна ПК: панель плотнее, чтобы не вылезала */
+@media (min-width: 900px) and (max-height: 520px) {
+    body.kui .kd-stack .kui-nav { gap: 2px; padding: 6px; }
+    body.kui .kd-stack .kui-nav > a, body.kui .kd-stack .kui-nav > button { width: 44px; height: 44px; }
 }
 
 /* ── Панель чата: подвал в стиле промпт-строки ─────────────────────────────── */

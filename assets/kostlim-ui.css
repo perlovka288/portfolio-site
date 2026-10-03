@@ -3,7 +3,7 @@
    палитра Kostlim (оранжевый). Всё под body.kui, токены — из style.css.
    Подключать ПОСЛЕДНИМ. Чтобы включить на странице: <body class="... kui">.
    ============================================================================ */
-body.kui{--kui-orange:#e4560d;--kui-side:248px;--kui-r:22px;
+body.kui{--kui-orange:#e4560d;--kui-side:104px;--kui-r:22px;
   padding-bottom:calc(92px + env(safe-area-inset-bottom,0px));background:var(--bg)}
 body.kui *{-webkit-tap-highlight-color:transparent}
 html:has(body.kui){background:var(--kui-orange,#e4560d)}
@@ -23,7 +23,6 @@ body.kui #ai-widget-fab,body.kui #ai-widget-bubble{display:none!important}
 .kui-ic{width:36px;padding:0}.kui-pill{padding:0 16px}
 .kui-ic svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .kui-ai svg{fill:currentColor;stroke:none}
-.kui-side,.kui-side-logo{display:none}
 
 /* ── герой-блок главной ── */
 .kui-hero-row{background:var(--kui-orange);padding:0 16px 34px;color:#fff}
@@ -106,18 +105,7 @@ body.kui .portfolio-price-top{align-self:flex-start;background:var(--accent-dim)
 @media (min-width:900px){
   html:has(body.kui){background:var(--bg)}
   body.kui{padding-left:var(--kui-side);padding-bottom:40px}
-  .kui-nav,.kui-more,.kui-logo{display:none!important}
-  .kui-side{display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;width:var(--kui-side);background:var(--card);border-right:1px solid var(--border);padding:22px 14px;gap:4px;z-index:40;overflow-y:auto}
-  .kui-side-logo{display:block;text-align:center;padding-bottom:14px}
-  .kui-side-logo img{width:64px;height:64px;border-radius:50%;box-shadow:0 0 22px var(--accent-glow2)}
-  .kui-side-prof{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:16px;padding:10px;margin-bottom:12px;text-decoration:none;color:var(--text);font-weight:700;font-size:14px}
-  .kui-side-prof img{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--accent);object-fit:cover}
-  .kui-side-prof em{margin-left:auto;font-style:normal;font-size:10px;background:var(--accent);color:#fff;border-radius:8px;padding:2px 7px}
-  .kui-side-link{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;color:var(--text2);text-decoration:none;font:600 14px inherit;font-family:inherit;background:none;border:0;cursor:pointer;text-align:left;width:100%}
-  .kui-side-link svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-  .kui-side-link:hover{color:var(--text)}
-  .kui-side-link.on{background:var(--accent-dim);color:var(--accent2)}
-  .kui-side-sp{flex:1}
+  .kui-logo{display:none!important}
   .kui-top{background:none;color:var(--text);padding:20px 32px 0;display:flex;justify-content:flex-end;max-width:1240px;width:100%;margin:0 auto;box-sizing:border-box}
   .kui-top .kui-ai{order:2;margin-left:8px}
   .kui-top .kui-ic,.kui-top .kui-pill{color:var(--text);border-color:var(--border2);background:var(--card)}
