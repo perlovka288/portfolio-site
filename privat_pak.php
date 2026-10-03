@@ -38,6 +38,7 @@ function imgSrcPpk(?string $url): string
     <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <?php include __DIR__ . '/includes/ui_head.php'; ?>
+    <link rel="stylesheet" href="/assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
 </head>
 <body class="kui">
 <?php
@@ -54,6 +55,7 @@ function imgSrcPpk(?string $url): string
 
 <section class="kui-hero-row kui-ppk-hero-row">
     <div class="kui-hero kui-ppk-hero">
+        <span class="rd-glow" aria-hidden="true"></span><span class="rd-grid" aria-hidden="true"></span>
         <?php if ($isPackDesigner): ?>
             <div class="kui-ppk-bell"><?php renderNotificationBell(); ?></div>
             <div class="kui-hero-head">
@@ -64,21 +66,22 @@ function imgSrcPpk(?string $url): string
                     <?php if ($ppkHandle): ?><div class="kui-ppk-handle"><?= $ppkHandle ?></div><?php endif; ?>
                 </div>
             </div>
-            <div class="kui-ppk-badges">
-                <?php if ($isAdmin): ?><span class="kui-ppk-badge admin">⚡ Admin</span><?php endif; ?>
-                <span class="kui-ppk-badge">🎨 PPK</span>
+            <div class="rd-chips" style="margin-top:14px">
+                <?php if ($isAdmin): ?><span class="rd-chip rd-chip--admin"><svg class="rd-ico fill pulse" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>ADMIN</span><?php endif; ?>
+                <span class="rd-chip rd-chip--ppk"><svg class="rd-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></svg>PPK</span>
             </div>
         <?php else: ?>
             <div class="kui-hero-head">
                 <img class="kui-hero-ava" src="/assets/img/logo.png" alt="">
                 <div><small>Закрытый раздел</small><h2>Приват Пак</h2></div>
             </div>
-            <div class="kui-ppk-badges"><span class="kui-ppk-badge">🔒 Доступ после покупки пака</span></div>
+            <div class="rd-chips" style="margin-top:14px"><span class="rd-chip rd-chip--lock"><svg class="rd-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Доступ после покупки пака</span></div>
         <?php endif; ?>
     </div>
     <div class="kui-promo kui-ppk-promo">
+        <span class="rd-glow" aria-hidden="true"></span><span class="rd-grid" aria-hidden="true"></span>
         <p><b>Материалы и инструменты</b>для дизайнеров пака: исходники, шрифты, кисти и ИИ-тренажёр</p>
-        <a class="kui-btn" href="support.php">Поддержка</a>
+        <a class="kui-btn" href="support.php">Поддержка <svg class="rd-ico nudge" style="stroke:currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
     </div>
 </section>
 
@@ -89,28 +92,28 @@ function imgSrcPpk(?string $url): string
     <h2 class="kui-h2">Материалы</h2>
     <div class="kui-ppk-grid">
         <a href="resources.php" class="kui-ppk-tile">
-            <span class="kui-ppk-ic">📁</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/PSD.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>PSD-паки, шрифты, кисти и SD</b><small>Все ресурсы пака в одном разделе</small></span>
-            <span class="kui-ppk-go">›</span>
+            <span class="kui-ppk-go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
         </a>
         <a href="useful.php" class="kui-ppk-tile">
-            <span class="kui-ppk-ic">📚</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/MAT.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>Полезности</b><small>Статьи и гайды от Kostlim, с комментариями</small></span>
-            <span class="kui-ppk-go">›</span>
+            <span class="kui-ppk-go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
         </a>
     </div>
 
     <h2 class="kui-h2">Инструменты</h2>
     <div class="kui-ppk-grid">
         <a href="ai_trainer.php" class="kui-ppk-tile primary">
-            <span class="kui-ppk-ic">🎮</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/TREN.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>Тренировка общения с клиентом</b><small>Отыграй заказ от анкеты до сдачи — ИИ в роли заказчика</small></span>
-            <span class="kui-ppk-go">›</span>
+            <span class="kui-ppk-go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
         </a>
         <a href="planner.php" class="kui-ppk-tile">
-            <span class="kui-ppk-ic">🗂</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/PLANER.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>Личный планер клиентов</b><small>Учёт заказов: статус, дедлайн, сумма</small></span>
-            <span class="kui-ppk-go">›</span>
+            <span class="kui-ppk-go"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
         </a>
     </div>
 
@@ -118,14 +121,14 @@ function imgSrcPpk(?string $url): string
     <h2 class="kui-h2">Для администратора</h2>
     <div class="kui-ppk-grid">
         <a href="admin/ppk_manager.php" class="kui-ppk-tile">
-            <span class="kui-ppk-ic">🛠</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/DOSTUP.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>Управление доступом PPK</b><small>Ручная выдача роли, ключи активации</small></span>
-            <span class="kui-ppk-tag">ADMIN</span>
+            <span class="kui-ppk-tag"><svg class="rd-ico fill pulse" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>ADMIN</span>
         </a>
         <a href="admin/ai_trainer_review.php" class="kui-ppk-tile">
-            <span class="kui-ppk-ic">📨</span>
+            <span class="kui-ppk-ic"><img src="/assets/img/RESULT.png" alt="" width="60" height="60" loading="lazy" decoding="async"></span>
             <span class="kui-ppk-txt"><b>Результаты тренажёра</b><small>Что прислали дизайнеры на проверку</small></span>
-            <span class="kui-ppk-tag">ADMIN</span>
+            <span class="kui-ppk-tag"><svg class="rd-ico fill pulse" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>ADMIN</span>
         </a>
     </div>
     <?php endif; ?>

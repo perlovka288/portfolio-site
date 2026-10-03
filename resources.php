@@ -311,6 +311,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
             .res-view-list .res-card-sub { display:none; }
         }
     </style>
+    <link rel="stylesheet" href="assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
 </head>
 <body>
@@ -340,16 +341,16 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
     <?php if ($message): ?><p style="text-align:center;color:var(--accent);margin-bottom:20px;"><?= htmlspecialchars($message) ?></p><?php endif; ?>
 
     <div class="res-view-switch">
-        <button type="button" class="res-view-btn active" data-view="tile" onclick="resSetView('tile')">▦ Плитка</button>
-        <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')">☰ Список</button>
+        <button type="button" class="res-view-btn active" data-view="tile" onclick="resSetView('tile')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Плитка</button>
+        <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>Список</button>
     </div>
 
     <div class="res-tabs">
-        <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')">📁 PSD (<?= count($psdPosts) ?>)</button>
-        <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')">🔤 Шрифты (<?= count($fonts) ?>)</button>
-        <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')">🎨 Стили и кисти (<?= count($brushes) ?>)</button>
-        <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')">🖥 Stable Diffusion</button>
-        <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">⭐ Избранное (<?= count($favorites) ?>)</button>
+        <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>PSD <span class="rd-cnt">(<?= count($psdPosts) ?>)</span></button>
+        <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 10 5l6 15M6.5 14h7M18 20v-9"/></svg>Шрифты <span class="rd-cnt">(<?= count($fonts) ?>)</span></button>
+        <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6 1-10 5-11 10l3 3c5-1 9-5 8-13zM9 14c-3 0-4 2-4 5 3 0 5-1 5-4"/></svg>Стили и кисти <span class="rd-cnt">(<?= count($brushes) ?>)</span></button>
+        <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>SD</button>
+        <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
     </div>
 
     <!-- PSD -->

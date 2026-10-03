@@ -68,6 +68,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $openId = (int)($_GET['id'] ?? 0);
 $openPost = $openId > 0 ? getUsefulPost($pdo, $openId) : null;
 $posts = listUsefulPosts($pdo);
+
+/** Мета для карточки статьи: обложка (первая картинка), время чтения, теги (#хэштеги из текста). */
+function usefulCardMeta(array $p): array
+{
+    $html = (string)($p['body_html'] ?? '');
+    $text = trim(html_entity_decode(strip_tags($html), ENT_QUOTES, 'UTF-8'));
+    $words = preg_match_all('/\S+/u', $text);
+    $minutes = max(1, (int)ceil($words / 180));
+    $cover = '';
+    if (preg_match('/<img[^>]+src=["\']([^"\']+)["\']/i', $html, $m)) $cover = $m[1];
+    $tags = [];
+    if (preg_match_all('/#([\p{L}\d_]{2,24})/u', $text, $mm)) $tags = array_slice(array_values(array_unique($mm[1])), 0, 3);
+    if (!$tags) $tags = ['Гайд'];
+    return ['cover' => $cover, 'minutes' => $minutes, 'tags' => $tags];
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -129,12 +144,13 @@ $posts = listUsefulPosts($pdo);
             padding:10px 12px; border-radius:8px; font-family:inherit; font-size:13px; min-height:44px; resize:vertical;
         }
     </style>
+    <link rel="stylesheet" href="assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
 </head>
 <body>
 
 <div class="useful-wrap">
     <div class="useful-top">
-        <a href="privat_pak.php" class="useful-back">← Приват Пак</a>
+        <a href="privat_pak.php" class="useful-back"><svg class="rd-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg> Приват Пак</a>
         <?php renderNotificationBell(); ?>
     </div>
 
@@ -188,17 +204,28 @@ $posts = listUsefulPosts($pdo);
 
         <?php if (!$posts): ?>
             <p class="useful-empty">Пока нет статей.</p>
-        <?php else: foreach ($posts as $p): ?>
-            <a href="useful.php?id=<?= (int)$p['id'] ?>" class="useful-post-card">
-                <h3><?= htmlspecialchars($p['title']) ?></h3>
-                <div class="useful-post-meta">
-                    <span>✍️ <?= htmlspecialchars($p['author_name']) ?></span>
-                    <span>🕐 <?= date('d.m.Y', strtotime($p['created_at'])) ?></span>
-                    <span>💬 <?= (int)$p['comment_count'] ?></span>
+        <?php else: ?>
+        <div class="rd-articles">
+        <?php foreach ($posts as $p): $m = usefulCardMeta($p); $au = (string)$p['author_name']; ?>
+            <a href="useful.php?id=<?= (int)$p['id'] ?>" class="useful-post-card rd-glass">
+                <div class="rd-cover<?= $m['cover'] === '' ? ' is-logo' : '' ?>">
+                    <img src="<?= htmlspecialchars($m['cover'] !== '' ? $m['cover'] : '/assets/img/logo.png') ?>" alt="" loading="lazy" onerror="this.src='/assets/img/logo.png'">
+                    <span class="rd-read"><svg class="rd-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> <?= (int)$m['minutes'] ?> мин чтения</span>
                 </div>
-                <div class="useful-post-excerpt"><?= htmlspecialchars(mb_substr(trim(strip_tags($p['body_html'])), 0, 160)) ?>…</div>
+                <div class="rd-art-body">
+                    <div class="rd-art-tags"><?php foreach ($m['tags'] as $t): ?><span class="rd-tag">#<?= htmlspecialchars($t) ?></span><?php endforeach; ?></div>
+                    <h3><?= htmlspecialchars($p['title']) ?></h3>
+                    <div class="useful-post-excerpt"><?= htmlspecialchars(mb_substr(trim(strip_tags($p['body_html'])), 0, 160)) ?>…</div>
+                    <div class="rd-art-foot">
+                        <span class="rd-ava"><?= htmlspecialchars(mb_strtoupper(mb_substr($au !== '' ? $au : 'K', 0, 1))) ?></span>
+                        <span><b><?= htmlspecialchars($au) ?></b> · <?= date('d.m.Y', strtotime($p['created_at'])) ?></span>
+                        <span class="sp"><svg class="rd-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg> <?= (int)$p['comment_count'] ?></span>
+                    </div>
+                </div>
             </a>
-        <?php endforeach; endif; ?>
+        <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
 </body>
