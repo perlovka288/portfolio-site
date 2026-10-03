@@ -1,0 +1,24 @@
+/* assets/payment-methods.css — стиль под тёмную тему сайта (оранжевый акцент) */
+.pm-block{background:#111116;border:1px solid #1f1f2a;border-radius:18px;padding:22px;color:#fff;font-family:Montserrat,Arial,sans-serif}
+.pm-title{margin:0 0 4px;font-size:18px}
+.pm-sub{margin:0 0 16px;color:#9a9aa6;font-size:13px;line-height:1.5}
+.pm-list{display:grid;gap:12px}
+.pm-card{background:#0c0c11;border:1px solid #1f1f2a;border-radius:14px;padding:16px;transition:.25s}
+.pm-card.pm-recommended{border-color:#f97316;box-shadow:0 0 0 1px #f97316,0 0 18px rgba(249,115,22,.25)}
+.pm-card.pm-dim{opacity:.5}
+.pm-card-top{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.pm-icon{font-size:26px}
+.pm-card-name{display:flex;flex-direction:column;flex:1}
+.pm-card-name small{color:#9a9aa6;font-size:12px}
+.pm-rec-tag{background:linear-gradient(135deg,#fb923c,#f97316);padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800}
+.pm-row{margin-bottom:10px}
+.pm-row-label{display:block;color:#9a9aa6;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.pm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pm-chip{padding:5px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #2a2a36;background:#16161d}
+.pm-chip-main{border-color:rgba(249,115,22,.5);background:rgba(249,115,22,.1);color:#fdba74}
+.pm-chip-other{color:#c9c9d4}
+.pm-chip.pm-chip-active{background:#f97316;border-color:#f97316;color:#fff}
+.pm-ways{margin:0;padding-left:18px;font-size:13px;color:#e0e0ec;line-height:1.6}
+.pm-note{margin:8px 0 0;font-size:12px;color:#9a9aa6;line-height:1.5}
+.pm-region-hint{margin-top:14px;padding:12px 14px;background:rgba(249,115,22,.07);border:1px dashed rgba(249,115,22,.4);border-radius:12px;font-size:12px;line-height:1.7;color:#e0e0ec}
+@media(max-width:480px){.pm-block{padding:16px}}
