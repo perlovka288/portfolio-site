@@ -227,3 +227,55 @@ body.kui .kd-stack .kui-nav .kui-me.on { background: rgba(249,115,22,.15); }
 .ai-widget-footer.kd-footer { padding: 12px 14px 14px; display: block; }
 .ai-widget-footer .kd-beam { border-radius: 20px; }
 .kd-manager { text-decoration: none; }
+
+/* ============================================================================
+   ПК (≥900px, мышь): боковая панель сайта РАСКРЫВАЕТСЯ при наведении (как sidebar 21st.dev).
+   В покое — узкая рейка с иконками, при наведении плавно растёт вправо и показывает подписи
+   прямо в пунктах (вместо всплывающих подсказок). Раскрывается поверх контента.
+   Телефон и сенсорные экраны не затронуты (там нижнее меню).
+   ============================================================================ */
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+    body.kui .kd-stack .kui-nav {
+        width: 72px; box-sizing: border-box; overflow: hidden; align-items: stretch;
+        transition: width .28s cubic-bezier(.4, 0, .2, 1), box-shadow .28s ease, border-color .28s ease;
+    }
+    body.kui .kd-stack .kui-nav:hover,
+    body.kui .kd-stack .kui-nav:focus-within {
+        width: 212px; border-color: rgba(249,115,22,.45);
+        box-shadow: 0 24px 60px rgba(0,0,0,.7), 0 0 36px rgba(249,115,22,.22), inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+    body.kui .kd-stack .kui-nav > a,
+    body.kui .kd-stack .kui-nav > button {
+        width: 100%; height: 52px; flex-direction: row; justify-content: flex-start; align-items: center;
+        gap: 14px; padding: 0 0 0 15px; transform: none !important; white-space: nowrap; overflow: visible;
+        font-size: 13px;
+    }
+    body.kui .kd-stack .kui-nav > a.kui-me { padding-left: 13px; }
+    body.kui .kd-stack .kui-nav svg { flex: 0 0 22px; }
+    body.kui .kd-stack .kui-nav > a:hover svg,
+    body.kui .kd-stack .kui-nav > button:hover svg { color: #fb923c; }
+
+    /* подпись — внутри пункта, плавно проявляется */
+    body.kui .kd-stack .kui-nav .kd-l {
+        position: static; transform: translateX(-8px); opacity: 0; pointer-events: none;
+        padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+        font-size: 13px; font-weight: 700; color: inherit;
+        transition: opacity .2s ease .06s, transform .2s ease .06s;
+    }
+    body.kui .kd-stack .kui-nav .kd-l::after { display: none; }
+    body.kui .kd-stack .kui-nav:hover .kd-l,
+    body.kui .kd-stack .kui-nav:focus-within .kd-l { opacity: 1; transform: none; }
+    body.kui .kd-stack .kui-nav:hover > a:hover .kd-l,
+    body.kui .kd-stack .kui-nav:hover > button:hover .kd-l { transform: translateX(3px); }   /* лёгкий сдвиг подписи */
+    body.kui .kd-stack .kui-nav > a:hover .kd-l,
+    body.kui .kd-stack .kui-nav > button:hover .kd-l { transform: none; }
+
+    /* значок ADMIN/PPK — над аватаркой, не уезжает вправо при раскрытии */
+    body.kui .kd-stack .kui-nav .kui-me em { left: 11px; right: auto; top: -3px; }
+
+    /* шторка «Ещё» открывается правее раскрытой панели */
+    body.kui .kui-more.open { padding-left: 244px; }
+}
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: reduce) {
+    body.kui .kd-stack .kui-nav, body.kui .kd-stack .kui-nav .kd-l { transition: none; }
+}
