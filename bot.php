@@ -36,6 +36,7 @@ register_shutdown_function(function () {
 
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
+require_once __DIR__ . '/includes/pay_lib.php'; // автооплата (pay.php)
 require_once __DIR__ . '/includes/pack_role.php';
 require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fatal error on every request
 
@@ -419,14 +420,14 @@ if (isset($update['callback_query'])) {
         ]);
         sendTelegram($token, 'sendMessage', [
             'chat_id'    => $admin_id,
-            'text'       => "✅ *Заказ #{$order_id} принят.*\nОжидаем оплату и чек от клиента.",
+            'text'       => "✅ *Заказ #{$order_id} принят.*\nОжидаем оплату от клиента (подтвердится автоматически).",
             'parse_mode' => 'Markdown',
         ]);
 
         // Ссылка "оплатить на сайте" — сразу в кабинет клиента на страницу
         // этого заказа. Если TG уже привязан к чату — добавляем tg_token,
         // чтобы сайт узнал клиента автоматически (без повторного логина).
-        $payUrl = rtrim($site_url, '/') . '/profile.php?order=' . $order_id;
+        $payUrl = payLink($order_id); // страница оплаты pay.php (вместо профиля)
         try {
             $ccidStmt = $pdo->prepare("SELECT client_chat_id FROM orders WHERE id = ? LIMIT 1");
             $ccidStmt->execute([$order_id]);

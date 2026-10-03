@@ -762,7 +762,7 @@ function paymentInstructionsText(int $orderId, array $priceInfo = [], bool $isCo
 
     $text = $header
         . $priceBlock
-        . "Реквизиты:\n"
+        . "💳 Нажмите «Оплатить на сайте» — оплата подтвердится автоматически, чек не нужен.\nИли переведите по реквизитам и скиньте чек:\n"
         . "📍 <b>Рубли:</b> {$rubLine}\n"
         . "📍 <b>Гривны:</b> <code>{$uanDetails}</code>\n"
         . "📍 <b>Крипта:</b> <code>{$cryptoDetails}</code>\n";

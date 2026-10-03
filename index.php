@@ -944,7 +944,7 @@ body::after {
         ?>
         <article class="portfolio-card filter-item scroll-reveal <?= htmlspecialchars($cat_class) ?> <?= $isDesign ? 'design-card' : 'custom-ratio' ?>" style="<?= htmlspecialchars($ratioStyle) ?>">
             <div class="kui-ab"><span><?= htmlspecialchars($category['title'] ?? '') ?></span><span><?= htmlspecialchars(str_replace('x', '×', $sizeText)) ?></span></div>
-            <div class="portfolio-price-top"><b><?= number_format($showRub, 0, '', ' ') ?> ₽</b><small><?= number_format($showUan, 0, '', ' ') ?> ₴</small></div>
+            <div class="portfolio-price-top" data-rub="<?= $showRub ?>" data-uan="<?= $showUan ?>"><b><?= number_format($showRub, 0, '', ' ') ?> ₽</b><small><?= number_format($showUan, 0, '', ' ') ?> ₴</small></div>
             <?php $__iu = imgSrc($img_file); $__ph = kuiImgBlur($__iu); $__ss = kuiImgSrcset($__iu); ?>
             <div class="portfolio-media"<?= $__ph ? ' style="background-image:url(\'' . htmlspecialchars($__ph) . '\')"' : '' ?>>
                 <?php if ($__iu === '' || kuiLocalMissing($img_file)): ?>
@@ -1489,5 +1489,43 @@ function toggleLike(workId, btn) {
         отдельно доступен всегда, как на разделе Заказы). */
       include __DIR__ . '/includes/ai_widget.php'; ?>
 <script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
+<script>
+/* Региональные цены: UAH / RUB / USD. Валюту ставит assets/geo.js (по стране), можно переключить вручную. */
+(function () {
+  var USD_UAH = <?= json_encode((float)(getenv('USD_UAH') ?: 41.5)) ?>;
+  var cur = 'RUB';
+  function fmt(n, c) {
+    if (c === 'USD') return '$' + n.toFixed(2);
+    return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ' + (c === 'UAH' ? '₴' : '₽');
+  }
+  window.switchCurrency = function (c) {
+    if (['UAH', 'RUB', 'USD'].indexOf(c) === -1) c = 'USD';
+    cur = c;
+    try { localStorage.setItem('currency', c); } catch (e) {}
+    document.querySelectorAll('.portfolio-price-top[data-rub]').forEach(function (el) {
+      var rub = +el.dataset.rub, uan = +el.dataset.uan;
+      var main = c === 'UAH' ? fmt(uan, 'UAH') : c === 'USD' ? fmt(uan / USD_UAH, 'USD') : fmt(rub, 'RUB');
+      var sub  = c === 'RUB' ? fmt(uan, 'UAH') : fmt(rub, 'RUB');
+      el.innerHTML = '<b>' + main + '</b><small>' + sub + '</small>';
+    });
+    document.querySelectorAll('.cur-switch button').forEach(function (b) { b.classList.toggle('on', b.dataset.c === c); });
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    var box = document.createElement('div'); box.className = 'cur-switch';
+    ['UAH', 'RUB', 'USD'].forEach(function (c) {
+      var b = document.createElement('button'); b.type = 'button'; b.dataset.c = c; b.textContent = c;
+      b.onclick = function () { window.switchCurrency(c); }; box.appendChild(b);
+    });
+    document.body.appendChild(box);
+    window.switchCurrency(cur);
+  });
+})();
+</script>
+<style>
+.cur-switch{position:fixed;left:14px;bottom:14px;z-index:9999;display:flex;gap:4px;padding:5px;background:rgba(17,17,22,.92);border:1px solid #2a2a36;border-radius:12px;backdrop-filter:blur(8px)}
+.cur-switch button{border:0;background:transparent;color:#cfcfda;font:700 12px Montserrat,Arial,sans-serif;padding:7px 11px;border-radius:8px;cursor:pointer}
+.cur-switch button.on{background:#f97316;color:#fff}
+</style>
+<script src="/assets/geo.js"></script>
 </body>
 </html>

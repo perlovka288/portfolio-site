@@ -60,10 +60,10 @@ function payGetOrder(PDO $pdo, int $id): ?array {
     $st = $pdo->prepare("SELECT * FROM orders WHERE id = ?"); $st->execute([$id]);
     $r = $st->fetch(PDO::FETCH_ASSOC); return $r ?: null;
 }
-function payIsPaid(array $o): bool { return strtolower((string)($o['payment_status'] ?? '')) === 'paid'; }
-/** Заказ можно оплачивать, когда дизайнер его принял. Названия статусов, которые считаем «ещё нельзя», — тут: */
+function payIsPaid(array $o): bool { return !empty($o['paid_at']); }
+/** Оплачивать можно заказ, который дизайнер принял (статус awaiting_payment в вашем боте) */
 function payIsPayable(array $o): bool {
-    return !in_array(strtolower((string)($o['status'] ?? '')), ['pending', 'declined', 'rejected', 'cancelled', 'canceled', 'deleted', 'archived'], true);
+    return strtolower((string)($o['status'] ?? '')) === 'awaiting_payment' && empty($o['paid_at']);
 }
 
 function payRate(string $k, float $d): float { $v = (float)str_replace(',', '.', payEnv($k)); return $v > 0 ? $v : $d; }
@@ -95,21 +95,33 @@ function payTg($chat, string $html): void {
     curl_exec($ch); curl_close($ch);
 }
 
-/** Идемпотентно помечает заказ оплаченным и шлёт уведомления. true — если именно этот вызов провёл оплату. */
+/** Идемпотентно проводит оплату так же, как приём чека в боте: статус → in_progress/urgent, дедлайн, referral. */
 function markOrderPaid(PDO $pdo, int $id, string $method, string $cur, float $amount): bool {
     ensurePaySchema($pdo);
-    $st = $pdo->prepare("UPDATE orders SET payment_status='paid', pay_method=?, pay_currency=?, pay_amount=?, paid_at=NOW()
-                         WHERE id=? AND COALESCE(payment_status,'') <> 'paid' RETURNING id");
-    $st->execute([$method, $cur, $amount, $id]);
+    $o = payGetOrder($pdo, $id);
+    if (!$o || !empty($o['paid_at'])) return false;
+    $isUrgent = !empty($o['is_urgent']);
+    $newStatus = $isUrgent ? 'urgent' : 'in_progress';
+    $deadline = function_exists('calculateOrderDeadline') ? calculateOrderDeadline($isUrgent) : date('Y-m-d H:i:s', time() + ($isUrgent ? 24 : 120) * 3600);
+    $st = $pdo->prepare("UPDATE orders SET
+            status = CASE WHEN status = 'awaiting_payment' THEN ? ELSE status END,
+            deadline = CASE WHEN status = 'awaiting_payment' THEN ? ELSE deadline END,
+            started_at = COALESCE(started_at, NOW()),
+            payment_status = 'receipt_received', payment_received_at = NOW(),
+            pay_method = ?, pay_currency = ?, pay_amount = ?, paid_at = NOW()
+          WHERE id = ? AND paid_at IS NULL RETURNING id");
+    $st->execute([$newStatus, $deadline, $method, $cur, $amount, $id]);
     if (!$st->fetchColumn()) return false;
 
-    $o = payGetOrder($pdo, $id) ?: [];
+    if (!empty($o['client_chat_id']) && function_exists('awardReferralBonusIfApplicable')) {
+        try { awardReferralBonusIfApplicable($pdo, (string)$o['client_chat_id'], $id); } catch (Throwable $e) { error_log('[pay] referral: ' . $e->getMessage()); }
+    }
     $title = ''; try { $title = getOrderServiceTitle($pdo, $o); } catch (Throwable $e) {}
     $sum = payFormat($amount, $cur);
     payTg(payEnv('ADMIN_ID', '1710365896'),
-        "💰 <b>Заказ #{$id} ОПЛАЧЕН!</b>\n\n🎨 Услуга: " . htmlspecialchars($title) . "\n💵 Сумма: <b>{$sum}</b> ({$cur})\n💳 Система: " . htmlspecialchars(payMethodTitle($method)));
+        "💰 <b>Заказ #{$id} ОПЛАЧЕН!</b>\n\n🎨 Услуга: " . htmlspecialchars($title) . "\n💵 Сумма: <b>{$sum}</b> ({$cur})\n💳 Система: " . htmlspecialchars(payMethodTitle($method)) . "\n📅 Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)) . "\n\nЗаказ автоматически переведён в работу.");
     if (!empty($o['client_chat_id'])) {
-        payTg($o['client_chat_id'], "✅ <b>Оплата заказа #{$id} получена!</b>\nСумма: {$sum}\nДизайнер приступает к работе.\n\n" . paySuccessLink($id));
+        payTg($o['client_chat_id'], "✅ <b>Оплата заказа #{$id} получена!</b>\nСумма: {$sum}\nДизайнер приступает к работе.\n📅 Дедлайн: " . date('d.m.Y H:i', strtotime($deadline)) . "\n\n" . paySuccessLink($id));
     }
     return true;
 }
