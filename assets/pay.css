@@ -1,35 +1,128 @@
-:root{--bg:#0a0a0f;--card:#111116;--line:#1f1f2a;--mut:#9a9aa6;--or:#f97316;--or2:#fb923c}
+/* Страницы оплаты (pay.php) и чека (success.php) — стиль сайта: тёмный фон + оранжевый акцент.
+   Основан на компонентах payment-method-selector и ticket-confirmation-card. */
+:root{--bg:#0a0a0f;--card:#111116;--card2:#0c0c11;--line:#1f1f2a;--mut:#9a9aa6;--or:#f97316;--or2:#fb923c;--or3:#fdba74;--ok:#22c55e}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:#fff;font-family:Montserrat,Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-body::before{content:'';position:fixed;top:-80px;left:50%;transform:translateX(-50%);width:600px;height:320px;background:radial-gradient(ellipse,rgba(249,115,22,.12),transparent 70%);pointer-events:none}
-.pay-card{position:relative;width:100%;max-width:460px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.pay-card h1{font-size:20px;margin:0 0 4px}
-.pay-sub{color:var(--mut);font-size:13px;margin:0 0 18px}
-.pay-total{display:flex;justify-content:space-between;align-items:flex-end;padding:14px 16px;background:#0c0c11;border:1px solid var(--line);border-radius:14px;margin-bottom:16px}
-.pay-total small{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-.pay-total b{font-size:26px}
-.cur-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.cur-tab{flex:1;min-width:64px;padding:9px 6px;border-radius:10px;border:1px solid var(--line);background:#16161d;color:#fff;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;transition:.2s}
-.cur-tab.on{background:var(--or);border-color:var(--or)}
-.m-list{display:grid;gap:10px;margin-bottom:16px}
-.m-item{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--line);border-radius:12px;cursor:pointer;transition:.25s}
-.m-item:hover{background:rgba(255,255,255,.03)}
-.m-item.on{border-color:var(--or);box-shadow:0 0 0 2px var(--or)}
-.m-item.off{opacity:.45;cursor:not-allowed}
-.m-ico{font-size:26px}
-.m-body{flex:1}.m-body b{display:block;font-size:14px}.m-body span{color:var(--mut);font-size:12px}
-.m-body em{display:block;color:#fdba74;font-size:11px;font-style:normal;margin-top:3px}
-.m-radio{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center}
-.m-item.on .m-radio{border-color:var(--or)}
-.m-item.on .m-radio::after{content:'';width:10px;height:10px;border-radius:50%;background:var(--or)}
-.btn{width:100%;border:0;border-radius:12px;padding:15px;font-weight:800;font-size:15px;color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--or2),var(--or));font-family:inherit}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.btn.ghost{background:#16161d;border:1px solid var(--line);margin-top:10px;font-size:13px;padding:11px}
-.err{color:#f87171;font-size:13px;margin:0 0 12px;display:none}
+html,body{margin:0}
+body{background:var(--bg);color:#fff;font-family:Montserrat,Inter,Arial,sans-serif;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px;-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;top:-100px;left:50%;transform:translateX(-50%);width:640px;height:340px;background:radial-gradient(ellipse,rgba(249,115,22,.14),transparent 70%);pointer-events:none}
+a{color:inherit}
+
+/* ---------- карточка оплаты ---------- */
+.pc{position:relative;width:100%;max-width:460px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,.55);animation:rise .45s ease both}
+.pc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+.pc-title{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.pc-action{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--or2);text-decoration:none;white-space:nowrap;transition:color .2s}
+.pc-action:hover{color:var(--or3)}
+.pc-action svg{width:16px;height:16px}
+
+.order-sum{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;padding:14px 16px;background:var(--card2);border:1px solid var(--line);border-radius:14px;margin-bottom:18px}
+.order-sum small{display:block;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.order-sum .svc{font-weight:600;font-size:14px;line-height:1.35;word-break:break-word}
+.order-sum .tot{font-size:26px;font-weight:800;color:var(--or3);white-space:nowrap}
+
+.sec-label{margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+
+/* валюты */
+.cur-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-bottom:18px}
+.cur-chip{display:flex;align-items:center;justify-content:center;gap:5px;padding:10px 6px;border-radius:12px;border:1px solid var(--line);background:#16161d;color:#fff;font:inherit;font-size:13px;cursor:pointer;transition:.2s}
+.cur-chip .fl{font-size:15px;line-height:1}
+.cur-chip b{font-weight:700}
+.cur-chip span:last-child{color:var(--mut)}
+.cur-chip:hover{background:#1c1c25}
+.cur-chip.on{background:rgba(249,115,22,.14);border-color:var(--or);box-shadow:0 0 0 1px var(--or)}
+.cur-chip.on span:last-child{color:var(--or3)}
+
+/* способы оплаты (radiogroup) */
+.m-list{display:grid;gap:12px;margin-bottom:16px}
+.mc{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;border:1px solid var(--line);cursor:pointer;transition:all .3s;animation:rise .45s ease both;outline:none}
+.mc:hover{background:rgba(255,255,255,.035)}
+.mc:focus-visible{box-shadow:0 0 0 2px rgba(249,115,22,.6)}
+.mc.on{border-color:var(--or);box-shadow:0 0 0 2px var(--or);background:rgba(249,115,22,.05)}
+.mc.dim{opacity:.55}
+.mc.off{opacity:.38;cursor:not-allowed}
+.mc .logo{flex:0 0 auto;width:48px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;letter-spacing:.02em;color:#fff;background:#23232d}
+.mc .logo.monobank{background:#000;border:1px solid #2a2a35;font-size:12px}
+.mc .logo.donationalerts{background:linear-gradient(135deg,#f59e0b,#ea580c);font-size:14px}
+.mc .logo.cryptobot{background:linear-gradient(135deg,#2dd4bf,#0d9488);font-size:18px}
+.mc-body{flex:1;min-width:0}
+.mc-name{margin:0;font-weight:600;font-size:14px}
+.mc-desc{margin:2px 0 0;font-size:12px;color:var(--mut);line-height:1.4}
+.tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.tag{font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:#1a1a22;border:1px solid var(--line);color:var(--mut)}
+.tag.on{background:rgba(249,115,22,.15);border-color:rgba(249,115,22,.5);color:var(--or3)}
+.radio{flex:0 0 auto;position:relative;width:24px;height:24px;border-radius:50%;border:2px solid var(--line);transition:border-color .25s}
+.radio::after{content:'';position:absolute;inset:4px;border-radius:50%;background:var(--or);transform:scale(0);transition:transform .25s cubic-bezier(.34,1.56,.64,1)}
+.mc.on .radio{border-color:var(--or)}
+.mc.on .radio::after{transform:scale(1)}
+
+/* иконки способов оплаты из assets/img */
+.logo.has-img,.mc .logo.has-img,.pm .logo.has-img{background:#fff;border:0;padding:4px;overflow:hidden}
+.logo.has-img img{width:100%;height:100%;object-fit:contain;display:block}
+
+/* кнопки */
+.btn{display:block;width:100%;border:0;border-radius:13px;padding:15px;font:inherit;font-weight:800;font-size:15px;text-align:center;text-decoration:none;color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--or2),var(--or));box-shadow:0 8px 24px rgba(249,115,22,.25);transition:transform .15s,filter .2s}
+.btn:hover{filter:brightness(1.07)}.btn:active{transform:scale(.985)}
+.btn:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.btn.ghost{background:#16161d;border:1px solid var(--line);box-shadow:none;margin-top:10px;font-size:13px;font-weight:700;padding:12px}
+.btn.ghost:hover{background:#1c1c25}
+.err{display:none;color:#f87171;font-size:13px;margin:0 0 12px}
+.note{color:var(--mut);font-size:12px;text-align:center;margin:12px 0 0;line-height:1.5}
+
+/* ожидание оплаты */
 .wait{display:none;text-align:center}
+.wait h2{margin:0 0 6px;font-size:20px}
+.wait .sub{margin:0 0 6px;color:var(--mut);font-size:13px;line-height:1.5}
 .spin{width:46px;height:46px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--or);margin:6px auto 14px;animation:sp 1s linear infinite}
+.timer{font-family:ui-monospace,Menlo,monospace;font-size:26px;font-weight:700;color:var(--or3);margin:10px 0}
+.steps{text-align:left;margin:12px 0;padding:0 0 0 20px;color:var(--mut);font-size:13px;line-height:1.7}
+.steps li::marker{color:var(--or);font-weight:700}
+.copybox{display:none;background:var(--card2);border:1px dashed rgba(249,115,22,.5);border-radius:12px;padding:12px;margin:14px 0;text-align:left;font-size:13px;line-height:1.6}
+.copybox code{color:var(--or3);font-weight:700;cursor:pointer;word-break:break-all}
+.slow{display:none;font-size:12px;color:var(--mut);margin:14px 0 0}
+.slow a{color:var(--or2);font-weight:700;text-decoration:none}
+
+/* ---------- чек (success.php) ---------- */
+body.receipt{flex-direction:column;gap:14px;justify-content:flex-start;padding-top:28px;padding-bottom:40px}
+.ticket{position:relative;z-index:2;width:100%;max-width:400px;background:var(--card);border:1px solid var(--line);border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,.55);animation:pop .5s ease both}
+.cut{position:absolute;top:var(--cut,430px);width:32px;height:32px;border-radius:50%;background:var(--bg);border:1px solid var(--line);transform:translateY(-50%)}
+.cut.l{left:-16px;clip-path:inset(0 0 0 50%)}.cut.r{right:-16px;clip-path:inset(0 50% 0 0)}
+.t-head{padding:30px 30px 22px;text-align:center}
+.t-ico{display:inline-flex;padding:12px;border-radius:50%;background:rgba(249,115,22,.13);animation:pop .5s .25s ease both}
+.t-ico svg{width:40px;height:40px;color:var(--or)}
+.t-head h1{margin:14px 0 4px;font-size:24px;font-weight:800}
+.t-head p{margin:0;color:var(--mut);font-size:14px}
+.t-body{padding:0 30px 26px;display:grid;gap:18px}
+.dash{border-top:2px dashed var(--line)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.lbl{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 3px}
+.val{margin:0;font-weight:600;word-break:break-word}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.right{text-align:right}
+.amt{font-size:22px;font-weight:800;color:var(--or3)}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--ok);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:999px;padding:3px 10px}
+.status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.pm{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;background:rgba(255,255,255,.04)}
+.pm .logo{width:48px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;background:#23232d}
+.pm .logo.monobank{background:#000;border:1px solid #2a2a35}
+.pm .logo.donationalerts{background:linear-gradient(135deg,#f59e0b,#ea580c)}
+.pm .logo.cryptobot{background:linear-gradient(135deg,#2dd4bf,#0d9488);font-size:18px}
+.sum{display:grid;gap:8px;font-size:13px}
+.sum div{display:flex;justify-content:space-between;gap:10px}
+.sum span:first-child{color:var(--mut)}
+.sum .disc span:last-child{color:var(--ok);font-weight:700}
+.eq{display:flex;flex-wrap:wrap;gap:6px}
+.eq span{font-size:12px;padding:4px 9px;border-radius:999px;background:#16161d;border:1px solid var(--line);color:var(--mut)}
+.eq span.cur{background:rgba(249,115,22,.14);border-color:var(--or);color:var(--or3);font-weight:700}
+.bar{display:flex;flex-direction:column;align-items:center;padding:2px 0}
+.bar svg{fill:#fff;max-width:100%}
+.bar p{font-size:12px;color:var(--mut);letter-spacing:.3em;margin:8px 0 0}
+.acts{position:relative;z-index:2;width:100%;max-width:400px;display:grid;gap:8px}
+.acts .btn.ghost{margin-top:0}
+#conf{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+
+@keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}
 @keyframes sp{to{transform:rotate(360deg)}}
-.copybox{background:#0c0c11;border:1px dashed rgba(249,115,22,.5);border-radius:12px;padding:12px;margin:14px 0;text-align:left;font-size:13px}
-.copybox code{color:#fdba74;font-weight:700;cursor:pointer}
-.tg-link{display:block;margin-top:14px;color:var(--or2);font-size:13px;text-decoration:none;font-weight:700}
-.note{color:var(--mut);font-size:12px;text-align:center;margin-top:12px;line-height:1.5}
+@media (max-width:420px){.pc{padding:20px}.t-head,.t-body{padding-left:22px;padding-right:22px}.order-sum .tot{font-size:22px}}
+@media print{body{background:#fff}body::before,.acts,#conf{display:none}.ticket{box-shadow:none;border-color:#ccc;color:#000;background:#fff}.val,.t-head h1{color:#000}.cut{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

@@ -1,18 +1,20 @@
 <?php
 /**
- * Единое хранилище картинок сайта: Cloudinary (основное) + ImgBB (запасное). Работают ВМЕСТЕ — не принял один, пробуем другой.
+ * Единое хранилище файлов сайта: ТОЛЬКО Cloudinary (ImgBB полностью убран — он блокирует IP Render).
  *
- * Как включить Cloudinary (любой из способов):
- *   А) Render → Environment:  CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
- *      (или одной строкой CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME)
- *   Б) Админка → «Ключи и API» → блок «☁️ Cloudinary» (значения хранятся в БД, деплой их не стирает)
+ * Переменные окружения Render (или админка → «Ключи и API»):
+ *   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+ *   (или одной строкой CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME)
  *
- * Выбор сервиса (необязательно): IMAGE_STORAGE = auto (по умолчанию) | cloudinary | imgbb
- *   auto = Cloudinary, если он настроен; иначе ImgBB. Если основной сервис не принял файл,
- *   а второй настроен — пробуем второй. Если настроен только один — работает он один.
+ * Загрузка идёт на https://api.cloudinary.com/v1_1/{cloud}/auto/upload (resource_type=auto):
+ * картинки, гифки, видео, архивы, документы — до 100 МБ за один запрос.
+ * Подпись: sha1("folder=..&public_id=..&timestamp=.." . API_SECRET).
  *
- * Все старые вызовы imgbbUpload()/uploadToImgBB()/uploadReceiptToImgBB() теперь идут сюда.
+ * Старые имена imgbbUpload()/uploadToImgBB()/uploadReceiptToImgBB() сохранены как обёртки
+ * (чтобы не переписывать 20 файлов) — теперь они все ведут сюда.
  */
+
+if (!defined('CLOUDINARY_MAX_BYTES')) { define('CLOUDINARY_MAX_BYTES', 100 * 1024 * 1024); }
 
 if (!function_exists('kuiCfgSrc')) {
     /**
@@ -104,36 +106,66 @@ if (!function_exists('cloudinaryCreds')) {
     }
 }
 
-if (!function_exists('cloudinaryUploadImage')) {
-    /** Загрузка на Cloudinary. Возвращает постоянный https-URL или '' (причина — в $error). */
-    function cloudinaryUploadImage(string $path, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 40, string $folder = 'kostlim'): string
+if (!function_exists('cloudinaryExtFromMime')) {
+    function cloudinaryExtFromMime(string $mime): string
     {
+        static $map = [
+            'application/zip' => 'zip', 'application/x-zip-compressed' => 'zip', 'application/pdf' => 'pdf',
+            'application/x-rar-compressed' => 'rar', 'application/vnd.rar' => 'rar', 'application/x-7z-compressed' => '7z',
+            'application/postscript' => 'ai', 'image/vnd.adobe.photoshop' => 'psd', 'application/x-photoshop' => 'psd',
+            'text/plain' => 'txt', 'application/msword' => 'doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        ];
+        return $map[strtolower($mime)] ?? '';
+    }
+}
+
+if (!function_exists('cloudinaryUploadFile')) {
+    /**
+     * Загрузка ЛЮБОГО файла (до 100 МБ) в Cloudinary через /auto/upload.
+     * Возвращает secure_url (прямая https-ссылка) или '' (причина — в $error).
+     * $origName — исходное имя файла: нужно, чтобы у архивов/документов сохранилось расширение в ссылке.
+     */
+    function cloudinaryUploadFile(string $path, string $name = 'file', ?PDO $pdo = null, ?string &$error = null, int $timeout = 300, string $folder = 'kostlim', string $origName = ''): string
+    {
+        $error = null;
         $c = cloudinaryCreds($pdo);
-        if (!$c) { $error = 'Cloudinary не настроен'; return ''; }
+        if (!$c) { $error = 'Cloudinary не настроен (CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET)'; error_log('Cloudinary: not configured'); return ''; }
         if (!is_file($path) || !is_readable($path)) { $error = 'файл не найден'; return ''; }
+        $size = (int)@filesize($path);
+        if ($size <= 0) { $error = 'пустой файл'; return ''; }
+        if ($size > CLOUDINARY_MAX_BYTES) { $error = 'файл больше 100 МБ'; return ''; }
+
+        @set_time_limit(0);
+        $mime = function_exists('mime_content_type') ? (string)@mime_content_type($path) : '';
+        if ($mime === '') { $mime = 'application/octet-stream'; }
+        $isMedia = (bool)preg_match('#^(image|video|audio)/#', $mime);
 
         $publicId = preg_replace('/[^A-Za-z0-9_-]+/', '_', $name) . '_' . bin2hex(random_bytes(4));
+        if (!$isMedia) {
+            // «raw»-файлы (zip/pdf/psd…) Cloudinary отдаёт по public_id как есть — расширение должно быть в нём
+            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+            if ($ext === '' || !preg_match('/^[a-z0-9]{1,8}$/', $ext)) { $ext = cloudinaryExtFromMime($mime); }
+            if ($ext !== '') { $publicId .= '.' . $ext; }
+        }
         $base = rtrim((string)(getenv('KUI_CLOUDINARY_BASE') ?: 'https://api.cloudinary.com'), '/');
-        $mime = function_exists('mime_content_type') ? (string)@mime_content_type($path) : '';
-        if (strpos($mime, 'image/') !== 0) { $mime = 'image/jpeg'; }
+        $url  = $base . '/v1_1/' . rawurlencode($c['cloud']) . '/auto/upload';
 
-        // Сначала стандартная подпись SHA-1; если аккаунт требует SHA-256 («Invalid Signature») — повторяем с ней.
-        foreach (['sha1', 'sha256'] as $algo) {
-            $ts  = time();
-            $toSign = "folder={$folder}&public_id={$publicId}" . ($algo === 'sha256' ? "&signature_algorithm=sha256" : '') . "&timestamp={$ts}";
-            $sig = hash($algo, $toSign . $c['secret']);
+        foreach (['sha1', 'sha256'] as $algo) {     // если аккаунт требует SHA-256 («Invalid Signature») — повтор
+            $ts     = time();
+            $toSign = "folder={$folder}&public_id={$publicId}" . ($algo === 'sha256' ? '&signature_algorithm=sha256' : '') . "&timestamp={$ts}";
             $fields = [
                 'file' => new CURLFile($path, $mime, $publicId), 'api_key' => $c['key'], 'timestamp' => $ts,
-                'signature' => $sig, 'folder' => $folder, 'public_id' => $publicId,
+                'signature' => hash($algo, $toSign . $c['secret']), 'folder' => $folder, 'public_id' => $publicId,
             ];
             if ($algo === 'sha256') { $fields['signature_algorithm'] = 'sha256'; }
 
-            $ch = curl_init("{$base}/v1_1/" . rawurlencode($c['cloud']) . "/image/upload");
+            $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_POST           => true,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_TIMEOUT        => max(5, $timeout),
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_TIMEOUT        => max(30, $timeout),   // большие файлы: по умолчанию 5 минут
                 CURLOPT_POSTFIELDS     => $fields,
             ]);
             $res  = curl_exec($ch);
@@ -146,14 +178,21 @@ if (!function_exists('cloudinaryUploadImage')) {
             if (!empty($data['secure_url'])) { $error = null; return (string)$data['secure_url']; }
             $error = (string)($data['error']['message'] ?? ('HTTP ' . $code));
             error_log("Cloudinary HTTP $code ($algo): $error");
-            if (stripos($error, 'signature') === false) { break; }   // повтор имеет смысл только при проблеме с подписью
+            if (stripos($error, 'signature') === false) { break; }
         }
-        // человеческие подсказки к самым частым ошибкам
-        if (stripos($error, 'cloud_name') !== false || stripos($error, 'Invalid cloud') !== false) { $error .= ' — проверь Cloud name (он виден на главной странице Cloudinary Dashboard)'; }
+        if (stripos($error, 'cloud_name') !== false || stripos($error, 'Invalid cloud') !== false) { $error .= ' — проверь Cloud name (он на главной странице Cloudinary Dashboard)'; }
         elseif (stripos($error, 'api_key') !== false || stripos($error, 'Unknown API key') !== false) { $error .= ' — проверь API key'; }
         elseif (stripos($error, 'signature') !== false) { $error .= ' — скорее всего неверный API secret (скопируй заново, без пробелов)'; }
-        elseif (stripos($error, 'too large') !== false) { $error .= ' — у бесплатного Cloudinary лимит 10 МБ на картинку'; }
+        elseif (stripos($error, 'too large') !== false || stripos($error, 'File size') !== false) { $error .= ' — превышен лимит размера файла на вашем тарифе Cloudinary'; }
         return '';
+    }
+}
+
+if (!function_exists('cloudinaryUploadImage')) {
+    /** Историческое имя: теперь та же загрузка через /auto/upload. */
+    function cloudinaryUploadImage(string $path, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, string $folder = 'kostlim'): string
+    {
+        return cloudinaryUploadFile($path, $name, $pdo, $error, $timeout, $folder);
     }
 }
 
@@ -200,63 +239,40 @@ if (!function_exists('kuiPrepareImage')) {
 }
 
 if (!function_exists('imageStoreConfigured')) {
-    function imageStoreConfigured(?PDO $pdo = null): bool
-    {
-        require_once __DIR__ . '/imgbb.php';
-        return cloudinaryCreds($pdo) !== null || count(imgbbKeys($pdo)) > 0;
-    }
+    function imageStoreConfigured(?PDO $pdo = null): bool { return cloudinaryCreds($pdo) !== null; }
 }
 
 if (!function_exists('imageStoreStatus')) {
     /** Что настроено сейчас (для страницы диагностики admin/storage_test.php). */
     function imageStoreStatus(?PDO $pdo = null): array
     {
-        require_once __DIR__ . '/imgbb.php';
         $c = cloudinaryCreds($pdo);
-        return [
-            'cloudinary' => $c !== null,
-            'cloud_name' => $c['cloud'] ?? '',
-            'imgbb_keys' => count(imgbbKeys($pdo)),
-            'pref'       => strtolower(kuiCfg('IMAGE_STORAGE', $pdo)) ?: 'auto',
-        ];
+        return ['cloudinary' => $c !== null, 'cloud_name' => $c['cloud'] ?? '', 'imgbb_keys' => 0, 'pref' => 'cloudinary'];
     }
 }
 
 if (!function_exists('imageStoreUpload')) {
     /**
-     * Главная функция: загрузить картинку в основное хранилище (Cloudinary), при отказе — в запасное (ImgBB).
-     * Обе площадки работают вместе: если одна не приняла файл, сразу пробуем другую. '' = не удалось ни там, ни там.
+     * Главная функция сайта: загрузить файл в Cloudinary (auto/upload, до 100 МБ).
+     * Тяжёлые картинки (>8 МБ или >3000 px) предварительно ужимаются. '' = не удалось (причина — в $error).
+     * $tries — сколько раз повторить при сетевой ошибке/5xx.
      */
-    function imageStoreUpload(string $path, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, int $tries = 2): string
+    function imageStoreUpload(string $path, string $name = 'image', ?PDO $pdo = null, ?string &$error = null, int $timeout = 60, int $tries = 2, string $folder = 'kostlim', string $origName = ''): string
     {
-        require_once __DIR__ . '/imgbb.php';
         $error = null;
-        $pref  = strtolower(kuiCfg('IMAGE_STORAGE', $pdo));
-        $hasC  = cloudinaryCreds($pdo) !== null;
-        $hasI  = count(imgbbKeys($pdo)) > 0;
-        if (!$hasC && !$hasI) { $error = 'не настроено хранилище картинок (Cloudinary или ImgBB)'; error_log('ImageStore: no storage configured'); return ''; }
-
-        [$use, $isTmp] = kuiPrepareImage($path);          // слишком тяжёлые картинки уменьшаем
-        $order = ($pref === 'imgbb') ? ['imgbb', 'cloudinary'] : ['cloudinary', 'imgbb'];   // auto/cloudinary → Cloudinary первым
-        // тумблер «ImgBB как запасное»: выключен (0) и Cloudinary настроен → ImgBB не трогаем
-        if ($pref !== 'imgbb' && $hasC && kuiCfg('IMGBB_FALLBACK', $pdo) === '0') { $order = ['cloudinary']; }
-        $errors = [];
+        if (cloudinaryCreds($pdo) === null) { $error = 'не настроен Cloudinary (CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET)'; error_log('ImageStore: Cloudinary not configured'); return ''; }
+        [$use, $isTmp] = kuiPrepareImage($path);
         $result = '';
-        foreach ($order as $svc) {
-            if ($svc === 'cloudinary' && $hasC) {
-                $e = null; $u = cloudinaryUploadImage($use, $name, $pdo, $e, $timeout);
-                if ($u !== '') { $result = $u; break; }
-                $errors[] = 'Cloudinary: ' . $e;
-            } elseif ($svc === 'imgbb' && $hasI) {
-                $e = null; $u = imgbbUploadRaw($use, $name, $pdo, $e, $timeout, $tries);
-                if ($u !== '') { $result = $u; break; }
-                $errors[] = 'ImgBB: ' . $e;
-            }
+        for ($try = 1; $try <= max(1, $tries); $try++) {
+            $e = null;
+            $result = cloudinaryUploadFile($use, $name, $pdo, $e, $timeout, $folder, $origName);
+            if ($result !== '') { break; }
+            $error = (string)$e;
+            if (stripos($error, 'нет ответа') === false) { break; }   // повторяем только сетевые сбои
         }
         if ($isTmp) { @unlink($use); }
-        if ($result !== '') { $error = null; return $result; }
-        $error = implode('; ', $errors);
-        return '';
+        if ($result !== '') { $error = null; }
+        return $result;
     }
 }
 

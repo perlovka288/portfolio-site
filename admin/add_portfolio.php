@@ -79,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $image_url = imgbbUpload($tmpImg, 'kostlim_' . time(), (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $imgbb_err);
     @unlink($tmpImg);
     if ($image_url === '') {
-        $error_msg = '❌ Ошибка загрузки на ImgBB: ' . ($imgbb_err ?: 'неизвестная ошибка');
+        $error_msg = '❌ Ошибка загрузки в Cloudinary: ' . ($imgbb_err ?: 'неизвестная ошибка');
         goto render;
     }
 

@@ -28,10 +28,10 @@ $sep = fn(string $u) => str_contains($u, '?') ? '&' : '?';
 
 if ($m === 'monobank') {
     $u = payEnv('MONO_JAR_URL');
-    $url = $u . $sep($u) . http_build_query(['a' => (int)$amount, 't' => $comment]);
+    $url = $u . $sep($u) . http_build_query(['a' => (int)$amount, 't' => $comment], '', '&', PHP_QUERY_RFC3986);
 } elseif ($m === 'donationalerts') {
     $u = payEnv('DA_DONATION_URL', 'https://www.donationalerts.com/r/andrewkostdzn');
-    $url = $u . $sep($u) . http_build_query(['amount' => (int)$amount, 'currency' => $c, 'message' => $comment]);
+    $url = $u . $sep($u) . http_build_query(['amount' => (int)$amount, 'currency' => $c, 'message' => $comment], '', '&', PHP_QUERY_RFC3986);
 } else { // cryptobot
     $inv = cryptoCreateInvoice($id, $c, $amount);
     if (!$inv) $fail('Не удалось создать счёт в Crypto Bot, попробуйте ещё раз');

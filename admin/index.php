@@ -1340,7 +1340,7 @@ function saveUploadedWorkFiles(string $field, int $orderId): array
 function kuiImgTempWarn(): void
 {
     $e = (string)($GLOBALS['kuiImgLastErr'] ?? '');
-    $GLOBALS['kuiImgWarn'] = '⚠️ ImgBB не принял картинку' . ($e !== '' ? " ({$e})" : '')
+    $GLOBALS['kuiImgWarn'] = '⚠️ Cloudinary не принял файл' . ($e !== '' ? " ({$e})" : '')
         . ' — она сохранена на сервере ВРЕМЕННО и пропадёт после следующего деплоя. Проверь ключи ImgBB (Ключи и API / Render → Environment).';
 }
 
@@ -2828,7 +2828,7 @@ $imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
                                 <label class="tg-checkbox" style="margin-top:16px;"><input type="checkbox" name="publish_tg" value="1" checked> ✈️ Публиковать в Telegram-канал</label>
                                 <button type="submit" class="btn-panel" id="portfolio-submit-btn">
                                     <span class="btn-text">🟠 Добавить проект</span>
-                                    <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем на ImgBB...</span>
+                                    <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем в Cloudinary...</span>
                                 </button>
                             </form>
                         </div>
@@ -3564,7 +3564,7 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
 
     btn.disabled = true;
     btn.classList.add('loading');
-    showToast('⏳ Загружаем на ImgBB... Это может занять 10–30 сек.', 'loading', 60000);
+    showToast('⏳ Загружаем в Cloudinary... Это может занять 10–30 сек.', 'loading', 60000);
     const fd = new FormData(form);
     fd.append('add_portfolio', '1');
     try {

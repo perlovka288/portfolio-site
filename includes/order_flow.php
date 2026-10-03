@@ -22,62 +22,14 @@
  * вариант на случай, если Cloudinary недоступен/не настроен.
  */
 if (!function_exists('uploadToCloudinary')) {
-function uploadToCloudinary(string $filePath, string $folder = 'orders'): string {
-    // KUI: КАРТИНКИ всегда идут на ImgBB (основное хранилище). Cloudinary остаётся только для
-    // файлов, которые ImgBB не принимает (zip/psd/pdf…), и как запасной вариант для картинок.
-    if (is_file($filePath) && @getimagesize($filePath) !== false) {
-        require_once __DIR__ . '/imgbb.php';
-        global $pdo;
-        $__e = null;
-        $__u = imgbbUpload($filePath, str_replace('/', '_', $folder) . '_' . time(), (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $__e, 30, 1);
-        if ($__u !== '') { return $__u; }
-        error_log('[uploadToCloudinary] ImgBB не принял картинку (' . (string)$__e . ') — пробуем Cloudinary');
-    }
+function uploadToCloudinary(string $filePath, string $folder = 'orders', string $origName = ''): string {
+    // Всё (картинки, видео, архивы, документы до 100 МБ) — одним запросом в Cloudinary /auto/upload.
     require_once __DIR__ . '/image_store.php';
     global $pdo;
-    $__c = cloudinaryCreds((isset($pdo) && $pdo instanceof PDO) ? $pdo : null);   // env ИЛИ «Ключи и API» в админке
-    $cloudName = $__c['cloud'] ?? '';
-    $apiKey    = $__c['key'] ?? '';
-    $apiSecret = $__c['secret'] ?? '';
-    if ($cloudName === '') {
-        error_log('[uploadToCloudinary] Cloudinary не настроен — для не-картинок (zip/psd/pdf) загрузка пропущена.');
-        return '';
-    }
-    if (!is_file($filePath)) {
-        error_log("[uploadToCloudinary] tmp file not found: {$filePath}");
-        return '';
-    }
-    $timestamp = time();
-    $sig = sha1("folder={$folder}&timestamp={$timestamp}{$apiSecret}");
-    // resource_type=auto — чтобы не только картинки, но и исходники (psd/ai/zip/pdf и т.п.) грузились корректно
-    $ch = curl_init("https://api.cloudinary.com/v1_1/{$cloudName}/auto/upload");
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 60,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_POSTFIELDS     => [
-            'file'      => new CURLFile($filePath),
-            'api_key'   => $apiKey,
-            'timestamp' => $timestamp,
-            'signature' => $sig,
-            'folder'    => $folder,
-        ],
-    ]);
-    $resp = curl_exec($ch);
-    $curlErr = curl_error($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($resp === false) {
-        error_log("[uploadToCloudinary] curl error: {$curlErr}");
-        return '';
-    }
-    $data = json_decode($resp, true);
-    if (!isset($data['secure_url'])) {
-        error_log("[uploadToCloudinary] Cloudinary API error (HTTP {$httpCode}): " . substr($resp, 0, 500));
-        return '';
-    }
-    return $data['secure_url'];
+    $__e = null;
+    $__u = imageStoreUpload($filePath, str_replace('/', '_', $folder), (isset($pdo) && $pdo instanceof PDO) ? $pdo : null, $__e, 300, 2, $folder, $origName);
+    if ($__u === '') { error_log('[uploadToCloudinary] ' . (string)$__e); }
+    return $__u;
 }
 }
 

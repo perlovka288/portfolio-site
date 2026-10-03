@@ -378,7 +378,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['accept_rules'])) {
         foreach ($_FILES['example_photos']['tmp_name'] as $i => $tmp) {
             if (empty($tmp) || $_FILES['example_photos']['error'][$i] !== UPLOAD_ERR_OK) continue;
             $origName = (string)($_FILES['example_photos']['name'][$i] ?? 'file');
-            $url = $cloudinaryConfigured ? uploadToCloudinary($tmp, 'orders/ref') : '';
+            $url = $cloudinaryConfigured ? uploadToCloudinary($tmp, 'orders/ref', $origName) : '';
             if ($url !== '') {
                 $example_imgs[] = $url;
                 continue;

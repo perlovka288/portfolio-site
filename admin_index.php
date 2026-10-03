@@ -213,7 +213,7 @@ if (isset($_POST['add_portfolio']) && !empty($_SERVER['HTTP_X_REQUESTED_WITH']))
     }
     if ($filename_main === '') {
         ob_end_clean();
-        echo json_encode(['ok' => false, 'msg' => '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY в Render.']);
+        echo json_encode(['ok' => false, 'msg' => '❌ Не удалось загрузить изображение. Проверь ключи Cloudinary (CLOUDINARY_CLOUD_NAME, API_KEY, API_SECRET) в Render.']);
         exit;
     }
 
@@ -864,7 +864,7 @@ function uploadImage(string $field, string $prefix, string $uploadDir): string
         $dest = $uploadDir . $filename;
         if (move_uploaded_file($tmp, $dest)) return $filename;
     }
-    $message = '❌ Не удалось загрузить изображение. Проверь IMGBB_API_KEY.';
+    $message = '❌ Не удалось загрузить изображение. Проверь ключи Cloudinary.';
     return '';
 }
 
@@ -1271,9 +1271,10 @@ if (isset($_POST['send_order_message'])) {
 
 $currentAvatarRow  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
 $currentAvatarFile = $currentAvatarRow['avatar'] ?? '';
-$imgbbKeys         = array_filter([getenv('IMGBB_API_KEY')?: '', getenv('IMGBB_API_KEY2')?: '', getenv('IMGBB_API_KEY3')?: '']);
-$imgbbKeyCount     = count($imgbbKeys);
-$imgbbKeySet       = $imgbbKeyCount > 0;
+require_once __DIR__ . '/includes/image_store.php';
+$imgbbKeys         = [];
+$imgbbKeyCount     = 0;
+$imgbbKeySet       = imageStoreConfigured($pdo ?? null);   // теперь это Cloudinary
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -1593,7 +1594,7 @@ $imgbbKeySet       = $imgbbKeyCount > 0;
                             </div>
                             <button type="submit" class="btn-panel" id="portfolio-submit-btn">
                                 <span class="btn-text">Загрузить в кейсы</span>
-                                <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем на ImgBB...</span>
+                                <span class="btn-spinner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Загружаем в Cloudinary...</span>
                             </button>
                         </form>
                         <style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>
@@ -2103,7 +2104,7 @@ document.getElementById('portfolio-form').addEventListener('submit', async funct
 
     btn.disabled = true;
     btn.classList.add('loading');
-    showToast('⏳ Загружаем на ImgBB... Это может занять 10–30 сек.', 'loading', 60000);
+    showToast('⏳ Загружаем в Cloudinary... Это может занять 10–30 сек.', 'loading', 60000);
     const fd = new FormData(form);
     fd.append('add_portfolio', '1');
     try {

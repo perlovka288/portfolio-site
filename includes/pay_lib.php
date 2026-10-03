@@ -30,9 +30,9 @@ function payCurrencies(): array {
 }
 function payMethods(): array {
     return [
-        'monobank'       => ['title' => 'Monobank',          'icon' => '🐈‍⬛', 'desc' => 'Банка Monobank · Visa / Mastercard · Apple/Google Pay', 'currencies' => ['UAH']],
-        'donationalerts' => ['title' => 'DonationAlerts',    'icon' => '💸', 'desc' => 'Карты РФ/СНГ, СБП, ЮMoney, PayPal',                       'currencies' => ['RUB', 'KZT']],
-        'cryptobot'      => ['title' => 'Crypto Bot (USDT)', 'icon' => '🪙', 'desc' => 'USDT, TON, BTC, ETH или карта внутри бота',               'currencies' => ['USD', 'EUR']],
+        'monobank'       => ['title' => 'Monobank',          'icon' => '🐈‍⬛', 'img' => 'assets/img/Mono.png', 'desc' => 'Банка Monobank · Visa / Mastercard · Apple/Google Pay', 'currencies' => ['UAH']],
+        'donationalerts' => ['title' => 'DonationAlerts',    'icon' => '💸', 'img' => 'assets/img/Donate.png', 'desc' => 'Карты РФ/СНГ, СБП, ЮMoney, PayPal',                       'currencies' => ['RUB', 'KZT']],
+        'cryptobot'      => ['title' => 'Crypto Bot (USDT)', 'icon' => '🪙', 'img' => 'assets/img/CB.png', 'desc' => 'USDT, TON, BTC, ETH или карта внутри бота',               'currencies' => ['USD', 'EUR']],
     ];
 }
 function payMethodConfigured(string $m): bool {
@@ -135,7 +135,7 @@ function payThrottle(string $key, int $sec): bool {
 }
 /** Ищет номер заказа в комментарии: "Order #31", "Order_31", "Заказ 31" */
 function payParseOrderId(string $text): int {
-    return preg_match('/(?:order|заказ|zakaz)\s*[#№_\-]?\s*(\d{1,9})\b/iu', $text, $m) ? (int)$m[1] : 0;
+    return preg_match('/(?:order|заказ|zakaz)[\s+#№_\-]*(\d{1,9})\b/iu', $text, $m) ? (int)$m[1] : 0;
 }
 function payExpected(PDO $pdo, array $o, string $cur): float {
     if (($o['pay_currency'] ?? '') === $cur && (float)($o['pay_amount'] ?? 0) > 0) return (float)$o['pay_amount'];

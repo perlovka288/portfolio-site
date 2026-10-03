@@ -27,7 +27,7 @@ $plus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width
 <html lang="ru"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Оплата заказа #<?= $id ?> | Kostlim Design</title>
-<link rel="stylesheet" href="assets/pay.css?v=3">
+<link rel="stylesheet" href="assets/pay.css?v=4">
 </head><body>
 <div class="pc">
 <?php if ($state === 'bad'): ?>
@@ -90,6 +90,11 @@ function fmt(a, c) {
   if (c === 'USD' || c === 'EUR') return m.symbol + Number(a).toFixed(2);
   return Math.round(a).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ' + m.symbol;
 }
+function logoHtml(k) {   // иконка из assets/img (Mono.png / Donate.png / CB.png); если файла нет — текстовый значок
+  var src = D.methods[k].img;
+  if (!src) return LOGO[k];
+  return '<img src="' + src + '" alt="" draggable="false" onerror="this.parentNode.classList.remove(\'has-img\');this.outerHTML=\'' + LOGO[k] + '\'">';
+}
 function supports(k, c) { return D.methods[k].currencies.indexOf(c) !== -1; }
 function firstReady(c) { var r = null; Object.keys(D.methods).forEach(function (k) { if (!r && D.methods[k].ready && supports(k, c)) r = k; }); return r; }
 
@@ -114,7 +119,7 @@ function render() {
     el.setAttribute('role', 'radio'); el.setAttribute('aria-checked', sel ? 'true' : 'false'); el.tabIndex = 0;
     if (firstRender) el.style.animationDelay = (i * 80) + 'ms'; else el.style.animation = 'none';
     var tags = m.currencies.map(function (c) { return '<span class="tag' + (c === cur ? ' on' : '') + '">' + D.cur[c].symbol + ' ' + c + '</span>'; }).join('');
-    el.innerHTML = '<div class="logo ' + k + '">' + LOGO[k] + '</div><div class="mc-body"><p class="mc-name">' + m.title + '</p><p class="mc-desc">' +
+    el.innerHTML = '<div class="logo has-img ' + k + '">' + logoHtml(k) + '</div><div class="mc-body"><p class="mc-name">' + m.title + '</p><p class="mc-desc">' +
       (m.ready ? m.desc : 'Временно недоступно') + '</p><div class="tags">' + tags + '</div></div><div class="radio"></div>';
     var pick = function () {
       if (!m.ready) return;

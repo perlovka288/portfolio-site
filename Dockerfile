@@ -15,11 +15,11 @@ RUN a2enmod rewrite headers deflate expires
 
 # До 40 файлов в заказе: post_max_size и max_file_uploads подняты под этот лимит
 # (PHP по умолчанию режет max_file_uploads=20 — без этого файлы 21-40 молча терялись бы).
-RUN echo "upload_max_filesize = 32M\n\
+RUN echo "upload_max_filesize = 100M\n\
 post_max_size = 500M\n\
 memory_limit = 256M\n\
-max_execution_time = 120\n\
-max_input_time = 120\n\
+max_execution_time = 300\n\
+max_input_time = 300\n\
 max_file_uploads = 45" > /usr/local/etc/php/conf.d/uploads.ini
 
 # OPcache: PHP не перекомпилирует 3000-строчные страницы на каждый запрос
