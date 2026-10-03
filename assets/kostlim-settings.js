@@ -38,7 +38,7 @@
         var row = document.createElement('div'); row.className = 'ios-key' + (i === st.active ? ' active' : '') + (k.on === false ? ' off' : '');
         row.innerHTML =
           '<button type="button" class="ios-radio" title="Сделать активным" aria-label="Активный"></button>' +
-          '<div class="ios-key-main"><input class="ios-in" type="password" value="' + esc(k.v) + '" placeholder="Вставь ключ" autocomplete="off" spellcheck="false">' +
+          '<div class="ios-key-main"><input class="ios-in ios-mask" type="text" value="' + esc(k.v) + '" placeholder="Вставь ключ" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">' +
           '<div class="ios-key-meta"><span class="ios-badge">' + (i === st.active ? 'Активный' : 'Резерв') + '</span>' +
           (k.src === 'env' ? '<span class="ios-badge env">из окружения</span>' : '') +
           '<span class="ios-st-msg"></span></div></div>' +
@@ -50,7 +50,7 @@
         var inp = row.querySelector('input');
         inp.addEventListener('input', function () { k.v = inp.value.trim(); delete k.src; setDot(row.querySelector('[data-dot]'), k.v ? 'unknown' : 'unset'); sync(); });
         row.querySelector('.ios-radio').onclick = function () { st.active = i; k.on = true; draw(); sync(); };
-        row.querySelector('[data-eye]').onclick = function () { inp.type = inp.type === 'password' ? 'text' : 'password'; };
+        row.querySelector('[data-eye]').onclick = function () { inp.classList.toggle('ios-unmask'); };
         row.querySelector('[data-copy]').onclick = function (e) { if (k.v) copy(k.v, e.currentTarget); };
         row.querySelector('[data-test]').onclick = function () { test(row, k); };
         row.querySelector('[data-del]').onclick = function () {
@@ -81,7 +81,7 @@
   /* ── обычные поля: маска, копирование ── */
   form.addEventListener('click', function (e) {
     var eye = e.target.closest('.ios-ctl > [data-eye]'), cp = e.target.closest('.ios-ctl > [data-copy]');
-    if (eye) { var i = eye.parentNode.querySelector('input'); if (i) i.type = i.type === 'password' ? 'text' : 'password'; }
+    if (eye) { var i = eye.parentNode.querySelector('input'); if (i) i.classList.toggle('ios-unmask'); }
     if (cp) { var f = cp.parentNode.querySelector('input'); if (f && f.value) copy(f.value, cp); }
     var sg = e.target.closest('.ios-seg button');
     if (sg) {

@@ -21,7 +21,7 @@ function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'
 function tail4(string $s): string { return $s === '' ? '—' : '…' . substr($s, -4); }
 
 if (empty($_SESSION['st_csrf'])) { $_SESSION['st_csrf'] = bin2hex(random_bytes(16)); }
-$saveMsg = ''; $saveOk = null;
+$saveMsg = ''; $saveOk = null; $formCloud = '';
 
 // ── Сохранение ключей Cloudinary прямо отсюда (пишет в site_settings, ошибки не скрывает) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_cloud'])) {
@@ -29,11 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_cloud'])) {
         $saveOk = false; $saveMsg = 'Сессия устарела — обнови страницу и повтори.';
     } else {
         $clean = static function (string $v): string { return trim($v, " \t\n\r\0\x0B\"'`"); };
+        $saved = cloudinaryCreds($pdo) ?: ['cloud' => '', 'key' => '', 'secret' => ''];
+        $pick  = static function (string $a, string $b) use ($clean): string { return $clean((string)($_POST[$a] ?? $_POST[$b] ?? '')); };
         $in = [
-            'CLOUDINARY_CLOUD_NAME' => $clean((string)($_POST['cloud'] ?? '')),
-            'CLOUDINARY_API_KEY'    => $clean((string)($_POST['key'] ?? '')),
-            'CLOUDINARY_API_SECRET' => $clean((string)($_POST['secret'] ?? '')),
+            'CLOUDINARY_CLOUD_NAME' => $pick('cld_cloud', 'cloud'),
+            'CLOUDINARY_API_KEY'    => $pick('cld_key', 'key'),
+            'CLOUDINARY_API_SECRET' => $pick('cld_sec', 'secret'),
         ];
+        $formCloud = $in['CLOUDINARY_CLOUD_NAME'];
+        // поле «вставь всю строку» главнее остальных
+        $in['__paste'] = $clean((string)($_POST['cld_url'] ?? ''));
         // если вставили целую строку cloudinary://KEY:SECRET@CLOUD — разбираем её
         foreach ($in as $v) {
             if (preg_match('#cloudinary://([^:\s]+):([^@\s]+)@([A-Za-z0-9_-]+)#', $v, $m)) {
@@ -41,8 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_cloud'])) {
                 break;
             }
         }
+        unset($in['__paste']);
+        // пустые поля не затирают уже сохранённое (можно поменять только Cloud name)
+        if ($in['CLOUDINARY_CLOUD_NAME'] === '') { $in['CLOUDINARY_CLOUD_NAME'] = $saved['cloud']; }
+        if ($in['CLOUDINARY_API_KEY']    === '') { $in['CLOUDINARY_API_KEY']    = $saved['key']; }
+        if ($in['CLOUDINARY_API_SECRET'] === '') { $in['CLOUDINARY_API_SECRET'] = $saved['secret']; }
+        // cloud name не должен быть ссылкой/цифрами-ключом
+        if (preg_match('#res\.cloudinary\.com/([A-Za-z0-9_-]+)#', $in['CLOUDINARY_CLOUD_NAME'], $mm)) { $in['CLOUDINARY_CLOUD_NAME'] = $mm[1]; }
         if ($in['CLOUDINARY_CLOUD_NAME'] === '' || $in['CLOUDINARY_API_KEY'] === '' || $in['CLOUDINARY_API_SECRET'] === '') {
-            $saveOk = false; $saveMsg = 'Заполни все три поля: Cloud name, API key, API secret.';
+            $saveOk = false; $saveMsg = 'Заполни Cloud name, API key и API secret (или вставь целую строку cloudinary://… в верхнее поле).';
         } elseif (!ctype_digit($in['CLOUDINARY_API_KEY'])) {
             $saveOk = false; $saveMsg = 'API key у Cloudinary состоит только из цифр (15 знаков). Похоже, в это поле попал секрет или Cloud name.';
         } else {
@@ -144,6 +156,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:13px;letter-spacing:.6px;text-tran
 .row b{color:#fff}.ok{color:#86efac}.bad{color:#fca5a5}.mut{color:#8a8a96}
 button{background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;border:0;border-radius:12px;padding:12px 22px;font:800 13px inherit;font-family:inherit;cursor:pointer}
 .fl{display:block;font-size:12px;color:#8a8a96;margin-bottom:10px}.fl input{display:block;width:100%;box-sizing:border-box;margin-top:4px;background:#0b0b0f;border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;padding:11px 12px;font:14px inherit;font-family:inherit;outline:none}.fl input:focus{border-color:#fb923c}
+input.mask{-webkit-text-security:disc;text-security:disc}
 a{color:#fb923c}code{background:#1a1a22;padding:1px 6px;border-radius:6px;word-break:break-all}
 </style></head><body><div class="w">
 <h1>🖼 Диагностика загрузки картинок</h1>
@@ -172,12 +185,15 @@ a{color:#fb923c}code{background:#1a1a22;padding:1px 6px;border-radius:6px;word-b
 <div class="card">
   <div class="mut" style="margin-bottom:10px">Нужен именно <b>Cloudinary</b> (cloudinary.com → Dashboard → «API Keys»), а не Cloudflare — это разные сервисы, ключи от Cloudflare сюда не подходят. Бесплатного тарифа хватает.</div>
   <?php if ($saveMsg !== ''): ?><div class="bad" style="margin-bottom:10px"><?= h($saveMsg) ?></div><?php endif; ?>
-  <form method="post" autocomplete="off">
+  <form method="post" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
     <input type="hidden" name="csrf" value="<?= h($_SESSION['st_csrf']) ?>">
-    <label class="fl">Cloud name<input name="cloud" value="<?= h($cred['cloud'] ?? '') ?>" placeholder="например, dxyz123abc" spellcheck="false"></label>
-    <label class="fl">API key (только цифры)<input name="key" value="" placeholder="<?= $cred ? h('сейчас ' . tail4($cred['key']) . ' — введи заново, чтобы заменить') : '123456789012345' ?>" spellcheck="false"></label>
-    <label class="fl">API secret<input name="secret" type="password" value="" placeholder="<?= $cred ? h('сейчас ' . tail4($cred['secret']) . ' — введи заново, чтобы заменить') : 'секрет из Dashboard' ?>" spellcheck="false"></label>
-    <div class="mut" style="margin:6px 0 10px;font-size:12px">Можно вставить целую строку <code>cloudinary://KEY:SECRET@CLOUD</code> в любое поле — сайт сам разберёт.</div>
+    <label class="fl">Быстрый способ — вставь целую строку <code>CLOUDINARY_URL</code> (Dashboard → «API Keys» → «Copy to clipboard»)
+      <input class="mask" name="cld_url" value="" placeholder="cloudinary://123456789012345:секрет@имя-облака" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" data-lpignore="true" data-1p-ignore="true" data-form-type="other"></label>
+    <div class="mut" style="margin:2px 0 12px;font-size:12px">…или заполни три поля ниже:</div>
+    <label class="fl">Cloud name (имя облака, в Dashboard сверху слева)<input name="cld_cloud" value="<?= h($formCloud !== '' ? $formCloud : ($cred['cloud'] ?? '')) ?>" placeholder="например, dxyz123abc" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" data-lpignore="true" data-1p-ignore="true" data-form-type="other"></label>
+    <label class="fl">API key (только цифры)<input name="cld_key" value="" inputmode="numeric" placeholder="<?= $cred ? h('сейчас ' . tail4($cred['key']) . ' — введи заново, чтобы заменить') : '123456789012345' ?>" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" data-lpignore="true" data-1p-ignore="true" data-form-type="other"></label>
+    <label class="fl">API secret<input class="mask" name="cld_sec" value="" placeholder="<?= $cred ? h('сейчас ' . tail4($cred['secret']) . ' — введи заново, чтобы заменить') : 'секрет из Dashboard' ?>" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" data-lpignore="true" data-1p-ignore="true" data-form-type="other"></label>
+    <div class="mut" style="margin:6px 0 10px;font-size:12px">Пустые поля не затирают уже сохранённое. Менеджер паролей браузера сюда больше ничего не подставит (поля не «парольные»).</div>
     <button name="save_cloud" value="1">💾 Сохранить и проверить</button>
   </form>
 </div>

@@ -1,4 +1,16 @@
 /* kostlim-admin.js — нижнее меню/шторка админки из существующих вкладок .admin-tab. Без зависимостей. */
+/* ПК-сайдбар: оборачиваем подпись каждой вкладки в <span class="kui-tab-label"> (для плавного раскрытия по наведению; стили — в kostlim-ui.css) */
+(function () {
+  Array.prototype.slice.call(document.querySelectorAll('.admin-tab')).forEach(function (el) {
+    if (el.querySelector('.kui-tab-label')) return;
+    var lab = document.createElement('span'); lab.className = 'kui-tab-label';
+    Array.prototype.slice.call(el.childNodes).forEach(function (n) {
+      if (n.nodeType === 1 && n.tagName.toLowerCase() === 'svg') return;
+      lab.appendChild(n);
+    });
+    el.appendChild(lab);
+  });
+})();
 (function () {
   'use strict';
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.admin-tab'));

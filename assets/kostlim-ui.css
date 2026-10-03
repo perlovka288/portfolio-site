@@ -596,3 +596,59 @@ body.kui .portfolio-media[style*="background-image"],body.kui .service-cover[sty
 .kui-an-helpbody{padding:0 0 16px;font-size:13px;line-height:1.55;color:var(--text2)}
 .kui-an-helpbody p{margin:0 0 10px}.kui-an-helpbody b{color:var(--text)}
 .ios-btn.danger-btn{color:#ff453a;background:rgba(255,69,58,.12);margin-top:4px}
+
+
+/* ============================================================================
+   АДМИНКА (ТОЛЬКО ПК, ≥900px): боковое меню-«рейка» как в sidebar от 21st.dev —
+   в покое узкая полоска с иконками, при наведении плавно раскрывается и показывает
+   подписи. Раскрывается ПОВЕРХ контента (страница не прыгает). Телефон не затронут:
+   там по-прежнему нижнее меню + шторка «Ещё» (<900px, .admin-tabs скрыт выше).
+   Подписи оборачивает в .kui-tab-label скрипт assets/kostlim-admin.js.
+   ============================================================================ */
+@media (min-width:900px){
+  body.kui-admin .admin-board{grid-template-columns:76px minmax(0,1fr);gap:20px;align-items:start}
+  body.kui-admin .admin-tabs{
+    position:sticky;top:16px;z-index:60;box-sizing:border-box;width:76px;
+    max-height:calc(100vh - 32px);overflow-x:hidden;overflow-y:auto;scrollbar-width:none;
+    display:flex;flex-direction:column;gap:4px;padding:10px;
+    background:var(--card);border:1px solid var(--border);border-radius:var(--kui-r);
+    transition:width .28s cubic-bezier(.4,0,.2,1),box-shadow .28s ease,border-color .28s ease}
+  body.kui-admin .admin-tabs::-webkit-scrollbar{display:none}
+  body.kui-admin .admin-tabs:hover,body.kui-admin .admin-tabs:focus-within{
+    width:264px;border-color:var(--border-accent);
+    box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 0 1px var(--accent-dim),0 0 36px var(--accent-glow2)}
+
+  /* заголовки групп: в покое — тонкая линия-разделитель, при раскрытии — подпись */
+  body.kui-admin .admin-tab-group-label{
+    flex:0 0 auto;box-sizing:border-box;height:0;overflow:hidden;white-space:nowrap;
+    margin:8px 8px;padding:0;border-top:1px solid var(--border2,var(--border));
+    font-size:10.5px;line-height:22px;color:var(--text2);
+    transition:height .28s ease,margin .28s ease,padding .28s ease,border-color .28s ease}
+  body.kui-admin .admin-tabs:hover .admin-tab-group-label,
+  body.kui-admin .admin-tabs:focus-within .admin-tab-group-label{height:22px;margin:10px 0 0;padding:0 10px;border-top-color:transparent}
+
+  /* пункты */
+  body.kui-admin .admin-tab{
+    position:relative;flex:0 0 auto;width:100%;box-sizing:border-box;overflow:hidden;white-space:nowrap;
+    gap:16px;padding:12px 14px;border-radius:14px;font-size:13px}
+  body.kui-admin .admin-tab svg{width:20px;height:20px;flex:0 0 20px;color:var(--text2);transition:color .2s,transform .2s}
+  body.kui-admin .admin-tab:hover svg,body.kui-admin .admin-tab:focus-visible svg{color:var(--accent);transform:scale(1.08)}
+  body.kui-admin .admin-tab.active svg{color:var(--accent)}
+  .kui-tab-label{opacity:0;transform:translateX(-8px);transition:opacity .2s ease .05s,transform .2s ease .05s}
+  body.kui-admin .admin-tabs:hover .kui-tab-label,
+  body.kui-admin .admin-tabs:focus-within .kui-tab-label{opacity:1;transform:none}
+  body.kui-admin .admin-tabs:hover .admin-tab:hover .kui-tab-label{transform:translateX(4px)}   /* лёгкий сдвиг подписи, как в оригинале */
+
+  /* счётчик «Обращения»: в узком виде — точка у иконки */
+  body.kui-admin .admin-tab:has(.kui-tab-label span)::after{
+    content:"";position:absolute;left:30px;top:9px;width:9px;height:9px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 0 2px var(--card);transition:opacity .15s}
+  body.kui-admin .admin-tabs:hover .admin-tab::after,
+  body.kui-admin .admin-tabs:focus-within .admin-tab::after{opacity:0}
+}
+@media (min-width:900px) and (prefers-reduced-motion:reduce){
+  body.kui-admin .admin-tabs,body.kui-admin .admin-tab-group-label,.kui-tab-label{transition:none}
+}
+
+/* скрытие значений ключей без type=password (чтобы менеджер паролей браузера не подставлял логин) */
+.ios-in.ios-mask:not(.ios-unmask){-webkit-text-security:disc;text-security:disc}

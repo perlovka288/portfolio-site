@@ -38,8 +38,8 @@ $row = function (string $key, string $label, array $o = []) use ($kEff, $kSrc, $
                     <?php foreach ($opts as $v => $t): ?><option value="<?= $h($v) ?>" <?= ($selVal === (string)$v) ? 'selected' : '' ?>><?= $h($t) ?></option><?php endforeach; ?>
                 </select>
             <?php else: ?>
-                <input class="ios-in" type="<?= $secret ? 'password' : 'text' ?>" name="<?= $h($key) ?>" id="k-<?= $h($key) ?>"
-                       value="<?= $h($val) ?>" data-orig="<?= $h($val) ?>" placeholder="<?= $h($o['ph'] ?? 'не задано') ?>" autocomplete="off" spellcheck="false">
+                <input class="ios-in<?= $secret ? ' ios-mask' : '' ?>" type="text" name="<?= $h($key) ?>" id="k-<?= $h($key) ?>"
+                       value="<?= $h($val) ?>" data-orig="<?= $h($val) ?>" placeholder="<?= $h($o['ph'] ?? 'не задано') ?>" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                 <?php if ($secret): ?><button type="button" class="ios-mini" data-eye title="Показать / скрыть">👁</button><?php endif; ?>
                 <button type="button" class="ios-mini" data-copy title="Копировать">⧉</button>
             <?php endif; ?>
