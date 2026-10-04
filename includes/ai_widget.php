@@ -106,7 +106,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 
 .ai-widget-bubble {
     position: absolute; bottom: 72px; right: 0; width: 240px;
-    background: #16161d; border: 1px solid #26262f; border-radius: 16px 16px 4px 16px;
+    background: #111111; border: 1px solid rgba(255,255,255,.08); border-radius: 16px 16px 4px 16px;
     padding: 14px 16px 16px; box-shadow: 0 12px 34px rgba(0,0,0,.5);
     animation: aiBubbleIn .35s ease .6s both;
 }
@@ -114,10 +114,10 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 @keyframes aiBubbleIn { from { opacity:0; transform: translateY(10px) scale(.95); } to { opacity:1; transform: translateY(0) scale(1); } }
 #ai-widget-bubble-close {
     position: absolute; top: 6px; right: 8px; background: none; border: none;
-    color: #6a6a76; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px;
+    color: #6b6b6b; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px;
 }
 #ai-widget-bubble-close:hover { color: #fff; }
-.ai-widget-bubble-text { color: #e4e4ec; font-size: 13px; font-weight: 700; line-height: 1.5; margin: 6px 0 12px; padding-right: 10px; }
+.ai-widget-bubble-text { color: #ececec; font-size: 13px; font-weight: 700; line-height: 1.5; margin: 6px 0 12px; padding-right: 10px; }
 .ai-widget-bubble-btn {
     width: 100%; border: none; border-radius: 9px; padding: 10px; cursor: pointer;
     background: linear-gradient(135deg, #fb923c, #f97316); color: #fff; font-weight: 800;
@@ -140,7 +140,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     width: min(94vw, 420px);
     height: min(86vh, 680px);
     max-height: 86vh;
-    background: #1a1a22; border: 1px solid #33333f;
+    background: #0d0d0d; border: 1px solid rgba(255,255,255,.10);
     border-radius: 20px; overflow: hidden;
     display: flex; flex-direction: column; z-index: 9600;
     box-shadow: 0 24px 70px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08);
@@ -157,9 +157,9 @@ $aiWidgetContext = $aiWidgetContext ?? '';
    можно было бы "утащить" обратно свайпом. */
 .ai-widget-swipe-hint { display: none !important; }
 
-.ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
+.ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid rgba(255,255,255,.07); flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-.ai-widget-avatar { overflow: hidden; padding: 0; background: #1a1a22; border: 1px solid rgba(255,255,255,.12); box-shadow: 0 0 0 3px rgba(249,115,22,.12); }
+.ai-widget-avatar { overflow: hidden; padding: 0; background: #0d0d0d; border: 1px solid rgba(255,255,255,.12); box-shadow: 0 0 0 3px rgba(249,115,22,.12); }
 .ai-widget-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ai-widget-header-text { flex: 1; min-width: 0; }
 #ai-widget-reset { display: inline-flex; align-items: center; justify-content: center; }
@@ -167,13 +167,13 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 .ai-widget-name { color: #fff; font-weight: 800; font-size: 13px; }
 .ai-widget-status { color: #7ee787; font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
 .ai-widget-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; }
-#ai-widget-reset, #ai-widget-close { background: none; border: none; color: #8a8a96; cursor: pointer; font-size: 15px; padding: 6px; border-radius: 8px; transition: color .15s, background .15s; }
+#ai-widget-reset, #ai-widget-close { background: none; border: none; color: #8a8a8a; cursor: pointer; font-size: 15px; padding: 6px; border-radius: 8px; transition: color .15s, background .15s; }
 #ai-widget-close { font-size: 22px; line-height: 1; }
 #ai-widget-reset:hover, #ai-widget-close:hover { color: #fff; background: rgba(255,255,255,.08); }
 
 .ai-widget-messages {
     flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-    padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #17171f;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #080808;
 }
 /* ── Сообщения в стиле Nexus: крупные скругления, аватар слева, плавное появление ── */
 .ai-widget-msg-wrap { max-width: 88%; display: flex; flex-direction: column; gap: 6px; animation: aiMsgIn .38s cubic-bezier(.22,1,.36,1) both; }
@@ -181,10 +181,10 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 .ai-widget-msg-wrap-user { align-self: flex-end; --ai-from: 18px; }
 @keyframes aiMsgIn { from { opacity: 0; transform: translate(var(--ai-from, 0), 12px) scale(.96); } to { opacity: 1; transform: none; } }
 .ai-widget-msg-row { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
-.ai-widget-msg-ava { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(255,255,255,.12); background: #1a1a22; }
+.ai-widget-msg-ava { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(255,255,255,.12); background: #0d0d0d; }
 .ai-widget-msg { padding: 10px 14px; border-radius: 18px; font-size: 13.5px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; min-width: 0; transition: transform .2s ease; }
 .ai-widget-msg:hover { transform: translateY(-1px) scale(1.01); }
-.ai-widget-msg-bot { background: rgba(36,36,46,.92); color: #ececf1; border-top-left-radius: 6px; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 4px 12px -2px rgba(0,0,0,.35); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.ai-widget-msg-bot { background: #141414; color: #ececf1; border-top-left-radius: 6px; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 4px 12px -2px rgba(0,0,0,.35); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .ai-widget-msg-user { background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-top-right-radius: 6px; box-shadow: 0 8px 24px -4px rgba(249,115,22,.4); }
 .ai-widget-msg-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 40px; }
 .ai-widget-msg-actions .ic { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; }
@@ -192,20 +192,20 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 .ai-widget-messages::-webkit-scrollbar { width: 6px; }
 .ai-widget-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
 .ai-widget-copy-btn {
-    background: #1e1e26; border: 1px solid #2e2e3a; color: #9a9aa8; font-size: 10.5px; font-weight: 700;
+    background: #111111; border: 1px solid rgba(255,255,255,.09); color: #909090; font-size: 10.5px; font-weight: 700;
     border-radius: 7px; padding: 4px 8px; cursor: pointer; transition: .15s;
 }
-.ai-widget-copy-btn:hover { color: #fdba74; border-color: rgba(249,115,22,.4); background: #24242e; }
+.ai-widget-copy-btn:hover { color: #fdba74; border-color: rgba(249,115,22,.4); background: #161616; }
 
-.ai-widget-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; flex-shrink: 0; background: #1a1a22; border-top: 1px solid #2a2a34; }
+.ai-widget-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; flex-shrink: 0; background: #0d0d0d; border-top: 1px solid rgba(255,255,255,.07); }
 .ai-widget-quick.hidden { display: none; }
 .ai-widget-quick-btn {
-    background: #2a2a35; border: 1px solid rgba(249,115,22,.35); color: #f0d0b8; font-size: 11.5px;
+    background: #1a1a1a; border: 1px solid rgba(249,115,22,.35); color: #f3d9c4; font-size: 11.5px;
     font-weight: 600; padding: 8px 12px; border-radius: 20px; cursor: pointer; transition: border-color .15s, color .15s, background .15s;
 }
-.ai-widget-quick-btn:hover { border-color: rgba(249,115,22,.8); color: #fff; background: #33333f; }
+.ai-widget-quick-btn:hover { border-color: rgba(249,115,22,.8); color: #fff; background: rgba(255,255,255,.10); }
 
-.ai-widget-footer { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid #2a2a34; flex-shrink: 0; background: #1a1a22; }
+.ai-widget-footer { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.07); flex-shrink: 0; background: #0d0d0d; }
 .ai-widget-manager-btn { text-decoration: none; }
 #ai-widget-input {
     /* font-size 16px — иначе iOS Safari при фокусе сам зумит страницу. Рамку и фон теперь рисует .kd-box (бегущая рамка). */
@@ -218,13 +218,13 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 /* ── Прикреплённое фото над строкой ввода ── */
 .ai-widget-attach-preview {
     display: flex; align-items: center; gap: 8px; padding: 8px 14px;
-    background: #1e1e26; border-top: 1px solid #2a2a34; flex-shrink: 0;
+    background: #111111; border-top: 1px solid rgba(255,255,255,.07); flex-shrink: 0;
 }
 .ai-widget-attach-preview.hidden { display: none; }
 .ai-widget-attach-preview img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
-.ai-widget-attach-preview-name { flex: 1; font-size: 11px; color: #9a9aa8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-widget-attach-preview-name { flex: 1; font-size: 11px; color: #909090; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ai-widget-attach-remove {
-    background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
+    background: none; border: none; color: #6b6b6b; cursor: pointer; font-size: 15px; padding: 4px; line-height: 1;
 }
 #ai-widget-attach-remove:hover { color: #fb7185; }
 .ai-widget-attach-btn { font-family: inherit; }
@@ -233,31 +233,31 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 /* ── Печатает: анимированные точки вместо статичного текста ── */
 .ai-widget-typing-dots { display: inline-flex; gap: 4px; padding: 3px 0; }
 .ai-widget-typing-dots span {
-    width: 6px; height: 6px; border-radius: 50%; background: #8a8a96;
+    width: 6px; height: 6px; border-radius: 50%; background: #8a8a8a;
     animation: aiTypingBounce 1.1s infinite ease-in-out;
 }
 .ai-widget-typing-dots span:nth-child(2) { animation-delay: .15s; }
 .ai-widget-typing-dots span:nth-child(3) { animation-delay: .3s; }
 @keyframes aiTypingBounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
-.ai-widget-typing-label { font-size: 11px; color: #6a6a76; margin-top: 3px; }
+.ai-widget-typing-label { font-size: 11px; color: #6b6b6b; margin-top: 3px; }
 
 /* ── Структурированные карточки ответа (идеи / CTR-оценка) ── */
 .ai-widget-card {
-    background: #1e1e26; border: 1px solid #2e2e3a; border-radius: 14px; padding: 14px; width: 100%;
+    background: #111111; border: 1px solid rgba(255,255,255,.09); border-radius: 14px; padding: 14px; width: 100%;
 }
 .ai-widget-card-title { font-size: 11.5px; font-weight: 800; color: #fdba74; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
 .ai-widget-headline-item {
-    display: flex; align-items: center; gap: 8px; background: #24242e; border: 1px solid #2e2e3a;
-    border-radius: 10px; padding: 9px 11px; margin-bottom: 6px; font-size: 12.5px; color: #e8e8ee;
+    display: flex; align-items: center; gap: 8px; background: #161616; border: 1px solid rgba(255,255,255,.09);
+    border-radius: 10px; padding: 9px 11px; margin-bottom: 6px; font-size: 12.5px; color: #ececec;
 }
 .ai-widget-headline-item span { flex: 1; }
 .ai-widget-headline-copy {
-    background: none; border: none; color: #6a6a76; cursor: pointer; font-size: 13px; flex-shrink: 0; padding: 2px;
+    background: none; border: none; color: #6b6b6b; cursor: pointer; font-size: 13px; flex-shrink: 0; padding: 2px;
 }
 .ai-widget-headline-copy:hover { color: #fdba74; }
-.ai-widget-concept-item { background: #24242e; border: 1px solid #2e2e3a; border-radius: 10px; padding: 11px; margin-bottom: 8px; }
+.ai-widget-concept-item { background: #161616; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 11px; margin-bottom: 8px; }
 .ai-widget-concept-title { font-size: 12.5px; font-weight: 800; color: #fff; margin-bottom: 4px; }
-.ai-widget-concept-desc { font-size: 12px; color: #b4b4c0; line-height: 1.5; margin-bottom: 8px; }
+.ai-widget-concept-desc { font-size: 12px; color: #b5b5b5; line-height: 1.5; margin-bottom: 8px; }
 .ai-widget-card-action-btn {
     width: 100%; background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.4); color: #fdba74;
     font-size: 11.5px; font-weight: 800; border-radius: 8px; padding: 8px; cursor: pointer; transition: .15s; font-family: inherit;
@@ -271,7 +271,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 .ai-widget-ctr-row { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
 .ai-widget-ctr-row.plus { color: #86efac; }
 .ai-widget-ctr-row.minus { color: #fca5a5; }
-.ai-widget-ctr-tip { font-size: 11.5px; color: #9a9aa8; font-style: italic; margin: 8px 0 12px; padding-top: 8px; border-top: 1px solid #2e2e3a; }
+.ai-widget-ctr-tip { font-size: 11.5px; color: #909090; font-style: italic; margin: 8px 0 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.09); }
 
 
 #ai-widget-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9550; display: none; }
@@ -291,6 +291,31 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     #ai-widget-root { bottom: 16px; right: 16px; }
 }
 body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
+
+/* ═══ Полировка: цвета сайта (#080808 / #0d0d0d / #111), без синевы ═══ */
+.ai-widget-panel { background: #0d0d0d; border: 1px solid rgba(255,255,255,.09); border-radius: 22px;
+    box-shadow: 0 30px 80px -10px rgba(0,0,0,.85), 0 0 0 1px rgba(0,0,0,.6), 0 0 60px -20px rgba(249,115,22,.25); }
+.ai-widget-header { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.06);
+    background: radial-gradient(420px 120px at 0% 0%, rgba(249,115,22,.10), transparent 70%), #0d0d0d; }
+.ai-widget-avatar { border: 1.5px solid rgba(249,115,22,.55); box-shadow: 0 0 0 3px rgba(249,115,22,.10), 0 0 18px rgba(249,115,22,.25); background: #111; }
+.ai-widget-name { font-size: 13.5px; letter-spacing: .6px; }
+.ai-widget-status { color: #86efac; }
+.ai-widget-messages { padding: 18px 16px 12px; gap: 12px; background-color: #080808;
+    background-image: radial-gradient(520px 260px at 90% -5%, rgba(249,115,22,.07), transparent 65%), radial-gradient(rgba(255,255,255,.035) 1px, transparent 1.2px);
+    background-size: auto, 22px 22px; }
+.ai-widget-msg { font-size: 13.5px; letter-spacing: .005em; }
+.ai-widget-msg-bot { background: #141414; border: 1px solid rgba(255,255,255,.07); box-shadow: 0 6px 18px -8px rgba(0,0,0,.7); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.ai-widget-msg-user { box-shadow: 0 10px 26px -10px rgba(249,115,22,.55); }
+.ai-widget-msg-ava { border: 1px solid rgba(249,115,22,.4); background: #111; }
+.ai-widget-copy-btn { background: transparent; border-color: rgba(255,255,255,.08); }
+.ai-widget-quick { background: #0d0d0d; border-top: 1px solid rgba(255,255,255,.06); }
+.ai-widget-quick-btn { background: #131313; border: 1px solid rgba(255,255,255,.09); color: #d8cfc7; border-radius: 999px; }
+.ai-widget-footer { background: #0d0d0d; border-top: 1px solid rgba(255,255,255,.06); }
+.ai-widget-panel .kd-box { background: #101010; box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), inset 0 0 40px rgba(249,115,22,.03); }
+.ai-widget-panel .kd-text::placeholder { color: #6b6b6b; }
+.ai-widget-panel .kd-chip { background: rgba(255,255,255,.05); color: #c9c9c9; }
+.ai-widget-bubble { background: #111; border-color: rgba(255,255,255,.09); }
+.ai-widget-typing-dots span { background: #8a8a8a; }
 </style>
 
 <script>
