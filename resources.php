@@ -5,6 +5,7 @@ ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
 require_once 'includes/session.php';
+require_once __DIR__ . '/includes/ppk_icons.php';
 require_once 'config/db.php';
 require_once 'includes/order_flow.php';
 require_once 'includes/pack_role.php';
@@ -170,21 +171,26 @@ function resCard(array $r, array $eng, bool $isAdmin): string {
     if ($type === 'psd') {
         $img = resImg((string)$r['preview_image']);
         $media = $img
-            ? '<img src="' . htmlspecialchars($img) . '" alt="" onerror="this.parentElement.classList.add(\'media-broken\')">'
-            : '<div class="service-cover-placeholder"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
-        $sub = 'Открыть в Telegram';
-        // Блок 2.2 ТЗ: у PSD вместо кнопки «Заказать» — круглая оранжевая
-        // кнопка-иконка Telegram.
-        $dlBtn = '<a class="res-tg-btn" href="' . htmlspecialchars($r['telegram_url']) . '" target="_blank" title="Открыть пост в Telegram" onclick="event.stopPropagation()">✈️</a>';
+            ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
+            : '<div class="service-cover-placeholder"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
+        $tags = ['PSD'];
+        $sub = 'Открыть пост в Telegram';
+        // Блок 2.2 ТЗ: у PSD вместо кнопки «Заказать» — кнопка Telegram.
+        $href = htmlspecialchars((string)$r['telegram_url']);
+        $ctaLabel = 'Открыть в Telegram'; $ctaIcon = 'send'; $ctaAttr = ' target="_blank" rel="noopener"'; $ctaTitle = 'Открыть пост в Telegram';
     } elseif ($type === 'sd_video') {
-        $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">▶️</span></div>';
-        $sub = 'Видео-инструкция';
-        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()">📥</a>';
+        $media = '<div class="service-cover-placeholder"><span>▶️</span></div>';
+        $tags = ['SD', 'Видео'];
+        $sub = 'Видео-инструкция по установке';
+        $href = 'download.php?rid=' . $id;
+        $ctaLabel = 'Скачать'; $ctaIcon = 'download'; $ctaAttr = ''; $ctaTitle = 'Скачать';
     } else { // font | brush
         $icon = $type === 'font' ? '🔤' : '🎨';
-        $media = '<div class="service-cover-placeholder"><span style="font-size:26px;">' . $icon . '</span></div>';
-        $sub = $type === 'font' ? 'Шрифт' : (string)($r['description'] ?: 'Стили и кисти');
-        $dlBtn = '<a class="res-dl-btn" href="download.php?rid=' . $id . '" title="Скачать" onclick="event.stopPropagation()">📥</a>';
+        $media = '<div class="service-cover-placeholder"><span>' . $icon . '</span></div>';
+        $tags = [$type === 'font' ? 'Шрифт' : 'Стили и кисти'];
+        $sub = $type === 'font' ? 'Скачать файл шрифта' : (string)($r['description'] ?: 'Набор стилей и кистей');
+        $href = 'download.php?rid=' . $id;
+        $ctaLabel = 'Скачать'; $ctaIcon = 'download'; $ctaAttr = ''; $ctaTitle = 'Скачать';
     }
 
     $delBtn = '';
@@ -194,19 +200,31 @@ function resCard(array $r, array $eng, bool $isAdmin): string {
 
     $likedClass = $e['liked'] ? ' is-active' : '';
     $favClass   = $e['favorited'] ? ' is-active' : '';
+    $tagsHtml = '';
+    foreach ($tags as $t) $tagsHtml .= '<span class="hc hc--sm hc--secondary hc--accent">' . htmlspecialchars($t) . '</span>';
+    $cta = '<a class="rd-cta" href="' . $href . '"' . $ctaAttr . ' onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . $ctaLabel . '</a>';
+    $act = '<a class="res-act ' . ($ctaIcon === 'send' ? 'res-tg-btn' : 'res-dl-btn') . '" href="' . $href . '"' . $ctaAttr . ' title="' . $ctaTitle . '" onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . '</a>';
 
+    // Разметка 1:1 с glass-blog-card: обложка → теги → hover-кнопка → заголовок/описание → футер.
     return '
     <div class="res-card-wrap" data-rid="' . $id . '">
         ' . $delBtn . '
-        <div class="res-card-media">' . $media . '</div>
+        <div class="res-card-media">' . $media . '<span class="rd-shade"></span>
+            <div class="rd-tags">' . $tagsHtml . '</div>
+            <div class="rd-hover">' . $cta . '</div>
+        </div>
         <div class="res-card-body">
             <h3>' . htmlspecialchars($r['title']) . '</h3>
             <span class="res-card-sub">' . htmlspecialchars($sub) . '</span>
         </div>
         <div class="res-card-actions">
-            <button type="button" class="res-like-btn' . $likedClass . '" data-rid="' . $id . '" title="Нравится">❤️ <span class="res-like-count">' . (int)$e['likes'] . '</span></button>
-            <button type="button" class="res-fav-btn' . $favClass . '" data-rid="' . $id . '" title="В избранное">⭐</button>
-            ' . $dlBtn . '
+            <div class="res-card-act-l">
+                <button type="button" class="res-like-btn' . $likedClass . '" data-rid="' . $id . '" title="Нравится">' . ppkIcon('heart') . '<span class="res-like-count">' . (int)$e['likes'] . '</span></button>
+            </div>
+            <div class="res-card-act-l">
+                ' . $act . '
+                <button type="button" class="res-fav-btn' . $favClass . '" data-rid="' . $id . '" title="В избранное">' . ppkIcon('bookmark') . '</button>
+            </div>
         </div>
     </div>';
 }
@@ -340,17 +358,21 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
 
     <?php if ($message): ?><p style="text-align:center;color:var(--accent);margin-bottom:20px;"><?= htmlspecialchars($message) ?></p><?php endif; ?>
 
-    <div class="res-view-switch">
-        <button type="button" class="res-view-btn active" data-view="tile" onclick="resSetView('tile')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Плитка</button>
-        <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>Список</button>
+    <div class="res-glass-zone"></div>
+    <div class="rd-mhead">
+        <h2>Материалы</h2>
+        <div class="res-tabs">
+            <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')">PSD <span class="rd-cnt">(<?= count($psdPosts) ?>)</span></button>
+            <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')">Шрифты <span class="rd-cnt">(<?= count($fonts) ?>)</span></button>
+            <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')">Стили <span class="rd-cnt">(<?= count($brushes) ?>)</span></button>
+            <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')">SD</button>
+            <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
+        </div>
     </div>
 
-    <div class="res-tabs">
-        <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>PSD <span class="rd-cnt">(<?= count($psdPosts) ?>)</span></button>
-        <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 10 5l6 15M6.5 14h7M18 20v-9"/></svg>Шрифты <span class="rd-cnt">(<?= count($fonts) ?>)</span></button>
-        <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4c-6 1-10 5-11 10l3 3c5-1 9-5 8-13zM9 14c-3 0-4 2-4 5 3 0 5-1 5-4"/></svg>Стили и кисти <span class="rd-cnt">(<?= count($brushes) ?>)</span></button>
-        <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>SD</button>
-        <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')"><svg class="rd-ico " viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
+    <div class="res-view-switch">
+        <button type="button" class="res-view-btn active" data-view="tile" onclick="resSetView('tile')"><?= ppkIcon('tile') ?>Плитка</button>
+        <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')"><?= ppkIcon('list') ?>Список</button>
     </div>
 
     <!-- PSD -->

@@ -7,13 +7,15 @@
  * Сам список/счётчик тянется через notifications_api.php по AJAX — HTML
  * тут только рисует иконку и пустой контейнер дропдауна.
  */
+require_once __DIR__ . '/ppk_icons.php';
+
 function renderNotificationBell(): void
 {
     static $assetsPrinted = false;
     ?>
     <div class="pnb-wrap">
         <button type="button" class="pnb-bell" id="pnbBellBtn" title="Уведомления">
-            🔔<span class="pnb-badge" id="pnbBadge" style="display:none;">0</span>
+            <?= ppkIcon('bell') ?><span class="pnb-badge" id="pnbBadge" style="display:none;">0</span>
         </button>
         <div class="pnb-dropdown" id="pnbDropdown">
             <div class="pnb-head">Уведомления</div>
