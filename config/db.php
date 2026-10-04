@@ -30,11 +30,15 @@ class Database {
             // шифрование обычно не нужно и не поддерживается — там автоматически prefer. Переопределить: DB_SSLMODE=disable|prefer|require.
             $sslmode = getenv('DB_SSLMODE') ?: ((preg_match('/(\.internal$|^localhost$|^127\.|^[a-z0-9-]+$)/i', $host)) ? 'prefer' : 'require');
 
-            self::$pdo = new PDO(
-                "pgsql:host=$host;port=$port;dbname=$db;sslmode=$sslmode",
-                $user,
-                $pass,
-                [
+            // Диагностика скорости (только админ + ?perf=1): см. includes/kui_perf.php. Обычных посетителей не касается.
+            $perf = false;
+            if (isset($_GET['perf']) && session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['admin_logged'])
+                && is_file(__DIR__ . '/../includes/kui_perf.php')) {
+                require_once __DIR__ . '/../includes/kui_perf.php';
+                KuiPerf::boot();
+                $perf = true;
+            }
+            $opts = [
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES   => true,
@@ -42,8 +46,15 @@ class Database {
                     // (это 0.3–0.8 сек на странице). Отключить: DB_PERSISTENT=0 в окружении.
                     PDO::ATTR_PERSISTENT         => (getenv('DB_PERSISTENT') !== '0'),
                     PDO::ATTR_TIMEOUT            => 10,
-                ]
-            );
+            ];
+            if ($perf) {
+                $opts[PDO::ATTR_PERSISTENT]      = false;
+                $opts[PDO::ATTR_STATEMENT_CLASS] = ['KuiPerfStmt'];
+            }
+            $cls = $perf ? 'KuiPerfPDO' : 'PDO';
+            $t0  = microtime(true);
+            self::$pdo = new $cls("pgsql:host=$host;port=$port;dbname=$db;sslmode=$sslmode", $user, $pass, $opts);
+            if ($perf) { KuiPerf::$connectMs = (microtime(true) - $t0) * 1000; }
             self::$pdo->exec("SET NAMES 'UTF8'");
         }
         return self::$pdo;
