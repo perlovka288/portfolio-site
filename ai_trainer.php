@@ -43,7 +43,7 @@ if (!$isPackDesigner) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#0d0d0d">
     <title>Тренажёр клиентов | Kostlim Design</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <style>
 /* ═════════ Тренажёр в стиле Telegram — только цвета сайта (style.css) ═════════ */

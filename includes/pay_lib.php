@@ -30,9 +30,9 @@ function payCurrencies(): array {
 }
 function payMethods(): array {
     return [
-        'monobank'       => ['title' => 'Monobank',          'icon' => '🐈‍⬛', 'img' => 'assets/img/Mono.png', 'desc' => 'Банка Monobank · Visa / Mastercard · Apple/Google Pay', 'currencies' => ['UAH']],
-        'donationalerts' => ['title' => 'DonationAlerts',    'icon' => '💸', 'img' => 'assets/img/Donate.png', 'desc' => 'Карты РФ/СНГ, СБП, ЮMoney, PayPal',                       'currencies' => ['RUB', 'KZT']],
-        'cryptobot'      => ['title' => 'Crypto Bot (USDT)', 'icon' => '🪙', 'img' => 'assets/img/CB.png', 'desc' => 'USDT, TON, BTC, ETH или карта внутри бота',               'currencies' => ['USD', 'EUR']],
+        'monobank'       => ['title' => 'Monobank',          'icon' => '🐈‍⬛', 'img' => 'assets/img/Mono.webp', 'desc' => 'Банка Monobank · Visa / Mastercard · Apple/Google Pay', 'currencies' => ['UAH']],
+        'donationalerts' => ['title' => 'DonationAlerts',    'icon' => '💸', 'img' => 'assets/img/Donate.webp', 'desc' => 'Карты РФ/СНГ, СБП, ЮMoney, PayPal',                       'currencies' => ['RUB', 'KZT']],
+        'cryptobot'      => ['title' => 'Crypto Bot (USDT)', 'icon' => '🪙', 'img' => 'assets/img/CB.webp', 'desc' => 'USDT, TON, BTC, ETH или карта внутри бота',               'currencies' => ['USD', 'EUR']],
     ];
 }
 function payMethodConfigured(string $m): bool {

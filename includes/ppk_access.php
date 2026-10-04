@@ -15,10 +15,9 @@ require_once __DIR__ . '/badges.php';
 function ppkSiteSetting(PDO $pdo, string $key, string $default = ''): string
 {
     try {
-        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val !== false && $val !== null && $val !== '' ? (string)$val : $default;
+        require_once __DIR__ . '/kui_cache.php';
+        $val = kuiSettingGet($pdo, $key);
+        return $val !== null && $val !== '' ? $val : $default;
     } catch (Throwable $e) {
         return $default;
     }

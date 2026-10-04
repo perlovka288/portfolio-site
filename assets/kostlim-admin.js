@@ -42,7 +42,7 @@
     if (t) { nav.appendChild(btn(t)); return; }
     var me = document.querySelector('.kui-admin-badge img');
     var a = document.createElement('a'); a.className = 'kui-me'; a.href = 'profile.php';
-    a.innerHTML = '<img src="' + (me ? me.src : '/assets/img/logo.png') + '" alt=""><em>ADMIN</em>'; nav.appendChild(a);
+    a.innerHTML = '<img src="' + (me ? me.src : '/assets/img/logo.webp') + '" alt=""><em>ADMIN</em>'; nav.appendChild(a);
   });
   var mb = document.createElement('button'); mb.type = 'button'; mb.dataset.k = '__more';
   mb.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Ещё</span>';

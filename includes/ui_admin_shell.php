@@ -9,7 +9,7 @@
  * прямо из существующих кнопок вкладок .admin-tab (activateAdminTab остаётся главным).
  */
 $kuiAdminTitle = $kuiAdminTitle ?? 'Админ-панель';
-$__ava = '/assets/img/logo.png';
+$__ava = '/assets/img/logo.webp';
 if (!empty($currentAvatarFile) && function_exists('imgSrc')) {
     $__try = imgSrc((string)$currentAvatarFile, '../uploads/');
     if ($__try) { $__ava = $__try; }
@@ -17,9 +17,9 @@ if (!empty($currentAvatarFile) && function_exists('imgSrc')) {
 ?>
 <header class="kui-top kui-admin-top">
     <a class="kui-pill" href="../index.php">← На сайт</a>
-    <a class="kui-logo" href="index.php" aria-label="Админ-панель"><img src="/assets/img/logo.png" alt=""></a>
+    <a class="kui-logo" href="index.php" aria-label="Админ-панель"><img src="/assets/img/logo.webp" alt=""></a>
     <div class="kui-top-r">
-        <a class="kui-pill kui-admin-badge" href="profile.php"><img src="<?= htmlspecialchars($__ava) ?>" alt="" onerror="this.src='/assets/img/logo.png'">ADMIN</a>
+        <a class="kui-pill kui-admin-badge" href="profile.php"><img src="<?= htmlspecialchars($__ava) ?>" alt="" onerror="this.src='/assets/img/logo.webp'">ADMIN</a>
     </div>
 </header>
 <div class="kui-admin-head"><h1 class="kui-h1"><?= htmlspecialchars($kuiAdminTitle) ?></h1></div>

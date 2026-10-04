@@ -32,7 +32,7 @@ if (!$isPackDesigner) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Планер клиентов | Kostlim Design</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
 <style>

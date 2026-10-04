@@ -67,7 +67,8 @@ function imgSrc(string $val, string $base = 'uploads/'): string {
     return '/' . ltrim($base . $val, '/');
 }
 
-$settings     = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
+require_once __DIR__ . '/includes/kui_cache.php';
+$settings     = kuiSettingsAll($pdo);
 $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
 $themeDensity = $settings['theme_density'] ?? 'normal';
@@ -79,8 +80,8 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Kostlim Design | Поддержка</title>
-<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/img/logo.png">
+<link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <?php include __DIR__ . '/includes/ui_head.php'; ?>
 <link rel="stylesheet" href="/assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
@@ -105,7 +106,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
         <div class="rd-banner-in" style="flex-direction:column;align-items:flex-start;justify-content:flex-end">
             <div class="rd-prof">
                 <?php if ($supAva !== ''): ?>
-                    <img src="<?= $supAva ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+                    <img src="<?= $supAva ?>" alt="" onerror="this.src='/assets/img/logo.webp'">
                 <?php else: ?>
                     <span class="rd-ava rd-ava--lg"><?= $supLetter ?></span>
                 <?php endif; ?>
@@ -151,7 +152,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
         <a href="profile.php#orders-section" class="rd-svc rd-svc--a" title="Статус, детали и переписка по заказу">
             <h3 class="rd-svc-title">Мои заказы</h3>
             <span class="rd-svc-more"><span>Статус и переписка</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/PLANER.png" alt="" width="160" height="160" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/PLANER.webp" alt="" width="160" height="160" loading="lazy" decoding="async">
         </a>
         <a href="price.php" class="rd-svc rd-svc--g" title="Стоимость работ и пакетов">
             <h3 class="rd-svc-title">Прайс</h3>

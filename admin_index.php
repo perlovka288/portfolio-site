@@ -909,6 +909,7 @@ if (isset($_POST['upload_site_avatar'])) {
     $newAvatar = uploadImage('site_avatar', 'avatar', $uploadDir);
     if ($newAvatar !== '') {
         $pdo->prepare("UPDATE users SET avatar = ? WHERE username = 'Kostlim'")->execute([$newAvatar]);
+        if (function_exists('kuiCacheForget')) { kuiCacheForget('admin_avatar'); }
         $message = '✅ Аватарка сайта обновлена.';
     } else {
         if ($message === '') $message = '❌ Не удалось загрузить аватарку.';

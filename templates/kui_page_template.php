@@ -24,7 +24,7 @@ $kuiTitle  = 'Название раздела';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title><?= htmlspecialchars($kuiTitle) ?> — Kostlim Design</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png">
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/assets/kostlim-upgrade.css">
     <?php include __DIR__ . '/../includes/ui_head.php'; /* ← всегда последним */ ?>

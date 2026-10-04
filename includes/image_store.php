@@ -32,10 +32,9 @@ if (!function_exists('kuiCfgSrc')) {
         if (!array_key_exists($key, $db)) {
             $db[$key] = '';
             try {
-                $st = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-                $st->execute([$key]);
-                $v = $st->fetchColumn();
-                if ($v !== false) { $db[$key] = trim((string)$v); }
+                require_once __DIR__ . '/kui_cache.php';
+                $v = kuiSettingGet($pdo, $key);
+                if ($v !== null) { $db[$key] = trim($v); }
             } catch (Throwable $e) {}
         }
         return [$db[$key], $db[$key] !== '' ? 'admin' : ''];

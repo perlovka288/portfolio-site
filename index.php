@@ -251,10 +251,13 @@ function imgSrc(string $val, string $base = 'uploads/'): string {
     return '/' . ltrim($base . $val, '/');
 }
 
-$categories   = $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+require_once __DIR__ . '/includes/kui_cache.php';
+// Публичные данные главной — кеш 20 с (6 запросов к БД → 0 при повторных заходах). Админ видит всё без кеша.
+$__pub = function (string $k, callable $f) use ($isAdmin) { return !empty($isAdmin) ? $f() : kuiCache('home_' . $k, 20, $f); };
+$categories   = $__pub('categories', fn() => $pdo->query("SELECT * FROM portfolio_categories ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC));
 $categoryMap  = [];
 foreach ($categories as $category) { $categoryMap[$category['category_key']] = $category; }
-$works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+$works  = $__pub('works', fn() => $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC));
 
 // Цены на карточках портфолио теперь берутся из общего прайс-листа (таблица
 // prices — та же, что на странице price.php и в выпадающем списке услуг на
@@ -264,24 +267,20 @@ $works  = $pdo->query("SELECT * FROM portfolio ORDER BY id DESC")->fetchAll(PDO:
 // вместе с прайс-листом.
 $priceListMap = [];
 try {
-    $priceListRows = $pdo->query("SELECT category_key, price_rub, price_uan FROM prices")->fetchAll(PDO::FETCH_ASSOC);
+    $priceListRows = $__pub('prices', fn() => $pdo->query("SELECT category_key, price_rub, price_uan FROM prices")->fetchAll(PDO::FETCH_ASSOC));
     foreach ($priceListRows as $pl) { $priceListMap[$pl['category_key']] = $pl; }
 } catch (Throwable $e) {}
 
 // Загружаем отзывы
 $reviews = [];
 try {
-    $reviews = $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+    $reviews = $__pub('reviews', fn() => $pdo->query("SELECT * FROM reviews WHERE approved = TRUE ORDER BY id DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC));
 } catch(Throwable $e) {}
-$admin  = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-$avatar = (!empty($admin['avatar'])) ? $admin['avatar'] : '';
+$avatar = kuiAdminAvatar($pdo);
+$admin  = ['avatar' => $avatar];
 
 // Колонка со значением называется value (так её создаёт админка); setting_value — старое имя. Пробуем обе, чтобы страница не падала.
-$settings = [];
-foreach (['value', 'setting_value'] as $__col) {
-    try { $settings = $pdo->query("SELECT setting_key, {$__col} FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR); break; }
-    catch (Throwable $e) { $settings = []; }
-}
+$settings = kuiSettingsAll($pdo);   // та же выборка, что у bridge/ppk_access/order_flow — из кеша
 $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
 $themeDensity = $settings['theme_density'] ?? 'normal';
@@ -290,13 +289,13 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <script src="/ai_support.php"></script>
+    <script defer src="/assets/ai-support-patch.js?v=<?= @filemtime(__DIR__ . '/assets/ai-support-patch.js') ?: 1 ?>"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Kostlim Design | Портфолио</title>
-<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/img/logo.png">
-<link rel="shortcut icon" href="/assets/img/logo.png">
+<link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+<link rel="shortcut icon" href="/assets/img/logo-64.png">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <!-- Модалка «Приват Пак» (.modal-overlay/.modal-card/.mini-btn) живёт тут -->
 <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
@@ -887,7 +886,7 @@ body::after {
 <section class="kui-hero-row">
     <div class="kui-hero">
         <div class="kui-hero-head">
-            <img class="kui-hero-ava" src="/assets/img/logo.png" alt="">
+            <img class="kui-hero-ava" src="/assets/img/logo.webp" alt="">
             <div><small>Дизайн соц сетей</small><h2>Kostlim Design</h2></div>
         </div>
         <div class="kui-hero-btns">
@@ -975,7 +974,7 @@ $fmtSitePrice = function (int $rub, int $uan, string $c) use ($__usdUah): string
                 <!-- Плашка с размером/категорией поверх превью убрана по ТЗ. -->
                 <?php if ($isDesign && $ava_file !== '' && !kuiLocalMissing($ava_file)): ?>
                     <div class="design-avatar-frame">
-                        <img src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
+                        <img loading="lazy" decoding="async" src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
                     </div>
                 <?php endif; ?>
             </div>
@@ -1052,7 +1051,7 @@ $fmtSitePrice = function (int $rub, int $uan, string $c) use ($__usdUah): string
                 <!-- Профиль -->
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
                     <?php if (!empty($rv['tg_photo_url'])): ?>
-                         <img src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);flex-shrink:0;"
+                         <img loading="lazy" decoding="async" src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);flex-shrink:0;"
                           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                          <div style="display:none;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
                             <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>

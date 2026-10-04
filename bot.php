@@ -62,6 +62,7 @@ function getBotUsername(PDO $pdo, string $token): string
         $uname = (string)($data['result']['username'] ?? '');
         if ($uname !== '') {
             $pdo->prepare("INSERT INTO site_settings (setting_key, value) VALUES ('bot_username', ?) ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value")->execute([$uname]);
+            if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
         }
         return $uname;
     } catch (Throwable $e) {

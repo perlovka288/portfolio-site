@@ -930,8 +930,8 @@ render_page:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Заполнить ТЗ для работы | Kostlim Design</title>
-<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/img/logo.png">
+<link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script>

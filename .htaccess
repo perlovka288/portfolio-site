@@ -70,4 +70,16 @@ php_value max_input_time 300
     ExpiresByType image/gif "access plus 1 month"
     ExpiresByType image/webp "access plus 1 month"
     ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType font/ttf "access plus 1 year"
+    ExpiresByType application/x-font-ttf "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 year"
+    ExpiresByType image/vnd.microsoft.icon "access plus 1 year"
+</IfModule>
+
+# Cache-Control для статики: браузер и Cloudflare держат файлы в кеше, не дёргая сервер
+<IfModule mod_headers.c>
+    <FilesMatch "\.(webp|png|jpe?g|gif|svg|ico|woff2?|ttf)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
 </IfModule>

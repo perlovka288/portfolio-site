@@ -7,8 +7,8 @@ require_once 'includes/order_flow.php';
 processTgAutoLink($pdo);
 ensureOrderFlowSchema($pdo);
 
-$adminQuery = $pdo->query("SELECT avatar FROM users LIMIT 1")->fetch();
-$siteAvatar = (!empty($adminQuery['avatar'])) ? $adminQuery['avatar'] : '';
+require_once __DIR__ . '/includes/kui_cache.php';
+$siteAvatar = kuiAdminAvatar($pdo);        // кеш 60 с вместо запроса к БД на каждый заход
 
 if (!function_exists('imgSrc')) {
     function imgSrc(string $val, string $base = 'uploads/'): string {
@@ -562,9 +562,24 @@ try {
     }
 } catch (Throwable $e) {}
 
-try {
-    $settings = $pdo->query("SELECT setting_key, setting_value FROM site_settings")->fetchAll(PDO::FETCH_KEY_PAIR);
-} catch (Throwable $e) { $settings = []; }
+// Раньше тут был отдельный запрос с несуществующей колонкой setting_value (молча падал → тема всегда «по умолчанию»).
+$settings = kuiSettingsAll($pdo);           // одна выборка на всех, кеш 30 с
+
+// Сообщения всех обращений — ОДНИМ запросом (раньше отдельный запрос на каждое обращение).
+$GLOBALS['__appealMsgsLoaded'] = false;
+$GLOBALS['__appealMsgs'] = [];
+if (!empty($userAppeals)) {
+    try {
+        $__aids = array_values(array_unique(array_map('intval', array_column($userAppeals, 'id'))));
+        if ($__aids) {
+            $__in = implode(',', array_fill(0, count($__aids), '?'));
+            $__st = $pdo->prepare("SELECT appeal_id, author, message, created_at FROM appeals_messages WHERE appeal_id IN ($__in) ORDER BY id ASC");
+            $__st->execute($__aids);
+            foreach ($__st->fetchAll(PDO::FETCH_ASSOC) as $__m) { $GLOBALS['__appealMsgs'][(int)$__m['appeal_id']][] = $__m; }
+            $GLOBALS['__appealMsgsLoaded'] = true;
+        }
+    } catch (Throwable $e) { $GLOBALS['__appealMsgsLoaded'] = false; }
+}
 $themePreset  = $settings['theme_preset']  ?? 'onyx';
 $themeShape   = $settings['theme_shape']   ?? 'soft';
 $themeDensity = $settings['theme_density'] ?? 'normal';
@@ -663,11 +678,15 @@ function profileStatusEmoji(string $s): string {
 // Helper: render messages thread for an appeal
 function renderAppealMessages(PDO $pdo, int $aid): string
 {
-    try {
-        $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
-        $mstmt->execute([$aid]);
-        $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable $e) { $msgs = []; }
+    if (!empty($GLOBALS['__appealMsgsLoaded'])) {
+        $msgs = $GLOBALS['__appealMsgs'][$aid] ?? [];      // уже загружено одним запросом выше
+    } else {
+        try {
+            $mstmt = $pdo->prepare("SELECT author, message, created_at FROM appeals_messages WHERE appeal_id = ? ORDER BY id ASC");
+            $mstmt->execute([$aid]);
+            $msgs = $mstmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) { $msgs = []; }
+    }
 
     if (empty($msgs)) {
         return '<div style="color:#8a8a96;font-size:12px;">Сообщений пока нет.</div>';
@@ -721,9 +740,9 @@ $editStatus      = $_GET['edit_status'] ?? '';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Профиль | Kostlim Design</title>
-<link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/assets/img/logo.png">
-<link rel="shortcut icon" href="/assets/img/logo.png">
+<link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+<link rel="shortcut icon" href="/assets/img/logo-64.png">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <style>
 body::before {
@@ -1206,7 +1225,7 @@ body::before {
                 <?php if (!empty($thumbUrls)): ?>
                 <div class="order-thumbs-row">
                     <?php foreach ($thumbUrls as $th): ?>
-                        <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
+                        <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img loading="lazy" decoding="async" src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
@@ -1398,7 +1417,7 @@ body::before {
             <?php if (!empty($thumbUrlsHist)): ?>
             <div class="order-thumbs-row">
                 <?php foreach ($thumbUrlsHist as $th): ?>
-                    <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
+                    <a href="<?= htmlspecialchars($th['url']) ?>" target="_blank" rel="noopener" class="order-thumb-link" onclick="return openOrderLightbox(event, this.href)"><img loading="lazy" decoding="async" src="<?= htmlspecialchars($th['url']) ?>" class="order-thumb" alt="<?= htmlspecialchars($th['label']) ?>" title="<?= htmlspecialchars($th['label']) ?>" onerror="this.closest('a').style.display='none'"></a>
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>

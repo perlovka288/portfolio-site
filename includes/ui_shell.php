@@ -20,7 +20,7 @@ $tgProfile       = (isset($tgProfile) && is_array($tgProfile)) ? $tgProfile : []
 $ppkHasAccess    = $isAdmin || $isPackDesigner;
 
 $kuiName  = ($tgProfile['tg_first_name'] ?? '') ?: (!empty($tgProfile['tg_username']) ? '@' . $tgProfile['tg_username'] : 'Гость');
-$kuiPhoto = '/assets/img/logo.png';
+$kuiPhoto = '/assets/img/logo.webp';
 if (!empty($tgProfile['tg_photo_url']) && function_exists('imgSrc')) {
     $kuiPhoto = imgSrc((string)$tgProfile['tg_photo_url']);
 }
@@ -67,7 +67,7 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
 <!-- KUI: верхняя панель: ИИ · логотип по центру · Прайс + Telegram -->
 <header class="kui-top">
     <button type="button" class="kui-ic kui-ai" data-open-ai-chat aria-label="ИИ-помощник"><?= kuiIcon('ai') ?></button>
-    <a class="kui-logo" href="index.php" aria-label="Kostlim Design"><img src="/assets/img/logo.png" alt=""></a>
+    <a class="kui-logo" href="index.php" aria-label="Kostlim Design"><img src="/assets/img/logo.webp" alt=""></a>
     <div class="kui-top-r">
         <a class="kui-pill" href="price.php">Прайс</a>
         <a class="kui-ic" href="https://t.me/designkostlim" target="_blank" rel="noopener" aria-label="Telegram"><?= kuiIcon('tg') ?></a>
@@ -99,7 +99,7 @@ if ($isAdmin) { $kuiMore[] = ['admin', 'Админ-панель', 'admin/index.p
         <a class="<?= $kuiActive === 'home' ? 'on' : '' ?>" href="index.php"><i class="kui-glass"></i><?= kuiIcon('works') ?><span class="kd-l">Работы</span></a>
         <a class="<?= $kuiActive === 'price' ? 'on' : '' ?>" href="price.php"><i class="kui-glass"></i><?= kuiIcon('price') ?><span class="kd-l">Прайс</span></a>
         <a class="kui-me<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" aria-label="Профиль">
-            <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+            <img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.webp'">
             <?php if ($kuiBadge): ?><em><?= $kuiBadge ?></em><?php endif; ?>
             <span class="kd-l">Профиль</span>
         </a>
@@ -118,7 +118,7 @@ $ksbItem = static function (string $key, string $label, string $sub, string $hre
 ?>
 <aside class="kui-side ksb" id="kuiSide" aria-label="Меню сайта">
     <a class="ksb-logo" href="index.php" aria-label="Kostlim Design">
-        <img src="/assets/img/logo.png" alt="">
+        <img src="/assets/img/logo.webp" alt="">
         <span class="ksb-t"><b>Kostlim Design</b><small>Дизайн соцсетей</small></span>
     </a>
     <div class="ksb-body">
@@ -144,7 +144,7 @@ $ksbItem = static function (string $key, string $label, string $sub, string $hre
         <?php endif; ?>
     </div>
     <a class="ksb-user<?= $kuiActive === 'profile' ? ' on' : '' ?>" href="profile.php" title="Профиль">
-        <span class="ksb-ava"><img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.png'"></span>
+        <span class="ksb-ava"><img src="<?= htmlspecialchars($kuiPhoto) ?>" alt="" onerror="this.src='/assets/img/logo.webp'"></span>
         <span class="ksb-t"><b><?= htmlspecialchars($kuiName) ?></b><small><?= $kuiBadge ? htmlspecialchars($kuiBadge) . ' · ' : '' ?>Профиль</small></span>
     </a>
 </aside>

@@ -65,6 +65,7 @@ function setSetting(PDO $pdo, string $key, string $value): void
         $pdo->prepare("INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW())
                        ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()")
             ->execute([$key, $value]);
+        if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
     } catch (Throwable $e) {}
 }
 ensureSiteSettingsTable($pdo);
@@ -1539,6 +1540,7 @@ if (isset($_POST['upload_site_avatar'])) {
     $newAvatar = uploadImage('site_avatar', 'avatar', $uploadDir);
     if ($newAvatar !== '') {
         $pdo->prepare("UPDATE users SET avatar = ? WHERE username = 'Kostlim'")->execute([$newAvatar]);
+        if (function_exists('kuiCacheForget')) { kuiCacheForget('admin_avatar'); }
         $message = '✅ Аватарка сайта обновлена.';
     } else {
         if ($message === '') $message = '❌ Не удалось загрузить аватарку.';
@@ -1562,6 +1564,7 @@ if (isset($_POST['save_ai_prompt']) || isset($_POST['reset_ai_prompt'])) {
         $pdo->prepare("INSERT INTO site_settings (setting_key, value) VALUES ('ai_system_prompt', ?)
                         ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value")
             ->execute([$newPromptValue]);
+        if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
         $message = isset($_POST['reset_ai_prompt']) ? '✅ Промпт сброшен к встроенному по умолчанию.' : '✅ Промпт ИИ сохранён.';
     } catch (Throwable $e) {
         $message = '❌ Не удалось сохранить: ' . $e->getMessage();

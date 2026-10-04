@@ -36,7 +36,7 @@ function imgSrcPpk(?string $url): string
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Приват Пак — Kostlim Design</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <?php include __DIR__ . '/includes/ui_head.php'; ?>
     <link rel="stylesheet" href="/assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
@@ -63,7 +63,7 @@ function imgSrcPpk(?string $url): string
             <div class="rd-banner-bell"><?php renderNotificationBell(); ?></div>
             <div class="rd-banner-in" style="flex-direction:column;align-items:flex-start;justify-content:flex-end">
                 <div class="rd-prof">
-                    <img src="<?= $ppkAva ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+                    <img src="<?= $ppkAva ?>" alt="" onerror="this.src='/assets/img/logo.webp'">
                     <div style="min-width:0">
                         <small>Приват Пак</small>
                         <h3><?= $ppkName ?></h3>
@@ -78,7 +78,7 @@ function imgSrcPpk(?string $url): string
         <?php else: ?>
             <div class="rd-banner-in" style="flex-direction:column;align-items:flex-start;justify-content:flex-end">
                 <div class="rd-prof">
-                    <img src="/assets/img/logo.png" alt="">
+                    <img src="/assets/img/logo.webp" alt="">
                     <div><small>Закрытый раздел</small><h3>Приват Пак</h3></div>
                 </div>
                 <div class="rd-chips"><span class="hc hc--md hc--tertiary hc--default"><?= ppkIcon('lock', 'ai--loop') ?>Доступ после покупки пака</span></div>
@@ -92,7 +92,7 @@ function imgSrcPpk(?string $url): string
         <?php if (is_file(__DIR__ . '/assets/img/banner.mp4')): ?>
             <video aria-hidden="true" autoplay loop muted playsinline poster="/assets/img/KOSTLIM%20AI.jpg" src="/assets/img/banner.mp4"></video>
         <?php else: ?>
-            <img class="rd-banner-img" src="/assets/img/KOSTLIM%20AI.jpg" alt="" aria-hidden="true">
+            <img class="rd-banner-img" src="/assets/img/kostlim-ai-banner.webp" alt="" aria-hidden="true" width="640" height="640" loading="lazy" decoding="async">
         <?php endif; ?>
         <span class="rd-banner-ov1" aria-hidden="true"></span><span class="rd-banner-ov2" aria-hidden="true"></span>
         <div class="rd-banner-in">
@@ -115,13 +115,13 @@ function imgSrcPpk(?string $url): string
         <a href="resources.php" class="rd-svc rd-svc--o" title="Все ресурсы пака в одном разделе">
             <h3 class="rd-svc-title">PSD-паки, шрифты, кисти и SD</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/PSD.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/PSD.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             
         </a>
         <a href="useful.php" class="rd-svc rd-svc--d" title="Статьи и гайды от Kostlim, с комментариями">
             <h3 class="rd-svc-title">Полезности</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/MAT.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/MAT.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             
         </a>
     </div>
@@ -131,13 +131,13 @@ function imgSrcPpk(?string $url): string
         <a href="ai_trainer.php" class="rd-svc rd-svc--g" title="Отыграй заказ от анкеты до сдачи — ИИ в роли заказчика">
             <h3 class="rd-svc-title">Тренировка общения с клиентом</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/TREN.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/TREN.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             
         </a>
         <a href="planner.php" class="rd-svc rd-svc--a" title="Учёт заказов: статус, дедлайн, сумма">
             <h3 class="rd-svc-title">Личный планер клиентов</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/PLANER.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/PLANER.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             
         </a>
     </div>
@@ -148,13 +148,13 @@ function imgSrcPpk(?string $url): string
         <a href="admin/ppk_manager.php" class="rd-svc rd-svc--d" title="Ручная выдача роли, ключи активации">
             <h3 class="rd-svc-title">Управление доступом PPK</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/DOSTUP.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/DOSTUP.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             <span class="hc hc--sm hc--primary hc--default"><?= ppkIcon('bolt', 'ai--loop') ?>ADMIN</span>
         </a>
         <a href="admin/ai_trainer_review.php" class="rd-svc rd-svc--o" title="Что прислали дизайнеры на проверку">
             <h3 class="rd-svc-title">Результаты тренажёра</h3>
             <span class="rd-svc-more"><span>Открыть</span><?= ppkIcon('arrow') ?></span>
-            <img class="rd-svc-img" src="/assets/img/RESULT.png" alt="" width="158" height="158" loading="lazy" decoding="async">
+            <img class="rd-svc-img" src="/assets/img/RESULT.webp" alt="" width="158" height="158" loading="lazy" decoding="async">
             <span class="hc hc--sm hc--primary hc--default"><?= ppkIcon('bolt', 'ai--loop') ?>ADMIN</span>
         </a>
     </div>

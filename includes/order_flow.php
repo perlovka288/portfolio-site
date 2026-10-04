@@ -235,10 +235,8 @@ function awardReferralBonusIfApplicable(PDO $pdo, string $referredChatId, ?int $
 function getSiteSetting(PDO $pdo, string $key): ?string
 {
     try {
-        $stmt = $pdo->prepare("SELECT value FROM site_settings WHERE setting_key = ? LIMIT 1");
-        $stmt->execute([$key]);
-        $val = $stmt->fetchColumn();
-        return $val === false ? null : (string)$val;
+        require_once __DIR__ . '/kui_cache.php';
+        return kuiSettingGet($pdo, $key);
     } catch (Throwable $e) {
         return null;
     }
@@ -535,9 +533,9 @@ function isDuplicateTelegramUpdate(PDO $pdo, int $updateId): bool
 function isOrdersAvailable(PDO $pdo): bool
 {
     try {
-        $stmt = $pdo->query("SELECT value FROM site_settings WHERE setting_key = 'orders_available' LIMIT 1");
-        $val = $stmt ? $stmt->fetchColumn() : false;
-        if ($val === false) return true; // по умолчанию приём включён
+        require_once __DIR__ . '/kui_cache.php';
+        $val = kuiSettingGet($pdo, 'orders_available');
+        if ($val === null) return true; // по умолчанию приём включён
         return $val !== '0';
     } catch (Throwable $e) {
         return true;
@@ -554,6 +552,7 @@ function setOrdersAvailable(PDO $pdo, bool $available, string $returnDate = ''):
             $pdo->exec("INSERT INTO site_settings (setting_key, value) VALUES ('orders_return_date', '{$esc}')
                         ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value");
         }
+        if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
     } catch (Throwable $e) {
         error_log('setOrdersAvailable error: ' . $e->getMessage());
     }

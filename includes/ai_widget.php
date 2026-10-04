@@ -27,7 +27,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     обычного сообщения ничего не возвращает. Теперь подключаем скрипт прямо
     вместе с виджетом, чтобы он работал на любой странице, где есть include.
 -->
-<script src="/ai_support.php"></script>
+<script defer src="/assets/ai-support-patch.js?v=<?= @filemtime(__DIR__ . '/../assets/ai-support-patch.js') ?: 1 ?>"></script>
 <div id="ai-widget-root" data-context="<?= htmlspecialchars($aiWidgetContext) ?>">
     <div id="ai-widget-overlay"></div>
 

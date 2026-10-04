@@ -35,7 +35,7 @@ if (!$isPackDesigner) {
     <!DOCTYPE html>
     <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Доступ закрыт | Kostlim Design</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
     <link rel="stylesheet" href="style.css">
     </head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
         <div>
@@ -244,8 +244,8 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Kostlim Design | Закрытый раздел</title>
-    <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
-    <link rel="apple-touch-icon" href="/assets/img/logo.png">
+    <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
+    <link rel="apple-touch-icon" href="/assets/img/logo-180.png">
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
     <style>
@@ -341,7 +341,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
             На главную
         </a>
     </div>
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
+    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.webp" class="brand-logo-img" alt="Kostlim Design" style="height:40px;width:auto;max-width:160px;display:block;"></a></div>
     <div class="header-right">
         <?php renderNotificationBell(); ?>
         <?php if ($isAdmin): ?>

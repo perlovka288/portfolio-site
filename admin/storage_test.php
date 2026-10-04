@@ -63,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_cloud'])) {
                 $up = $pdo->prepare("INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW())
                                      ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()");
                 foreach ($in as $k => $v) { $up->execute([$k, $v]); }
+                if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
                 header('Location: storage_test.php?saved=1');
                 exit;
             } catch (Throwable $e) {

@@ -22,7 +22,9 @@ if (!function_exists('kuiSettingsBridge')) {
         $done = true;
         $rows = [];
         try {
-            foreach ($pdo->query("SELECT setting_key, value FROM site_settings") as $r) { $rows[(string)$r['setting_key']] = (string)$r['value']; }
+            require_once __DIR__ . '/kui_cache.php';
+            $rows = kuiSettingsAll($pdo);            // кеш 30 с: не бьём БД на каждый запрос
+            if (!$rows) { return; }
         } catch (Throwable $e) { return; }          // таблицы ещё нет — ничего страшного
 
         $protect = ['BOT_TOKEN', 'TELEGRAM_BOT_TOKEN', 'ADMIN_TELEGRAM_ID', 'ADMIN_ID', 'TURNSTILE_SECRET_KEY', 'TURNSTILE_SITE_KEY'];

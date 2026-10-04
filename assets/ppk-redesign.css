@@ -131,7 +131,7 @@ a.hc:hover { transform: translateY(-2px); }
     background-image: linear-gradient(rgba(255, 255, 255, .07) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .07) 1px, transparent 1px);
     background-size: 26px 26px; animation: rdGrid 16s linear infinite; }
 .rd-banner-fx::after { content: ""; position: absolute; right: -30px; top: -20px; width: 62%; aspect-ratio: 1; border-radius: 50%;
-    background: url(/assets/img/logo.png) center/cover; opacity: .2; }
+    background: url(/assets/img/logo.webp) center/cover; opacity: .2; }
 @keyframes rdGrid { to { background-position: 26px 26px, 26px 26px; } }
 .rd-banner-ov1 { position: absolute; inset: 0; z-index: -2; background: linear-gradient(to right, var(--ov), color-mix(in srgb, var(--ov) 70%, transparent), transparent); }
 .rd-banner-ov2 { position: absolute; inset: 0; z-index: -2; opacity: 0; transition: opacity .3s; background: linear-gradient(to right, var(--ov), transparent); }

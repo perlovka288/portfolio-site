@@ -42,6 +42,7 @@ function setSetting(PDO $pdo, string $key, string $value): void
         $pdo->prepare("INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW())
                        ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()")
             ->execute([$key, $value]);
+        if (function_exists('kuiSettingsForget')) { kuiSettingsForget(); }
     } catch (Throwable $e) {}
 }
 ensureSiteSettingsTable($pdo);
@@ -109,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_profile'])) {
             $newAvatarVal = $url;   // только ImgBB: на диск не сохраняем (пропадёт при деплое)
             if ($newAvatarVal !== '') {
                 $pdo->prepare("UPDATE users SET avatar = ? WHERE username = ?")->execute([$newAvatarVal, $currentUsername]);
+        if (function_exists('kuiCacheForget')) { kuiCacheForget('admin_avatar'); }
                 $currentAvatar = $newAvatarVal;
                 $message .= ' Аватарка обновлена.';
             } else {

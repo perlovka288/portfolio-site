@@ -2,6 +2,15 @@
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
+// Быстрый путь: обычный GET за скриптом-патчем отдаём статичным файлом БЕЗ сессии и БД
+// (раньше каждая страница ждала старт сессии + запрос к базе только ради этого JS).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && !isset($_GET['get_internal_config_raw'])) {
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: public, max-age=3600');
+    readfile(__DIR__ . '/assets/ai-support-patch.js');
+    exit;
+}
+
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 

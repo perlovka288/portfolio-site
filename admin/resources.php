@@ -100,7 +100,7 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ресурсы пака | Админ</title>
-<link rel="icon" type="image/png" href="../assets/img/logo.png" sizes="16x16">
+<link rel="icon" type="image/png" href="../assets/img/logo-64.png" sizes="16x16">
 <style>
     /* FIX (Блок 1.3 ТЗ): раньше у этой страницы была своя отдельная
        фиолетовая мини-тема (#5b5bd6 и т.п.), полностью выбивавшаяся из
