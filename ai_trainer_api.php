@@ -556,7 +556,13 @@ case 'share_with_admin': {
 }
 
 case 'list_sessions': {
-    $stmt = $pdo->prepare("SELECT id, client_name, topic, difficulty, status, score, admin_reaction, admin_comment FROM trainer_sessions WHERE tg_id = ? ORDER BY updated_at DESC LIMIT 50");
+    // + последнее сообщение и время — для списка чатов в стиле мессенджера
+    $stmt = $pdo->prepare("SELECT s.id, s.client_name, s.topic, s.difficulty, s.status, s.score, s.admin_reaction, s.admin_comment,
+        CAST(EXTRACT(EPOCH FROM s.updated_at) AS BIGINT) AS ts,
+        (SELECT m.content FROM trainer_messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_message,
+        (SELECT m.role FROM trainer_messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_role,
+        (SELECT m.attachment_url FROM trainer_messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_attach
+        FROM trainer_sessions s WHERE s.tg_id = ? ORDER BY s.updated_at DESC LIMIT 50");
     $stmt->execute([$tgId]);
     jexit(['ok' => true, 'sessions' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
 }
@@ -568,7 +574,7 @@ case 'get_session': {
     $session = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$session) jexit(['ok' => false]);
 
-    $msgStmt = $pdo->prepare("SELECT role, content, attachment_url FROM trainer_messages WHERE session_id = ? ORDER BY id ASC");
+    $msgStmt = $pdo->prepare("SELECT role, content, attachment_url, CAST(EXTRACT(EPOCH FROM created_at) AS BIGINT) AS ts FROM trainer_messages WHERE session_id = ? ORDER BY id ASC");
     $msgStmt->execute([$sessionId]);
     $messages = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
 

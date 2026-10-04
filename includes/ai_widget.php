@@ -50,12 +50,12 @@ $aiWidgetContext = $aiWidgetContext ?? '';
                 <div class="ai-widget-name">KOSTLIM AI SUPPORT</div>
                 <div class="ai-widget-status"><span class="ai-widget-dot"></span> Онлайн-консультант</div>
             </div>
-            <button type="button" id="ai-widget-reset" title="Сбросить чат">🗑️</button>
+            <button type="button" id="ai-widget-reset" title="Сбросить чат" aria-label="Сбросить чат"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
             <button type="button" id="ai-widget-close" title="Закрыть">&times;</button>
         </div>
 
         <div id="ai-widget-messages" class="ai-widget-messages">
-            <div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg-col"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>
+            <div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg-row"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>
         </div>
 
         <div id="ai-widget-quick" class="ai-widget-quick">
@@ -159,12 +159,11 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 
 .ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-.ai-widget-avatar { overflow: hidden; padding: 0; background: #1a1a22; }
-.ai-widget-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
-.ai-widget-msg-ava { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; align-self: flex-end; margin-right: 8px; border: 1px solid #2e2e3a; }
-.ai-widget-msg-wrap-bot { flex-direction: row !important; align-items: flex-end; max-width: 92%; }
-.ai-widget-msg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
+.ai-widget-avatar { overflow: hidden; padding: 0; background: #1a1a22; border: 1px solid rgba(255,255,255,.12); box-shadow: 0 0 0 3px rgba(249,115,22,.12); }
+.ai-widget-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ai-widget-header-text { flex: 1; min-width: 0; }
+#ai-widget-reset { display: inline-flex; align-items: center; justify-content: center; }
+#ai-widget-reset svg { width: 17px; height: 17px; }
 .ai-widget-name { color: #fff; font-weight: 800; font-size: 13px; }
 .ai-widget-status { color: #7ee787; font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
 .ai-widget-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; }
@@ -176,13 +175,22 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     padding: 16px; display: flex; flex-direction: column; gap: 10px; background: #17171f;
 }
-.ai-widget-msg-wrap { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
-.ai-widget-msg-wrap-bot { align-self: flex-start; }
-.ai-widget-msg-wrap-user { align-self: flex-end; }
-.ai-widget-msg { padding: 10px 13px; border-radius: 14px; font-size: 13px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; }
-.ai-widget-msg-bot { background: #24242e; color: #e8e8ee; border-bottom-left-radius: 4px; border: 1px solid #2e2e3a; }
-.ai-widget-msg-user { background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-bottom-right-radius: 4px; }
-.ai-widget-msg-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 2px; }
+/* ── Сообщения в стиле Nexus: крупные скругления, аватар слева, плавное появление ── */
+.ai-widget-msg-wrap { max-width: 88%; display: flex; flex-direction: column; gap: 6px; animation: aiMsgIn .38s cubic-bezier(.22,1,.36,1) both; }
+.ai-widget-msg-wrap-bot { align-self: flex-start; --ai-from: -18px; }
+.ai-widget-msg-wrap-user { align-self: flex-end; --ai-from: 18px; }
+@keyframes aiMsgIn { from { opacity: 0; transform: translate(var(--ai-from, 0), 12px) scale(.96); } to { opacity: 1; transform: none; } }
+.ai-widget-msg-row { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.ai-widget-msg-ava { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(255,255,255,.12); background: #1a1a22; }
+.ai-widget-msg { padding: 10px 14px; border-radius: 18px; font-size: 13.5px; line-height: 1.55; word-break: break-word; white-space: pre-wrap; min-width: 0; transition: transform .2s ease; }
+.ai-widget-msg:hover { transform: translateY(-1px) scale(1.01); }
+.ai-widget-msg-bot { background: rgba(36,36,46,.92); color: #ececf1; border-top-left-radius: 6px; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 4px 12px -2px rgba(0,0,0,.35); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.ai-widget-msg-user { background: linear-gradient(135deg,#fb923c,#f97316); color: #fff; border-top-right-radius: 6px; box-shadow: 0 8px 24px -4px rgba(249,115,22,.4); }
+.ai-widget-msg-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 40px; }
+.ai-widget-msg-actions .ic { width: 12px; height: 12px; margin-right: 4px; vertical-align: -2px; }
+.ai-widget-messages { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
+.ai-widget-messages::-webkit-scrollbar { width: 6px; }
+.ai-widget-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
 .ai-widget-copy-btn {
     background: #1e1e26; border: 1px solid #2e2e3a; color: #9a9aa8; font-size: 10.5px; font-weight: 700;
     border-radius: 7px; padding: 4px 8px; cursor: pointer; transition: .15s;
@@ -454,6 +462,11 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         }, 2000);
     }
 
+    var AI_SVG = function(d) { return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>'; };
+    var ICO_COPY = AI_SVG('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>');
+    var ICO_OK = AI_SVG('<path d="M20 6 9 17l-5-5"/>');
+    var ICO_PLUS = AI_SVG('<path d="M12 5v14"/><path d="M5 12h14"/>');
+
     function addMessage(text, who, opts) {
         opts = opts || {};
         var wrap = document.createElement('div');
@@ -476,17 +489,16 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             textNode.textContent = text;
             div.appendChild(textNode);
         }
-        var col = null;
         if (who === 'bot') {
+            var row = document.createElement('div');
+            row.className = 'ai-widget-msg-row';
             var ava = document.createElement('img');
             ava.className = 'ai-widget-msg-ava';
             ava.src = '/assets/img/kostlim-ai.jpg';
             ava.alt = '';
-            col = document.createElement('div');
-            col.className = 'ai-widget-msg-col';
-            col.appendChild(div);
-            wrap.appendChild(ava);
-            wrap.appendChild(col);
+            row.appendChild(ava);
+            row.appendChild(div);
+            wrap.appendChild(row);
         } else {
             wrap.appendChild(div);
         }
@@ -501,7 +513,7 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             var copyBtn = document.createElement('button');
             copyBtn.type = 'button';
             copyBtn.className = 'ai-widget-copy-btn';
-            copyBtn.textContent = '📋 Копировать';
+            copyBtn.innerHTML = ICO_COPY + 'Копировать';
             copyBtn.addEventListener('click', function() {
                 var toCopy = text;
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -511,8 +523,8 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
                     ta.value = toCopy; document.body.appendChild(ta);
                     ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                 }
-                copyBtn.textContent = '✅ Скопировано';
-                setTimeout(function() { copyBtn.textContent = '📋 Копировать'; }, 1600);
+                copyBtn.innerHTML = ICO_OK + 'Скопировано';
+                setTimeout(function() { copyBtn.innerHTML = ICO_COPY + 'Копировать'; }, 1600);
             });
             actions.appendChild(copyBtn);
 
@@ -520,19 +532,19 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
                 var insertBtn = document.createElement('button');
                 insertBtn.type = 'button';
                 insertBtn.className = 'ai-widget-copy-btn';
-                insertBtn.textContent = '➕ Вставить в ТЗ';
+                insertBtn.innerHTML = ICO_PLUS + 'Вставить в ТЗ';
                 insertBtn.addEventListener('click', function() {
                     var ta = window.__aiTzTarget;
                     if (!ta) return;
                     var clean = text.replace(/^[\s\S]*?Готовое ТЗ:\s*/i, '');
                     ta.value = (ta.value ? ta.value.trim() + '\n\n' : '') + clean.trim();
                     ta.dispatchEvent(new Event('input', { bubbles: true }));
-                    insertBtn.textContent = '✅ Вставлено';
-                    setTimeout(function() { insertBtn.textContent = '➕ Вставить в ТЗ'; }, 1600);
+                    insertBtn.innerHTML = ICO_OK + 'Вставлено';
+                    setTimeout(function() { insertBtn.innerHTML = ICO_PLUS + 'Вставить в ТЗ'; }, 1600);
                 });
                 actions.appendChild(insertBtn);
             }
-            (col || wrap).appendChild(actions);
+            wrap.appendChild(actions);
         }
 
         messages.appendChild(wrap);
@@ -544,26 +556,27 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         var wrap = document.createElement('div');
         wrap.className = 'ai-widget-msg-wrap ai-widget-msg-wrap-bot';
         wrap.id = 'ai-widget-typing';
+        var row = document.createElement('div');
+        row.className = 'ai-widget-msg-row';
+        var tava = document.createElement('img');
+        tava.className = 'ai-widget-msg-ava';
+        tava.src = '/assets/img/kostlim-ai.jpg';
+        tava.alt = '';
         var div = document.createElement('div');
         div.className = 'ai-widget-msg ai-widget-msg-bot';
         var dots = document.createElement('div');
         dots.className = 'ai-widget-typing-dots';
         dots.innerHTML = '<span></span><span></span><span></span>';
         div.appendChild(dots);
-        var tava = document.createElement('img');
-        tava.className = 'ai-widget-msg-ava';
-        tava.src = '/assets/img/kostlim-ai.jpg';
-        tava.alt = '';
-        var tcol = document.createElement('div');
-        tcol.className = 'ai-widget-msg-col';
-        tcol.appendChild(div);
-        wrap.appendChild(tava);
-        wrap.appendChild(tcol);
+        row.appendChild(tava);
+        row.appendChild(div);
+        wrap.appendChild(row);
         if (label) {
             var lbl = document.createElement('div');
             lbl.className = 'ai-widget-typing-label';
+            lbl.style.paddingLeft = '40px';
             lbl.textContent = label;
-            tcol.appendChild(lbl);
+            wrap.appendChild(lbl);
         }
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
@@ -840,7 +853,7 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             credentials: 'same-origin',
             body: JSON.stringify({ reset: true }),
         }).catch(function(){}).finally(function() {
-            messages.innerHTML = '<div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg-col"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>';
+            messages.innerHTML = '<div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg-row"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>';
             quick.classList.remove('hidden');
             window.__aiTzPrimed = false;
         });
