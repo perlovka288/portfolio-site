@@ -3117,6 +3117,22 @@ $imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
                         </div>
                     </div>
 
+                    <!-- ════ ОПТИМИЗАЦИЯ ФОТО ════ -->
+                    <div class="panel section-block" data-panel="portfolio-optimize">
+                        <div class="section-heading"><span class="neon-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span> Оптимизация фото</div>
+                        <p style="margin:0 0 14px;color:#8a8a8a;font-size:13px;line-height:1.55;">Скачивает все фото портфолио и прайса из Cloudinary, сжимает (JPEG 85, до 2400&nbsp;px), заливает заново и подменяет ссылки. Страницы начнут грузиться заметно быстрее. Старые файлы в Cloudinary остаются, поэтому всё можно откатить.</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                            <button type="button" class="btn-panel" id="opt-run">Оптимизировать фото</button>
+                            <button type="button" class="btn-panel" id="opt-stop" style="display:none;background:#2a2a2a;color:#ddd;">Остановить</button>
+                            <button type="button" id="opt-rollback" style="background:none;border:0;color:#8a8a8a;text-decoration:underline;cursor:pointer;font-size:12.5px;">Откатить к старым ссылкам</button>
+                        </div>
+                        <div id="opt-progress" style="display:none;margin-top:16px;">
+                            <div style="height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;"><div id="opt-bar" style="height:100%;width:0;background:linear-gradient(90deg,#fb923c,#f97316);transition:width .25s;"></div></div>
+                            <div id="opt-status" style="margin-top:8px;font-size:13px;color:#ddd;"></div>
+                            <div id="opt-log" style="margin-top:10px;max-height:220px;overflow:auto;font-size:12px;line-height:1.6;color:#8a8a8a;font-family:ui-monospace,Menlo,Consolas,monospace;"></div>
+                        </div>
+                    </div>
+
                     <!-- ════ УПРАВЛЕНИЕ КЕЙСАМИ ════ -->
                     <div class="panel section-block" data-panel="portfolio-list">
                         <div class="section-heading"><span class="neon-ico">🎬</span> Все проекты</div>
@@ -3735,7 +3751,7 @@ function activateAdminTab(tab) {
     });
 
     if (tab === 'overview')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('analytics','orders'); }
-    else if (tab === 'portfolio') { show('portfolio-add','portfolio-list'); }
+    else if (tab === 'portfolio') { show('portfolio-add','portfolio-optimize','portfolio-list'); }
     else if (tab === 'price')     { show('price-add','price-manager'); }
     else if (tab === 'orders')    { stats.forEach(s => s.classList.remove('tab-hidden')); show('orders'); }
     else if (tab === 'categories'){ show('categories'); }
@@ -3872,5 +3888,56 @@ document.addEventListener('click', function(e) {
 <script src="/assets/kostlim-admin.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-admin.js') ?: time() ?>"></script>
 <script src="/assets/kostlim-settings.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-settings.js') ?: time() ?>"></script>
 <script src="/assets/kostlim-analytics.js?v=<?= @filemtime(__DIR__ . '/../assets/kostlim-analytics.js') ?: time() ?>"></script>
+<script>
+(function () {
+    var runBtn = document.getElementById('opt-run'), stopBtn = document.getElementById('opt-stop'), rbBtn = document.getElementById('opt-rollback');
+    if (!runBtn) return;
+    var box = document.getElementById('opt-progress'), bar = document.getElementById('opt-bar'), st = document.getElementById('opt-status'), logEl = document.getElementById('opt-log');
+    var stopped = false, running = false;
+    function fmt(b) { return b >= 1048576 ? (b / 1048576).toFixed(2) + ' МБ' : Math.max(1, Math.round(b / 1024)) + ' КБ'; }
+    function esc(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+    function log(html) { logEl.insertAdjacentHTML('beforeend', '<div>' + html + '</div>'); logEl.scrollTop = logEl.scrollHeight; }
+    function post(data) {
+        var fd = new FormData(); Object.keys(data).forEach(function (k) { fd.append(k, data[k]); });
+        return fetch('optimize_images.php', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); });
+    }
+    runBtn.onclick = async function () {
+        if (running) return;
+        if (!confirm('Пережать и перезалить все фото портфолио и прайса?\n\nЭто займёт пару секунд на каждое фото. Старые файлы в Cloudinary останутся, откатиться можно. Не закрывай страницу, пока идёт процесс.')) return;
+        running = true; stopped = false; runBtn.disabled = true; stopBtn.style.display = ''; box.style.display = ''; logEl.innerHTML = ''; bar.style.width = '0';
+        st.textContent = 'Ищу фото…';
+        var done = 0, opt = 0, skip = 0, fail = 0, saved = 0, errRow = 0;
+        try {
+            var scan = await post({ action: 'scan' });
+            if (!scan.ok) throw new Error(scan.error || 'ошибка');
+            var items = scan.items, total = items.length;
+            if (!total) { st.textContent = 'Нечего оптимизировать — всё уже лёгкое.'; bar.style.width = '100%'; return; }
+            for (var i = 0; i < total && !stopped; i++) {
+                var it = items[i];
+                st.textContent = 'Обрабатываю ' + (i + 1) + ' из ' + total + '…';
+                try {
+                    var r = await post({ action: 'process', table: it.table, id: it.id, col: it.col });
+                    if (r.ok && r.status === 'optimized') { opt++; errRow = 0; saved += (r.old_bytes - r.new_bytes); log('✓ ' + esc(it.label) + ' — ' + fmt(r.old_bytes) + ' → ' + fmt(r.new_bytes)); }
+                    else if (r.ok) { skip++; errRow = 0; log('· ' + esc(it.label) + ' — ' + esc(r.note || 'пропущено')); }
+                    else { fail++; errRow++; log('✗ ' + esc(it.label) + ' — ' + esc(r.error || 'ошибка')); }
+                } catch (e) { fail++; errRow++; log('✗ ' + esc(it.label) + ' — сеть/сервер: ' + esc(String(e.message || e))); }
+                done++; bar.style.width = Math.round(done / total * 100) + '%';
+                if (errRow >= 5) { log('Остановлено: 5 ошибок подряд. Проверь настройки Cloudinary.'); break; }
+            }
+            st.innerHTML = (stopped ? 'Остановлено. ' : 'Готово. ') + 'Оптимизировано: <b>' + opt + '</b>, пропущено: ' + skip + ', ошибок: ' + fail + (opt ? ', сэкономлено <b>' + fmt(saved) + '</b>' : '') +
+                (opt ? ' · <a href="" style="color:#fb923c;">обновить страницу</a>' : '');
+        } catch (e) { st.textContent = 'Ошибка: ' + (e.message || e); }
+        finally { running = false; runBtn.disabled = false; stopBtn.style.display = 'none'; }
+    };
+    stopBtn.onclick = function () { stopped = true; stopBtn.style.display = 'none'; };
+    rbBtn.onclick = async function () {
+        if (running || !confirm('Вернуть старые (тяжёлые) ссылки на фото, которые были оптимизированы?')) return;
+        box.style.display = ''; st.textContent = 'Откатываю…';
+        try { var r = await post({ action: 'rollback' }); st.innerHTML = r.ok ? 'Готово, возвращено ссылок: <b>' + r.restored + '</b> · <a href="" style="color:#fb923c;">обновить страницу</a>' : 'Ошибка: ' + esc(r.error || ''); }
+        catch (e) { st.textContent = 'Ошибка: ' + (e.message || e); }
+    };
+})();
+</script>
 </body>
 </html>

@@ -225,3 +225,8 @@ body.kui #priceMain.edit-mode .service-body > :not(.service-footer) { transform:
 body.kui #priceMain.edit-mode .service-body p { -webkit-line-clamp: unset; display: block; }
 body.kui #priceMain.edit-mode .service-features { max-height: none; }
 body.kui #priceMain.edit-mode .service-footer { position: static; opacity: 1; padding: 12px 0 0; }
+
+
+/* Лента работ: браузер не считает и не рисует карточки вне экрана — страница не лагает, когда подгружаются фото.
+   auto = запоминает реальную высоту после первого показа, поэтому скролл не «прыгает». */
+.portfolio-grid .portfolio-card { content-visibility: auto; contain-intrinsic-size: auto 460px; }

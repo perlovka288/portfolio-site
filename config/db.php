@@ -4,14 +4,34 @@ class Database {
 
     public static function getConnection(): PDO {
         if (self::$pdo === null) {
-            $host = getenv('DB_HOST') ?: 'ep-broad-mode-ape681lm-pooler.c-7.us-east-1.aws.neon.tech';
-            $db   = getenv('DB_NAME') ?: 'neondb';
-            $user = getenv('DB_USER') ?: 'neondb_owner';
+            // Подключение берётся ТОЛЬКО из окружения хостинга (никаких зашитых в код хостов).
+            // Поддерживаются оба варианта: одна строка DATABASE_URL / POSTGRES_URL
+            // (Render, Railway, Supabase, Neon, Heroku…) или отдельные DB_HOST / DB_NAME / DB_USER / DB_PASS / DB_PORT.
+            $host = getenv('DB_HOST') ?: '';
+            $db   = getenv('DB_NAME') ?: '';
+            $user = getenv('DB_USER') ?: '';
             $pass = getenv('DB_PASS') ?: '';
             $port = getenv('DB_PORT') ?: '5432';
+            $url  = getenv('DATABASE_URL') ?: (getenv('POSTGRES_URL') ?: '');
+            if ($host === '' && $url !== '') {
+                $u = parse_url($url);
+                if ($u && !empty($u['host'])) {
+                    $host = $u['host'];
+                    $port = (string)($u['port'] ?? $port);
+                    $db   = ltrim((string)($u['path'] ?? ''), '/');
+                    $user = rawurldecode((string)($u['user'] ?? ''));
+                    $pass = rawurldecode((string)($u['pass'] ?? ''));
+                }
+            }
+            if ($host === '' || $db === '') {
+                throw new RuntimeException('Не заданы параметры БД: укажите DATABASE_URL или DB_HOST/DB_NAME/DB_USER/DB_PASS в переменных окружения хостинга.');
+            }
+            // SSL: по умолчанию require (как было). Для приватной сети хостинга (*.internal, localhost)
+            // шифрование обычно не нужно и не поддерживается — там автоматически prefer. Переопределить: DB_SSLMODE=disable|prefer|require.
+            $sslmode = getenv('DB_SSLMODE') ?: ((preg_match('/(\.internal$|^localhost$|^127\.|^[a-z0-9-]+$)/i', $host)) ? 'prefer' : 'require');
 
             self::$pdo = new PDO(
-                "pgsql:host=$host;port=$port;dbname=$db;sslmode=require",
+                "pgsql:host=$host;port=$port;dbname=$db;sslmode=$sslmode",
                 $user,
                 $pass,
                 [

@@ -237,6 +237,74 @@ if (!function_exists('kuiPrepareImage')) {
     }
 }
 
+if (!function_exists('kuiCompressForWeb')) {
+    /**
+     * Сжатие картинок для показа на сайте (портфолио, прайс, аватарки, чеки).
+     * Зачем: оригинал 1920×1080 весит 1–4 МБ; Cloudinary при КАЖДОМ новом размере/формате заново
+     * «собирает» превью из этого тяжёлого оригинала (первый заход — медленно), а там, где превью не
+     * применяются, браузер качает оригинал целиком. После сжатия оригинал ≈ 200–400 КБ, визуально без потерь.
+     *   • длинная сторона > 2400 px → уменьшаем до 2400 (1920×1080 не трогаем);
+     *   • фото без прозрачности → JPEG 85, progressive; PNG с прозрачностью → остаётся PNG;
+     *   • GIF/SVG и файлы < 300 КБ не трогаем; результат берём, только если он минимум на 15% легче.
+     * @return array{0:string,1:bool} [путь, это временный файл?]
+     */
+    function kuiCompressForWeb(string $path): array
+    {
+        $size = (int)@filesize($path);
+        if ($size < 300 * 1024 || !function_exists('imagecreatefromstring') || !function_exists('getimagesize')) { return [$path, false]; }
+        $info = @getimagesize($path);
+        if (!$info || empty($info[0]) || empty($info[1])) { return [$path, false]; }
+        $type = (int)($info[2] ?? 0);
+        if (!in_array($type, [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)) { return [$path, false]; }   // GIF/WebP/прочее — как есть
+        [$w, $h] = [(int)$info[0], (int)$info[1]];
+        if (($w * $h) > 40000000 || $size > 48 * 1024 * 1024) { return [$path, false]; }           // не рискуем памятью
+
+        $img = @imagecreatefromstring((string)@file_get_contents($path));
+        if (!$img) { return [$path, false]; }
+
+        // Поворот по EXIF (фото с телефона), иначе после пересохранения картинка «ляжет на бок»
+        if ($type === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+            $exif = @exif_read_data($path);
+            $o = (int)($exif['Orientation'] ?? 1);
+            if ($o === 3) { $r = imagerotate($img, 180, 0); }
+            elseif ($o === 6) { $r = imagerotate($img, -90, 0); }
+            elseif ($o === 8) { $r = imagerotate($img, 90, 0); }
+            if (!empty($r)) { imagedestroy($img); $img = $r; $w = imagesx($img); $h = imagesy($img); }
+        }
+
+        $k  = min(1.0, 2400 / max($w, $h));
+        $nw = max(1, (int)round($w * $k)); $nh = max(1, (int)round($h * $k));
+
+        // Есть ли реальная прозрачность (только для PNG): смотрим уменьшенную копию 48×48
+        $hasAlpha = false;
+        if ($type === IMAGETYPE_PNG) {
+            $probe = imagecreatetruecolor(48, 48);
+            imagealphablending($probe, false); imagesavealpha($probe, true);
+            imagefill($probe, 0, 0, imagecolorallocatealpha($probe, 0, 0, 0, 0));
+            imagecopyresampled($probe, $img, 0, 0, 0, 0, 48, 48, $w, $h);
+            for ($y = 0; $y < 48 && !$hasAlpha; $y++) {
+                for ($x = 0; $x < 48; $x++) { if (((imagecolorat($probe, $x, $y) >> 24) & 0x7F) > 8) { $hasAlpha = true; break; } }
+            }
+            imagedestroy($probe);
+        }
+
+        $dst = imagecreatetruecolor($nw, $nh);
+        if ($hasAlpha) { imagealphablending($dst, false); imagesavealpha($dst, true); imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127)); }
+        else { imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255)); }
+        imagecopyresampled($dst, $img, 0, 0, 0, 0, $nw, $nh, $w, $h);
+        imagedestroy($img);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'kweb_');
+        if ($hasAlpha) { $ok = imagepng($dst, $tmp, 9); }
+        else { imageinterlace($dst, true); $ok = imagejpeg($dst, $tmp, 85); }
+        imagedestroy($dst);
+
+        $newSize = (int)@filesize($tmp);
+        if (!$ok || $newSize <= 0 || $newSize > $size * 0.85) { @unlink($tmp); return [$path, false]; }   // выгоды нет — оставляем оригинал
+        return [$tmp, true];
+    }
+}
+
 if (!function_exists('imageStoreConfigured')) {
     function imageStoreConfigured(?PDO $pdo = null): bool { return cloudinaryCreds($pdo) !== null; }
 }
@@ -261,6 +329,11 @@ if (!function_exists('imageStoreUpload')) {
         $error = null;
         if (cloudinaryCreds($pdo) === null) { $error = 'не настроен Cloudinary (CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET)'; error_log('ImageStore: Cloudinary not configured'); return ''; }
         [$use, $isTmp] = kuiPrepareImage($path);
+        // Картинки для показа на сайте (папка по умолчанию) — сжимаем; архивы клиентов (orders/…) остаются как есть
+        if ($folder === 'kostlim') {
+            [$web, $webTmp] = kuiCompressForWeb($use);
+            if ($webTmp) { if ($isTmp) { @unlink($use); } $use = $web; $isTmp = true; }
+        }
         $result = '';
         for ($try = 1; $try <= max(1, $tries); $try++) {
             $e = null;
@@ -284,7 +357,7 @@ if (!function_exists('kuiImgOpt')) {
         return preg_replace('#/upload/#', '/upload/f_auto,q_auto,c_limit,w_' . max(100, $w) . '/', $url, 1);
     }
     /** srcset для адаптивных размеров (экономит трафик на телефоне). '' — если не Cloudinary. */
-    function kuiImgSrcset(string $url, array $widths = [480, 800, 1200]): string
+    function kuiImgSrcset(string $url, array $widths = [480, 900]): string
     {
         if (kuiImgOpt($url, 100) === $url) { return ''; }
         return implode(', ', array_map(fn($w) => kuiImgOpt($url, $w) . ' ' . $w . 'w', $widths));

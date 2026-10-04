@@ -974,7 +974,7 @@ $fmtSitePrice = function (int $rub, int $uan, string $c) use ($__usdUah): string
                 <!-- Плашка с размером/категорией поверх превью убрана по ТЗ. -->
                 <?php if ($isDesign && $ava_file !== '' && !kuiLocalMissing($ava_file)): ?>
                     <div class="design-avatar-frame">
-                        <img loading="lazy" decoding="async" src="<?= htmlspecialchars(imgSrc($ava_file)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
+                        <img loading="lazy" decoding="async" src="<?= htmlspecialchars(kuiImgOpt(imgSrc($ava_file), 240)) ?>" class="design-avatar" alt="Аватарка" draggable="false">
                     </div>
                 <?php endif; ?>
             </div>
