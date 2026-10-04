@@ -7,6 +7,7 @@ ini_set('log_errors', 1);
 // ── Фикс сессий для Safari/iOS (SameSite=None + Secure) ──────────────────
 require_once 'includes/session.php';
 require_once 'config/db.php';
+require_once __DIR__ . '/includes/ppk_icons.php';
 
 $sid = session_id();
 
@@ -76,174 +77,97 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Kostlim Design | Поддержка</title>
 <link rel="icon" type="image/png" href="/assets/img/logo.png" sizes="16x16">
 <link rel="apple-touch-icon" href="/assets/img/logo.png">
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
-<style>
-body::before {
-    content:'';position:fixed;top:-120px;left:50%;transform:translateX(-50%);
-    width:700px;height:400px;background:radial-gradient(ellipse at center,rgba(249,115,22,0.13) 0%,transparent 70%);
-    pointer-events:none;z-index:0;
-}
-.support-wrap { max-width: 560px; margin: 0 auto; padding: 26px 20px 70px; position: relative; z-index: 1; }
-.support-title { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
-.support-sub { color: var(--text2); font-size: 13px; margin-bottom: 26px; }
-
-/* Карточка дизайнера */
-.support-admin-card {
-    display: flex; align-items: center; gap: 14px;
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 20px; padding: 18px 20px; margin-bottom: 16px;
-}
-.support-admin-ava {
-    width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
-    border: 2px solid var(--border-accent); flex-shrink: 0;
-}
-.support-admin-ava-fallback {
-    width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    display: flex; align-items: center; justify-content: center;
-    font-size: 22px; font-weight: 900; color: #fff;
-}
-.support-admin-name { font-size: 15px; font-weight: 800; color: var(--text); }
-.support-admin-handle { font-size: 12px; color: var(--text2); }
-.support-admin-role {
-    margin-left: auto; flex-shrink: 0;
-    font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .5px;
-    color: var(--accent3); background: var(--accent-dim);
-    border: 1px solid var(--border-accent); border-radius: 6px; padding: 3px 8px;
-}
-
-/* Кнопки действий поддержки */
-.support-actions { display: flex; flex-direction: column; gap: 10px; margin-bottom: 26px; }
-.support-action-btn {
-    display: flex; align-items: center; gap: 12px;
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 16px; padding: 16px 18px;
-    color: var(--text); font-size: 14px; font-weight: 700;
-    transition: all var(--t); cursor: pointer; font-family: inherit; text-align: left; width: 100%;
-}
-.support-action-btn:hover { border-color: var(--border-accent); background: var(--accent-dim); transform: translateY(-1px); }
-.support-action-icon {
-    width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--accent-dim); color: var(--accent);
-}
-.support-action-text { display: flex; flex-direction: column; gap: 2px; }
-.support-action-sub { font-size: 11.5px; font-weight: 500; color: var(--text2); }
-.support-action-btn.primary {
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    border-color: transparent; color: #fff;
-    box-shadow: inset 0 1px rgba(255,255,255,.22), var(--shadow-accent);
-}
-.support-action-btn.primary .support-action-icon { background: rgba(255,255,255,.18); color: #fff; }
-.support-action-btn.primary .support-action-sub { color: rgba(255,255,255,.8); }
-
-/* FAQ / доп. инфо */
-.support-note {
-    background: var(--accent-dim); border: 1px solid var(--border-accent);
-    border-radius: 14px; padding: 14px 16px; color: var(--text2); font-size: 12.5px; line-height: 1.6;
-}
-</style>
+<?php include __DIR__ . '/includes/ui_head.php'; ?>
+<link rel="stylesheet" href="/assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
 </head>
-<body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
+<body class="kui theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
+<?php
+    // ── KUI: оболочка (меню-док ПК / шапка + нижнее меню) — как на остальных страницах ──
+    $kuiActive = 'support';
+    include __DIR__ . '/includes/ui_shell.php';
 
-<!-- ══ Единый компактный хедер: логотип + меню разделов в одном блоке ══ -->
-<header class="header-compact">
-    <div class="brand-title"><a href="index.php"><img src="/assets/img/logo.png" class="brand-logo-img" alt="Kostlim Design" style="height:34px;width:auto;max-width:140px;display:block;margin:0 auto;"></a></div>
-    <?php $sectionTabsActive = 'support'; include __DIR__ . '/includes/section_tabs.php'; ?>
-</header>
+    $supName   = htmlspecialchars((string)$adminProfile['tg_first_name']);
+    $supHandle = htmlspecialchars((string)$adminProfile['tg_username']);
+    $supLetter = htmlspecialchars(mb_strtoupper(mb_substr((string)$adminProfile['tg_first_name'], 0, 1)));
+    $supAva    = !empty($adminProfile['tg_photo_url']) ? htmlspecialchars(imgSrc($adminProfile['tg_photo_url'])) : '';
+?>
 
-<!-- ══ Сетка быстрых кнопок: Telegram / Прайс / Отзывы.
-     Правка: кнопка-шестерёнка (админка) убрана со страницы Поддержки для
-     всех, включая админа — админ-панель теперь открывается только по
-     прямой ссылке, без выпирающих кнопок в обычном интерфейсе. Telegram
-     из-за этого всегда занимает всю ширину строки. ══ -->
-<div class="quick-actions-grid">
-    <a href="https://t.me/designkostlim" target="_blank" class="quick-action-btn quick-action-btn-wide" title="Telegram">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-    </a>
-    <a href="privat_pak.php" class="quick-action-btn" title="Приват Пак">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Приват Пак
-    </a>
-    <a href="price.php" class="quick-action-btn" title="Прайс">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Прайс
-    </a>
-    <a href="index.php#reviews" class="quick-action-btn" title="Отзывы">
-        <svg class="qa-star" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        Отзывы
-    </a>
-</div>
-
-<!-- Плашка с аватаркой/именем/бейджем admin убрана со страницы Поддержки
-     по правке ТЗ — она дублировала карточку дизайнера ниже (фото/имя/
-     @username/тег «ДИЗАЙНЕР») и на некоторых экранах отображалась криво
-     (аватар без ограничения размера наезжал на текст). -->
-
-<div class="support-wrap">
-    <div class="support-title">Поддержка</div>
-    <div class="support-sub">Вопросы по заказу, срокам или оплате — сюда.</div>
-
-    <div class="support-admin-card">
-        <?php if (!empty($adminProfile['tg_photo_url'])): ?>
-            <img src="<?= htmlspecialchars(imgSrc($adminProfile['tg_photo_url'])) ?>" class="support-admin-ava" alt="Аватар"
-                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-            <div class="support-admin-ava-fallback" style="display:none;"><?= mb_strtoupper(mb_substr($adminProfile['tg_first_name'], 0, 1)) ?></div>
-        <?php else: ?>
-            <div class="support-admin-ava-fallback"><?= mb_strtoupper(mb_substr($adminProfile['tg_first_name'], 0, 1)) ?></div>
-        <?php endif; ?>
-        <div>
-            <div class="support-admin-name"><?= htmlspecialchars($adminProfile['tg_first_name']) ?></div>
-            <div class="support-admin-handle">@<?= htmlspecialchars($adminProfile['tg_username']) ?></div>
+<!-- Баннеры сверху: дизайнер + «Поддержка» (animated-banner) -->
+<section class="kui-hero-row kui-ppk-hero-row">
+    <div class="rd-banner rd-banner--profile">
+        <span class="rd-banner-fx" aria-hidden="true"></span>
+        <span class="rd-banner-ov1" aria-hidden="true"></span><span class="rd-banner-ov2" aria-hidden="true"></span>
+        <div class="rd-banner-in" style="flex-direction:column;align-items:flex-start;justify-content:flex-end">
+            <div class="rd-prof">
+                <?php if ($supAva !== ''): ?>
+                    <img src="<?= $supAva ?>" alt="" onerror="this.src='/assets/img/logo.png'">
+                <?php else: ?>
+                    <span class="rd-ava rd-ava--lg"><?= $supLetter ?></span>
+                <?php endif; ?>
+                <div style="min-width:0">
+                    <small>Ваш дизайнер</small>
+                    <h3><?= $supName ?></h3>
+                    <div class="h">@<?= $supHandle ?></div>
+                </div>
+            </div>
+            <div class="rd-chips">
+                <span class="hc hc--md hc--primary hc--default"><?= ppkIcon('bolt', 'ai--loop') ?>ДИЗАЙНЕР</span>
+                <span class="hc hc--md hc--secondary hc--default"><?= ppkIcon('send') ?>@<?= $supHandle ?></span>
+            </div>
         </div>
-        <span class="support-admin-role">Дизайнер</span>
     </div>
 
-    <div class="support-actions">
-        <a href="https://t.me/<?= htmlspecialchars($adminProfile['tg_username']) ?>" target="_blank" class="support-action-btn">
-            <span class="support-action-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            </span>
-            <span class="support-action-text">
-                Написать в Telegram
-                <span class="support-action-sub">Ответим лично — обычно в течение дня</span>
-            </span>
-        </a>
+    <a class="rd-banner rd-banner--profile" href="https://t.me/<?= $supHandle ?>" target="_blank" rel="noopener">
+        <span class="rd-banner-fx" aria-hidden="true"></span>
+        <span class="rd-banner-ov1" aria-hidden="true"></span><span class="rd-banner-ov2" aria-hidden="true"></span>
+        <div class="rd-banner-in">
+            <div class="rd-banner-txt">
+                <h3>Поддержка</h3>
+                <p>Вопросы по заказу, срокам или оплате — сюда.</p>
+                <span class="rd-banner-cta">Написать в Telegram <?= ppkIcon('arrow') ?></span>
+            </div>
+        </div>
+    </a>
+</section>
 
-        <button type="button" class="support-action-btn primary" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel()">
-            <span class="support-action-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2a7 7 0 0 0-7 7c0 2.4 1.2 4.5 3 5.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3c1.8-1.2 3-3.3 3-5.7a7 7 0 0 0-7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
-            </span>
-            <span class="support-action-text">
-                Спросить у ИИ-ассистента
-                <span class="support-action-sub">Быстрые ответы по заказу прямо сейчас</span>
-            </span>
+<main class="kui-main kui-ppk-main">
+    <h2 class="kui-h2">Как связаться</h2>
+    <div class="rd-svc-grid">
+        <a href="https://t.me/<?= $supHandle ?>" target="_blank" rel="noopener" class="rd-svc rd-svc--o" title="Ответим лично — обычно в течение дня">
+            <h3 class="rd-svc-title">Написать в Telegram</h3>
+            <span class="rd-svc-more"><span>Ответим лично</span><?= ppkIcon('arrow') ?></span>
+            <span class="rd-svc-ico" aria-hidden="true"><?= ppkIcon('send', 'ai--loop') ?></span>
+        </a>
+        <button type="button" class="rd-svc rd-svc--d" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel()" title="Быстрые ответы по заказу прямо сейчас">
+            <h3 class="rd-svc-title">Спросить у ИИ-ассистента</h3>
+            <span class="rd-svc-more"><span>Ответ сразу</span><?= ppkIcon('arrow') ?></span>
+            <span class="rd-svc-ico" aria-hidden="true"><?= ppkIcon('success', 'ai--loop') ?></span>
         </button>
-
-        <a href="profile.php#orders-section" class="support-action-btn">
-            <span class="support-action-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>
-            </span>
-            <span class="support-action-text">
-                Мои заказы
-                <span class="support-action-sub">Статус, детали и переписка по заказу</span>
-            </span>
+        <a href="profile.php#orders-section" class="rd-svc rd-svc--a" title="Статус, детали и переписка по заказу">
+            <h3 class="rd-svc-title">Мои заказы</h3>
+            <span class="rd-svc-more"><span>Статус и переписка</span><?= ppkIcon('arrow') ?></span>
+            <img class="rd-svc-img" src="/assets/img/PLANER.png" alt="" width="160" height="160" loading="lazy" decoding="async">
+        </a>
+        <a href="price.php" class="rd-svc rd-svc--g" title="Стоимость работ и пакетов">
+            <h3 class="rd-svc-title">Прайс</h3>
+            <span class="rd-svc-more"><span>Посмотреть цены</span><?= ppkIcon('arrow') ?></span>
+            <span class="rd-svc-ico" aria-hidden="true"><?= ppkIcon('eye', 'ai--loop') ?></span>
         </a>
     </div>
 
-    <div class="support-note">
-        Сайт в тестовом режиме — если что-то работает не так, просто напиши об этом в Telegram, поправим быстро.
-    </div>
-</div>
+    <div class="kui-card kui-ppk-note">Сайт в тестовом режиме — если что-то работает не так, просто напишите об этом в Telegram, поправим быстро.</div>
+</main>
 
 <footer>
     <div class="container">© <?= date('Y') ?> Kostlim Design</div>
 </footer>
 
 <?php $aiWidgetHideFab = true; include __DIR__ . '/includes/ai_widget.php'; ?>
+<script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
 </body>
 </html>

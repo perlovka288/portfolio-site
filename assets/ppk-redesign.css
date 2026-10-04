@@ -189,6 +189,16 @@ a.hc:hover { transform: translateY(-2px); }
     opacity: .9; pointer-events: none; transition: transform .4s var(--rd-ease-io), opacity .3s;
 }
 .rd-svc:hover .rd-svc-img { opacity: 1; transform: translateX(10px) scale(1.1) rotate(3deg); }
+.rd-svc { font: inherit; text-align: left; border: 0; cursor: pointer; }
+button.rd-svc { appearance: none; -webkit-appearance: none; }
+.rd-svc-ico {
+    position: absolute; right: 18px; bottom: 18px; width: 92px; height: 92px; display: grid; place-items: center; border-radius: 26px;
+    color: var(--tx-c); background: color-mix(in srgb, var(--tx-c) 12%, transparent); border: 1px solid color-mix(in srgb, var(--tx-c) 18%, transparent);
+    transition: transform .4s var(--rd-ease-io);
+}
+.rd-svc-ico .ai { width: 44px; height: 44px; vertical-align: 0; }
+.rd-svc:hover .rd-svc-ico { transform: scale(1.1) rotate(3deg); }
+.rd-ava.rd-ava--lg { width: 54px; height: 54px; font-size: 22px; box-shadow: 0 0 18px rgba(255, 190, 110, .6); }
 .rd-svc .hc { position: absolute; top: 14px; right: 14px; z-index: 11; }
 
 /* ═════════ 3. Карточки PSD / Шрифты / Стили / Статьи (glass-blog-card) ═════════ */
