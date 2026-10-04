@@ -45,7 +45,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
     <div id="ai-widget-panel" class="ai-widget-panel">
         <div class="ai-widget-swipe-hint"></div>
         <div class="ai-widget-header">
-            <div class="ai-widget-avatar">🤖</div>
+            <div class="ai-widget-avatar"><img src="/assets/img/kostlim-ai.jpg" alt="KOSTLIM AI" width="40" height="40" decoding="async"></div>
             <div class="ai-widget-header-text">
                 <div class="ai-widget-name">KOSTLIM AI SUPPORT</div>
                 <div class="ai-widget-status"><span class="ai-widget-dot"></span> Онлайн-консультант</div>
@@ -55,7 +55,7 @@ $aiWidgetContext = $aiWidgetContext ?? '';
         </div>
 
         <div id="ai-widget-messages" class="ai-widget-messages">
-            <div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div>
+            <div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg-col"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>
         </div>
 
         <div id="ai-widget-quick" class="ai-widget-quick">
@@ -159,6 +159,11 @@ $aiWidgetContext = $aiWidgetContext ?? '';
 
 .ai-widget-header { display: flex; align-items: center; gap: 12px; padding: 16px 16px; border-bottom: 1px solid #2a2a34; flex-shrink: 0; }
 .ai-widget-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#fb923c,#f97316); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+.ai-widget-avatar { overflow: hidden; padding: 0; background: #1a1a22; }
+.ai-widget-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+.ai-widget-msg-ava { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; align-self: flex-end; margin-right: 8px; border: 1px solid #2e2e3a; }
+.ai-widget-msg-wrap-bot { flex-direction: row !important; align-items: flex-end; max-width: 92%; }
+.ai-widget-msg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
 .ai-widget-header-text { flex: 1; min-width: 0; }
 .ai-widget-name { color: #fff; font-weight: 800; font-size: 13px; }
 .ai-widget-status { color: #7ee787; font-size: 11px; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
@@ -471,7 +476,20 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             textNode.textContent = text;
             div.appendChild(textNode);
         }
-        wrap.appendChild(div);
+        var col = null;
+        if (who === 'bot') {
+            var ava = document.createElement('img');
+            ava.className = 'ai-widget-msg-ava';
+            ava.src = '/assets/img/kostlim-ai.jpg';
+            ava.alt = '';
+            col = document.createElement('div');
+            col.className = 'ai-widget-msg-col';
+            col.appendChild(div);
+            wrap.appendChild(ava);
+            wrap.appendChild(col);
+        } else {
+            wrap.appendChild(div);
+        }
 
         // Под каждым текстовым сообщением ИИ (не карточкой — у карточек свои
         // action-кнопки внутри) — кнопка "Копировать", а в режиме подсказки
@@ -514,7 +532,7 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
                 });
                 actions.appendChild(insertBtn);
             }
-            wrap.appendChild(actions);
+            (col || wrap).appendChild(actions);
         }
 
         messages.appendChild(wrap);
@@ -532,12 +550,20 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
         dots.className = 'ai-widget-typing-dots';
         dots.innerHTML = '<span></span><span></span><span></span>';
         div.appendChild(dots);
-        wrap.appendChild(div);
+        var tava = document.createElement('img');
+        tava.className = 'ai-widget-msg-ava';
+        tava.src = '/assets/img/kostlim-ai.jpg';
+        tava.alt = '';
+        var tcol = document.createElement('div');
+        tcol.className = 'ai-widget-msg-col';
+        tcol.appendChild(div);
+        wrap.appendChild(tava);
+        wrap.appendChild(tcol);
         if (label) {
             var lbl = document.createElement('div');
             lbl.className = 'ai-widget-typing-label';
             lbl.textContent = label;
-            wrap.appendChild(lbl);
+            tcol.appendChild(lbl);
         }
         messages.appendChild(wrap);
         messages.scrollTop = messages.scrollHeight;
@@ -814,7 +840,7 @@ body.ai-widget-lock { overflow: hidden; position: fixed; width: 100%; }
             credentials: 'same-origin',
             body: JSON.stringify({ reset: true }),
         }).catch(function(){}).finally(function() {
-            messages.innerHTML = '<div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div>';
+            messages.innerHTML = '<div class="ai-widget-msg-wrap ai-widget-msg-wrap-bot"><img class="ai-widget-msg-ava" src="/assets/img/kostlim-ai.jpg" alt=""><div class="ai-widget-msg-col"><div class="ai-widget-msg ai-widget-msg-bot">Привет! Я ИИ-помощник Kostlim Design 👋 Отвечу на вопросы по заказам, ценам и сайту. Чем помочь?</div></div></div>';
             quick.classList.remove('hidden');
             window.__aiTzPrimed = false;
         });

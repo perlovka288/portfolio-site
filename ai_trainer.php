@@ -179,6 +179,56 @@ if (!$isPackDesigner) {
 }
 .trainer-kostlim-feedback strong { color: var(--accent2); font-size: 13px; }
 .trainer-kostlim-feedback p { margin: 6px 0 0; color: var(--text2); font-size: 13px; line-height: 1.5; }
+
+/* ===== Мессенджер-стиль (список чатов + переписка) ===== */
+.trainer-session-row { gap:12px; padding:12px 14px; border-radius:16px; position:relative; }
+.tg-ava { width:46px; height:46px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    font-size:17px; font-weight:900; color:#fff; background: linear-gradient(135deg, var(--ava-a, #fb923c), var(--ava-b, #f97316)); text-transform:uppercase; }
+.tg-ava--sm { width:38px; height:38px; font-size:15px; }
+.trainer-session-main { flex:1; min-width:0; }
+.trainer-session-top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.trainer-session-title { font-size:14px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.trainer-session-topic { font-size:12.5px; color: var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.trainer-session-meta { font-size:11.5px; color: var(--text2); margin-top:3px; }
+.tg-score { flex-shrink:0; font-size:11.5px; font-weight:900; padding:3px 9px; border-radius:999px; background: rgba(255,255,255,.07); color:#fff; }
+.tg-score.s-good { background: rgba(34,197,94,.16); color:#22C55E; }
+.tg-score.s-mid { background: rgba(255,197,61,.16); color:#FFC53D; }
+.tg-score.s-bad { background: rgba(239,68,68,.16); color:#EF4444; }
+.tg-live { width:9px; height:9px; border-radius:50%; background:#22C55E; box-shadow:0 0 0 3px rgba(34,197,94,.18); flex-shrink:0; }
+
+.trainer-chat-header { background: var(--card, #121212); }
+.trainer-chat-title strong { font-size:14.5px; }
+.trainer-chat-title span#chatTopicLabel { font-size:11.5px; }
+.trainer-chat-title .tg-status { font-size:11px; color:#22C55E; }
+.trainer-chat-title .tg-status.typing { color: var(--accent2); }
+.trainer-chat-body { padding:16px 14px; gap:3px; scroll-behavior:smooth;
+    background: radial-gradient(1200px 500px at 50% -10%, rgba(249,115,22,.06), transparent 60%), var(--bg, #080808); }
+.tg-row { display:flex; width:100%; margin-top:6px; animation: tgPop .28s cubic-bezier(.22,1,.36,1) both; }
+.tg-row--client { justify-content:flex-start; }
+.tg-row--designer { justify-content:flex-end; }
+.tg-row.tg-grouped { margin-top:1px; }
+@keyframes tgPop { from { opacity:0; transform: translateY(10px) scale(.96); } to { opacity:1; transform:none; } }
+.tg-bubble { max-width:80%; padding:8px 12px 6px; font-size:14px; line-height:1.45; word-wrap:break-word; overflow-wrap:anywhere; position:relative; }
+.tg-row--client .tg-bubble { background: var(--card, #161616); border:1px solid var(--border); border-radius:16px 16px 16px 5px; color: var(--text); }
+.tg-row--designer .tg-bubble { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-radius:16px 16px 5px 16px; box-shadow: 0 6px 18px -8px rgba(249,115,22,.55); }
+.tg-row.tg-grouped.tg-row--client .tg-bubble { border-top-left-radius:6px; }
+.tg-row.tg-grouped.tg-row--designer .tg-bubble { border-top-right-radius:6px; }
+.tg-time { display:block; text-align:right; font-size:10px; opacity:.55; margin-top:2px; }
+.tg-bubble .trainer-msg-img { max-width:100%; width:260px; border-radius:10px; display:block; margin-bottom:6px; }
+.tg-typing { display:inline-flex; gap:4px; padding:4px 2px; }
+.tg-typing span { width:7px; height:7px; border-radius:50%; background: var(--text2, #9a9a9a); animation: tgDot .9s infinite ease-in-out; }
+.tg-typing span:nth-child(2){ animation-delay:.15s; } .tg-typing span:nth-child(3){ animation-delay:.3s; }
+@keyframes tgDot { 0%,60%,100% { opacity:.35; transform: translateY(0); } 30% { opacity:1; transform: translateY(-4px); } }
+.trainer-msg--payment { margin:8px 0; animation: tgPop .28s ease both; }
+
+.trainer-chat-footer { background: var(--card, #121212); padding:10px 12px; gap:8px; }
+.trainer-chat-footer input[type=text] { background: rgba(255,255,255,.05); border-radius:999px; padding:12px 16px; font-size:14px; outline:none; }
+.trainer-chat-footer input[type=text]:focus { border-color: var(--border-accent); box-shadow: 0 0 0 3px rgba(249,115,22,.12); }
+.trainer-chat-footer .mini-btn { width:42px; height:42px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+.chat-send-btn { transition: transform .15s; } .chat-send-btn:active { transform: scale(.9); }
+@media (min-width: 900px) {
+    .trainer-chat-screen { inset: 3vh 0 3vh 0; margin: 0 auto; max-width: 720px; border:1px solid var(--border); border-radius:20px; overflow:hidden; box-shadow: 0 30px 80px -20px rgba(0,0,0,.7); }
+}
 </style>
 </head>
 <body>
@@ -231,9 +281,11 @@ if (!$isPackDesigner) {
 <!-- Экран чата -->
 <div class="trainer-chat-screen" id="chatScreen">
     <div class="trainer-chat-header">
-        <button type="button" class="mini-btn" onclick="closeChatScreen()">← Назад</button>
+        <button type="button" class="mini-btn" onclick="closeChatScreen()">←</button>
+        <div class="tg-ava tg-ava--sm" id="chatAva">К</div>
         <div class="trainer-chat-title">
             <strong id="chatClientName">Клиент</strong>
+            <span class="tg-status" id="chatStatus">в сети</span>
             <span id="chatTopicLabel"></span>
         </div>
         <span id="chatDifficultyBadge" class="trainer-diff-badge"></span>
@@ -286,6 +338,21 @@ async function api(action, payload = {}, isFormData = false) {
     const res = await fetch(API, opts);
     return res.json();
 }
+
+
+// ── Мессенджер: цвет аватара по имени, группировка, время ──
+const AVA_COLORS = [['#fb923c','#f97316'],['#a78bfa','#7c3aed'],['#34d399','#059669'],['#60a5fa','#2563eb'],['#f472b6','#db2777'],['#fbbf24','#d97706']];
+function avaStyle(name){ let h=0; for (const c of String(name||'')) h=(h*31+c.charCodeAt(0))>>>0; const [a,b]=AVA_COLORS[h%AVA_COLORS.length]; return `--ava-a:${a};--ava-b:${b}`; }
+function avaLetter(name){ return esc(String(name||'К').trim().charAt(0) || 'К'); }
+function fmtTime(ts){ if(!ts) return ''; const d=new Date(String(ts).replace(' ','T')); return isNaN(d)?'':d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
+function setChatStatus(typing){ const el=document.getElementById('chatStatus'); el.textContent = typing ? 'печатает…' : 'в сети'; el.classList.toggle('typing', !!typing); }
+function showTypingBubble(){
+    const body=document.getElementById('chatBody');
+    const row=document.createElement('div'); row.className='tg-row tg-row--client'; row.id='tgTyping';
+    row.innerHTML='<div class="tg-bubble"><div class="tg-typing"><span></span><span></span><span></span></div></div>';
+    body.appendChild(row); body.scrollTop=body.scrollHeight; setChatStatus(true);
+}
+function hideTypingBubble(){ const t=document.getElementById('tgTyping'); if(t) t.remove(); setChatStatus(false); }
 
 function openSetupModal(){ document.getElementById('setupModal').classList.add('show'); }
 function closeSetupModal(){ document.getElementById('setupModal').classList.remove('show'); }
@@ -358,6 +425,8 @@ document.getElementById('btnStartSession').onclick = async () => {
 
 function openChatWithHistory(sessionData) {
     document.getElementById('chatClientName').textContent = sessionData.client_name;
+    const ava = document.getElementById('chatAva'); ava.textContent = String(sessionData.client_name||'К').trim().charAt(0) || 'К'; ava.setAttribute('style', avaStyle(sessionData.client_name));
+    setChatStatus(false);
     document.getElementById('chatTopicLabel').textContent = sessionData.topic;
     const diffLabels = {easy:'Легко', standard:'Стандарт', hard:'Сложно'};
     document.getElementById('chatDifficultyBadge').textContent = diffLabels[sessionData.difficulty] || sessionData.difficulty;
@@ -371,15 +440,19 @@ function openChatWithHistory(sessionData) {
 
 function addMessageBubble(m) {
     const body = document.getElementById('chatBody');
-    const div = document.createElement('div');
-    div.className = 'trainer-msg trainer-msg--' + (m.role === 'client' ? 'client' : 'designer');
+    const role = m.role === 'client' ? 'client' : 'designer';
+    const row = document.createElement('div');
+    const prev = body.lastElementChild;
+    const grouped = prev && prev.classList.contains('tg-row--' + role);
+    row.className = 'tg-row tg-row--' + role + (grouped ? ' tg-grouped' : '');
     let html = '';
     if (m.attachment_url) html += `<img src="${esc(m.attachment_url)}" class="trainer-msg-img">`;
     // страховка: даже если сервер пропустил маркер оплаты — не показываем его сырым
     const shown = (m.content || '').replace(/[`\s]*\[\s*PAYMENT_SUCCESS\b[^\]]*\][`]*/gi, '').trim();
     if (shown) html += `<div>${esc(shown).replace(/\n/g,'<br>')}</div>`;
-    div.innerHTML = html;
-    body.appendChild(div);
+    const t = fmtTime(m.created_at) || new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    row.innerHTML = `<div class="tg-bubble">${html}<span class="tg-time">${t}</span></div>`;
+    body.appendChild(row);
     body.scrollTop = body.scrollHeight;
 }
 
@@ -431,11 +504,7 @@ async function sendMessage() {
     if (!text || !currentSessionId) return;
     addMessageBubble({role:'designer', content:text});
     input.value = '';
-    const typing = document.createElement('div');
-    typing.className = 'trainer-msg trainer-msg--client trainer-msg--typing';
-    typing.textContent = 'печатает…';
-    document.getElementById('chatBody').appendChild(typing);
-    document.getElementById('chatBody').scrollTop = 9e9;
+    showTypingBubble();
 
     let r;
     try {
@@ -443,7 +512,7 @@ async function sendMessage() {
     } catch (e) {
         r = { ok: false };
     }
-    typing.remove();
+    hideTypingBubble();
     if (r.ok) {
         addMessageBubble({role:'client', content: r.reply});
         if (r.payment) addPaymentBubble(r.payment);
@@ -508,16 +577,23 @@ async function loadSessions() {
     const r = await api('list_sessions');
     const wrap = document.getElementById('trainerSessionsList');
     if (!r.ok || !r.sessions.length) { wrap.innerHTML = '<p class="trainer-empty">Пока нет тренировок — начни первую 👆</p>'; return; }
-    wrap.innerHTML = r.sessions.map(s => `
+    wrap.innerHTML = r.sessions.map(s => {
+        const sc = s.status === 'scored' ? Number(s.score) : null;
+        const cls = sc === null ? '' : (sc >= 80 ? 's-good' : sc >= 50 ? 's-mid' : 's-bad');
+        const meta = s.status === 'scored' ? '✅ Оценено: ' + s.score + '/100' : (s.status === 'submitted' ? '⏳ На проверке' : '💬 В процессе');
+        return `
         <div class="trainer-session-row" onclick="resumeSession(${s.id})">
-            <div class="trainer-session-icon">🎮</div>
-            <div>
-                <div class="trainer-session-title">${esc(s.client_name)} — ${esc(s.topic)}</div>
-                <div class="trainer-session-meta">${s.status === 'scored' ? '✅ Оценено: ' + s.score + '/100' : (s.status === 'submitted' ? '⏳ На проверке' : '💬 В процессе')}</div>
+            <div class="tg-ava" style="${avaStyle(s.client_name)}">${avaLetter(s.client_name)}</div>
+            <div class="trainer-session-main">
+                <div class="trainer-session-top">
+                    <div class="trainer-session-title">${esc(s.client_name)} — ${esc(s.topic)}</div>
+                    ${sc !== null ? `<span class="tg-score ${cls}">${sc}</span>` : (s.status === 'submitted' ? '' : '<span class="tg-live"></span>')}
+                </div>
+                <div class="trainer-session-meta">${meta}</div>
                 ${s.admin_reaction || s.admin_comment ? `<div class="trainer-kostlim-badge">${reactionEmoji(s.admin_reaction)} Отзыв от Kostlim</div>` : ''}
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 // Блок 4.3 ТЗ: реакция/комментарий, оставленные Kostlim в админке (или
