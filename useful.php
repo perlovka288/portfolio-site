@@ -104,6 +104,7 @@ function usefulRuDate(string $ts): string
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); ?>
+    <link rel="stylesheet" href="assets/rich-content.css?v=<?= @filemtime(__DIR__ . '/assets/rich-content.css') ?: time() ?>">
     <style>
         .useful-wrap { max-width: 900px; margin: 0 auto; padding: 22px 20px 50px; }
         .useful-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 18px; }
@@ -142,6 +143,8 @@ function usefulRuDate(string $ts): string
         .useful-article-body { line-height:1.7; color: var(--text2); }
         .useful-article-body img { max-width:100%; border-radius:10px; }
         .useful-article-body p { margin: 0 0 12px; }
+        .useful-article-body.rich-content { line-height:1.42; color:#F4F4F4; }
+        .useful-article-body.rich-content p { margin:0; }
         .useful-del-btn { background:none;border:none;color:#ef4444;font-size:12px;cursor:pointer;margin-left:auto; }
 
         .useful-comments-head { font-size:14px; font-weight:800; margin: 24px 0 12px; }
@@ -179,7 +182,7 @@ function usefulRuDate(string $ts): string
                 <span>✍️ <?= htmlspecialchars($openPost['author_name']) ?></span>
                 <span>🕐 <?= date('d.m.Y', strtotime($openPost['created_at'])) ?></span>
             </div>
-            <div class="useful-article-body"><?= $openPost['body_html'] ?></div>
+            <div class="useful-article-body rich-content"><?= $openPost['body_html'] ?></div>
         </div>
 
         <div class="useful-comments-head">💬 Комментарии</div>

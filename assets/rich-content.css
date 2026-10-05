@@ -1,0 +1,79 @@
+/* Kostlim: оформление опубликованного rich-текста (гайды, статьи «Полезностей»).
+   Зеркалит стили Quill (snow) + тему редактора из includes/rich_editor.php,
+   чтобы опубликованный текст выглядел 1:1 как в редакторе. */
+.rich-content{font-size:14px;line-height:1.42;color:#F4F4F4;word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap;tab-size:4;-moz-tab-size:4;text-align:left}
+.rich-content>*:first-child{margin-top:0}
+.rich-content p,.rich-content ol,.rich-content ul,.rich-content pre,.rich-content blockquote,.rich-content h1,.rich-content h2,.rich-content h3,.rich-content h4,.rich-content h5,.rich-content h6{margin:0;padding:0}
+.rich-content h1{font-size:2em}.rich-content h2{font-size:1.5em}.rich-content h3{font-size:1.17em}.rich-content h4{font-size:1em}.rich-content h5{font-size:.83em}.rich-content h6{font-size:.67em}
+.rich-content a{text-decoration:underline}
+.rich-content strong{font-weight:700}
+.rich-content img{max-width:100%;border-radius:8px}
+.rich-content .ql-video{display:block;max-width:100%}
+.rich-content .ql-ui{position:absolute}
+.rich-content .ql-font-serif{font-family:Georgia,Times New Roman,serif}
+.rich-content .ql-font-monospace{font-family:Monaco,Courier New,monospace}
+.rich-content .ql-size-small{font-size:.75em}
+.rich-content .ql-size-large{font-size:1.5em}
+.rich-content .ql-size-huge{font-size:2.5em}
+.rich-content .ql-align-center{text-align:center}
+.rich-content .ql-align-justify{text-align:justify}
+.rich-content .ql-align-right{text-align:right}
+.rich-content .ql-direction-rtl{direction:rtl;text-align:inherit}
+.rich-content .ql-cursor{display:none}
+.rich-content table{border-collapse:collapse}
+.rich-content table td{border:1px solid #333;padding:4px 8px}
+/* цитата и код — те же значения, что в редакторе */
+.rich-content blockquote{margin:5px 0;padding-left:16px;border-left:4px solid #ccc}
+.rich-content pre,.rich-content pre.ql-syntax,.rich-content .ql-code-block-container{background:#23241f;color:#f8f8f2;margin:5px 0;padding:5px 10px;border-radius:3px;overflow:visible;white-space:pre-wrap}
+.rich-content .ql-code-block-container .ql-code-block{white-space:pre-wrap}
+/* списки (Quill 2: <ol><li data-list=...>) */
+.rich-content ol,.rich-content ul{padding-left:1.5em}
+.rich-content li{list-style-type:none;padding-left:1.5em;position:relative}
+.rich-content li>.ql-ui:before{display:inline-block;margin-left:-1.5em;margin-right:.3em;text-align:right;white-space:nowrap;width:1.2em}
+.rich-content li[data-list=checked]>.ql-ui,.rich-content li[data-list=unchecked]>.ql-ui{color:#777}
+.rich-content li[data-list=bullet]>.ql-ui:before{content:'\2022'}
+.rich-content li[data-list=checked]>.ql-ui:before{content:'\2611'}
+.rich-content li[data-list=unchecked]>.ql-ui:before{content:'\2610'}
+.rich-content li[data-list]{counter-reset:list-1 list-2 list-3 list-4 list-5 list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered]{counter-increment:list-0}
+.rich-content li[data-list=ordered]>.ql-ui:before{content:counter(list-0,decimal) '. '}
+.rich-content li[data-list=ordered].ql-indent-1{counter-increment:list-1}
+.rich-content li[data-list=ordered].ql-indent-1>.ql-ui:before{content:counter(list-1,lower-alpha) '. '}
+.rich-content li[data-list].ql-indent-1{counter-reset:list-2 list-3 list-4 list-5 list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-2{counter-increment:list-2}
+.rich-content li[data-list=ordered].ql-indent-2>.ql-ui:before{content:counter(list-2,lower-roman) '. '}
+.rich-content li[data-list].ql-indent-2{counter-reset:list-3 list-4 list-5 list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-3{counter-increment:list-3}
+.rich-content li[data-list=ordered].ql-indent-3>.ql-ui:before{content:counter(list-3,decimal) '. '}
+.rich-content li[data-list].ql-indent-3{counter-reset:list-4 list-5 list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-4{counter-increment:list-4}
+.rich-content li[data-list=ordered].ql-indent-4>.ql-ui:before{content:counter(list-4,lower-alpha) '. '}
+.rich-content li[data-list].ql-indent-4{counter-reset:list-5 list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-5{counter-increment:list-5}
+.rich-content li[data-list=ordered].ql-indent-5>.ql-ui:before{content:counter(list-5,lower-roman) '. '}
+.rich-content li[data-list].ql-indent-5{counter-reset:list-6 list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-6{counter-increment:list-6}
+.rich-content li[data-list=ordered].ql-indent-6>.ql-ui:before{content:counter(list-6,decimal) '. '}
+.rich-content li[data-list].ql-indent-6{counter-reset:list-7 list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-7{counter-increment:list-7}
+.rich-content li[data-list=ordered].ql-indent-7>.ql-ui:before{content:counter(list-7,lower-alpha) '. '}
+.rich-content li[data-list].ql-indent-7{counter-reset:list-8 list-9}
+.rich-content li[data-list=ordered].ql-indent-8{counter-increment:list-8}
+.rich-content li[data-list=ordered].ql-indent-8>.ql-ui:before{content:counter(list-8,lower-roman) '. '}
+.rich-content li[data-list].ql-indent-8{counter-reset:list-9}
+.rich-content .ql-indent-1:not(.ql-direction-rtl){padding-left:3em}
+.rich-content li.ql-indent-1:not(.ql-direction-rtl){padding-left:4.5em}
+.rich-content .ql-indent-2:not(.ql-direction-rtl){padding-left:6em}
+.rich-content li.ql-indent-2:not(.ql-direction-rtl){padding-left:7.5em}
+.rich-content .ql-indent-3:not(.ql-direction-rtl){padding-left:9em}
+.rich-content li.ql-indent-3:not(.ql-direction-rtl){padding-left:10.5em}
+.rich-content .ql-indent-4:not(.ql-direction-rtl){padding-left:12em}
+.rich-content li.ql-indent-4:not(.ql-direction-rtl){padding-left:13.5em}
+.rich-content .ql-indent-5:not(.ql-direction-rtl){padding-left:15em}
+.rich-content li.ql-indent-5:not(.ql-direction-rtl){padding-left:16.5em}
+.rich-content .ql-indent-6:not(.ql-direction-rtl){padding-left:18em}
+.rich-content li.ql-indent-6:not(.ql-direction-rtl){padding-left:19.5em}
+.rich-content .ql-indent-7:not(.ql-direction-rtl){padding-left:21em}
+.rich-content li.ql-indent-7:not(.ql-direction-rtl){padding-left:22.5em}
+.rich-content .ql-indent-8:not(.ql-direction-rtl){padding-left:24em}
+.rich-content li.ql-indent-8:not(.ql-direction-rtl){padding-left:25.5em}

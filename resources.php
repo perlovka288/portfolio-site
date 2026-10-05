@@ -443,6 +443,9 @@ $iconPresets = packIconLabels();
         .res-guide { line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
         .res-guide p { margin: 0 0 12px; }
         .res-guide img { max-width:100%; border-radius:8px; }
+        /* HTML из редактора — оформление 1:1 как в редакторе (assets/rich-content.css) */
+        .res-guide.rich-content { line-height:1.42; color:#F4F4F4; }
+        .res-guide.rich-content p { margin:0; }
 
         /* ── Переключатель Плитка/Список (Блок 2.1 ТЗ), сохраняется в localStorage ── */
         .res-view-switch { display:flex; gap:4px; justify-content:center; margin-bottom:18px; }
@@ -497,6 +500,7 @@ $iconPresets = packIconLabels();
     <link rel="stylesheet" href="assets/res-video.css?v=<?= @filemtime(__DIR__ . '/assets/res-video.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-files.css?v=<?= @filemtime(__DIR__ . '/assets/res-files.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
+    <link rel="stylesheet" href="assets/rich-content.css?v=<?= @filemtime(__DIR__ . '/assets/rich-content.css') ?: time() ?>">
 </head>
 <body>
 
@@ -570,10 +574,12 @@ $iconPresets = packIconLabels();
         </div></div>
         <?php endif; ?>
         <?php if ($sdGuide !== ''): ?>
-            <div class="res-guide"><?php
-                // Обратная совместимость: гайд без HTML-тегов — обычный текст.
-                echo (strpos($sdGuide, '<') === false) ? nl2br(htmlspecialchars($sdGuide)) : $sdGuide;
-            ?></div>
+            <?php if (strpos($sdGuide, '<') === false): ?>
+            <?php // Обратная совместимость: гайд без HTML-тегов — обычный текст. ?>
+            <div class="res-guide"><?= nl2br(htmlspecialchars($sdGuide)) ?></div>
+            <?php else: ?>
+            <div class="res-guide rich-content"><?= $sdGuide ?></div>
+            <?php endif; ?>
         <?php else: ?>
             <p class="res-empty">Гайд ещё не добавлен.</p>
         <?php endif; ?>
