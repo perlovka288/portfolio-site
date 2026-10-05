@@ -64,6 +64,9 @@ function ensureResourcesSchema__run(PDO $pdo): void
         foreach (packBuiltinSections() as $i => $b) {
             $seed->execute([$b['slug'], $b['title'], $b['icon'], ($i + 1) * 10]);
         }
+        // Старые эмодзи-иконки встроенных разделов → линейные иконки
+        $fixIco = $pdo->prepare("UPDATE pack_sections SET icon = ? WHERE slug = ? AND icon NOT IN ('" . implode("','", packIconKeys()) . "')");
+        foreach (packBuiltinSections() as $b) { $fixIco->execute([$b['icon'], $b['slug']]); }
     } catch (Throwable $e) {
         error_log('ensureResourcesSchema error: ' . $e->getMessage());
     }
@@ -73,9 +76,9 @@ function ensureResourcesSchema__run(PDO $pdo): void
 function ensureResourcesSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensureResourcesSchema_v2')) { return; }
+    if (kuiSchemaDone('ensureResourcesSchema_v3')) { return; }
     ensureResourcesSchema__run($pdo);
-    kuiSchemaMark('ensureResourcesSchema_v2');
+    kuiSchemaMark('ensureResourcesSchema_v3');
 }
 
 function getResSetting(PDO $pdo, string $key, string $default = ''): string
@@ -306,10 +309,10 @@ function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
 function packBuiltinSections(): array
 {
     return [
-        ['slug' => 'psd',      'title' => 'PSD',     'icon' => '📁'],
-        ['slug' => 'font',     'title' => 'Шрифты',  'icon' => '🔤'],
-        ['slug' => 'brush',    'title' => 'Стили',   'icon' => '🎨'],
-        ['slug' => 'sd_video', 'title' => 'SD',      'icon' => '🖥'],
+        ['slug' => 'psd',      'title' => 'PSD',     'icon' => 'layers'],
+        ['slug' => 'font',     'title' => 'Шрифты',  'icon' => 'type'],
+        ['slug' => 'brush',    'title' => 'Стили',   'icon' => 'brush'],
+        ['slug' => 'sd_video', 'title' => 'SD',      'icon' => 'sparkles'],
     ];
 }
 
@@ -333,6 +336,32 @@ function getPackSections(PDO $pdo): array
     return $out;
 }
 
+
+/** Ключи линейных иконок разделов (см. ppkIcon) → подпись в выборе иконки. */
+function packIconLabels(): array
+{
+    return [
+        'folder' => 'Папка', 'layers' => 'Слои', 'image' => 'Картинка', 'type' => 'Шрифт',
+        'brush' => 'Кисть', 'palette' => 'Палитра', 'sparkles' => 'Магия', 'video' => 'Видео',
+        'camera' => 'Фото', 'box' => 'Набор', 'shapes' => 'Фигуры', 'ruler' => 'Линейка',
+        'droplet' => 'Капля', 'zap' => 'Молния', 'star' => 'Звезда', 'tile' => 'Сетка',
+    ];
+}
+function packIconKeys(): array { return array_keys(packIconLabels()); }
+
+/** Приводит значение иконки (ключ ИЛИ старый эмодзи) к ключу; по умолчанию — «box». */
+function packIconKey(string $v): string
+{
+    $v = trim($v);
+    if (in_array($v, packIconKeys(), true)) return $v;
+    $legacy = [
+        '📁' => 'folder', '🖼' => 'image', '🔤' => 'type', '🎨' => 'palette', '🖌' => 'brush', '✨' => 'sparkles',
+        '🎬' => 'video', '🎞' => 'video', '📦' => 'box', '🧩' => 'shapes', '📐' => 'ruler', '🧰' => 'box',
+        '🌈' => 'droplet', '📷' => 'camera', '⚡' => 'zap', '⭐' => 'star', '🖥' => 'sparkles',
+    ];
+    return $legacy[$v] ?? 'box';
+}
+
 function cleanSectionTitle(string $t): string
 {
     $t = trim(preg_replace('/\s+/u', ' ', strip_tags($t)));
@@ -341,8 +370,7 @@ function cleanSectionTitle(string $t): string
 
 function cleanSectionIcon(string $i): string
 {
-    $i = trim(strip_tags($i));
-    return mb_substr($i, 0, 4);
+    return packIconKey($i);
 }
 
 function createPackSection(PDO $pdo, string $title, string $icon): string
@@ -352,7 +380,7 @@ function createPackSection(PDO $pdo, string $title, string $icon): string
     $slug = 'c' . substr(md5(uniqid('', true)), 0, 9);
     $max = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), 0) FROM pack_sections")->fetchColumn();
     $pdo->prepare("INSERT INTO pack_sections (slug, title, icon, sort_order, is_builtin) VALUES (?, ?, ?, ?, FALSE)")
-        ->execute([$slug, $title, cleanSectionIcon($icon) ?: '📦', $max + 10]);
+        ->execute([$slug, $title, cleanSectionIcon($icon), $max + 10]);
     return $slug;
 }
 
@@ -361,7 +389,7 @@ function updatePackSection(PDO $pdo, string $slug, string $title, string $icon):
     $title = cleanSectionTitle($title);
     if ($title === '') return false;
     $pdo->prepare("UPDATE pack_sections SET title = ?, icon = ? WHERE slug = ?")
-        ->execute([$title, cleanSectionIcon($icon) ?: '📦', $slug]);
+        ->execute([$title, cleanSectionIcon($icon), $slug]);
     return true;
 }
 

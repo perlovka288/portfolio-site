@@ -208,13 +208,13 @@ function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
     $id = (int)$r['id'];
     $e = $eng[$id] ?? ['likes' => 0, 'liked' => false, 'favorited' => false];
     $type = (string)$r['type'];
-    $secIcon = $sec['icon'] !== '' ? $sec['icon'] : '📦';
+    $secIcon = packIconKey((string)($sec['icon'] ?? ''));
     $secTitle = $sec['title'] !== '' ? $sec['title'] : $type;
 
     $img = resImg((string)$r['preview_image']);
     $media = $img
         ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
-        : '<div class="service-cover-placeholder"><span>' . htmlspecialchars($secIcon) . '</span></div>';
+        : '<div class="service-cover-placeholder">' . ppkIcon($secIcon) . '</div>';
 
     $tg = trim((string)$r['telegram_url']);
     $fileUrl = $type === 'sd_video' ? (string)$r['video_url'] : (string)$r['file_url'];
@@ -279,7 +279,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText, 
     }
     $html = '<section class="price-grid-local">';
     foreach ($items as $r) {
-        $sec = $secBySlug[$r['type']] ?? ['title' => (string)$r['type'], 'icon' => '📦'];
+        $sec = $secBySlug[$r['type']] ?? ['title' => (string)$r['type'], 'icon' => 'box'];
         $html .= resCard($r, $eng, $isAdmin, $sec);
     }
     return $html . '</section>';
@@ -359,12 +359,13 @@ function resAddBlock(string $slug, string $secTitle): string {
 }
 
 /** Шапка панели: заголовок + иконки управления разделом (только админ) */
-function resPanelHead(array $sec, bool $isAdmin, string $titleOverride = '', bool $withAdd = true, bool $withGear = true): string {
-    $title = $titleOverride !== '' ? $titleOverride : (($sec['icon'] !== '' ? $sec['icon'] . ' ' : '') . $sec['title']);
-    $h = '<div class="res-panel-head"><h2>' . htmlspecialchars($title) . '</h2>';
+function resPanelHead(array $sec, bool $isAdmin, string $titleOverride = '', bool $withAdd = true, bool $withGear = true, string $iconKey = ''): string {
+    $title = $titleOverride !== '' ? $titleOverride : $sec['title'];
+    $ik = $iconKey !== '' ? $iconKey : packIconKey((string)$sec['icon']);
+    $h = '<div class="res-panel-head"><h2><span class="res-h-ico">' . ppkIcon($ik, 'ai--loop') . '</span>' . htmlspecialchars($title) . '</h2>';
     if ($isAdmin) {
         $secJson = htmlspecialchars(json_encode([
-            'slug' => $sec['slug'], 'title' => $sec['title'], 'icon' => $sec['icon'], 'builtin' => (bool)$sec['is_builtin'],
+            'slug' => $sec['slug'], 'title' => $sec['title'], 'icon' => packIconKey((string)$sec['icon']), 'builtin' => (bool)$sec['is_builtin'],
         ], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES);
         $h .= '<div class="res-head-ctl">';
         if ($withGear) $h .= '<button type="button" class="rib" title="Настроить раздел" data-sec="' . $secJson . '">' . ppkIcon('gear') . '</button>';
@@ -380,7 +381,7 @@ $emptyTexts = [
     'brush'    => 'Стилей и кистей пока нет.',
     'sd_video' => 'Видео пока нет.',
 ];
-$iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '📦', '🧩', '📐', '🧰', '🌈', '📷', '⚡', '⭐'];
+$iconPresets = packIconLabels();
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -491,7 +492,7 @@ $iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '
             <?php endforeach; ?>
             <button type="button" class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
             <?php if ($isAdmin): ?>
-            <button type="button" class="res-tab-add" title="Новый раздел" data-sec='{"slug":"","title":"","icon":"📦","builtin":false}'><?= ppkIcon('plus') ?><span>Раздел</span></button>
+            <button type="button" class="res-tab-add" title="Новый раздел" data-sec='{"slug":"","title":"","icon":"box","builtin":false}'><?= ppkIcon('plus') ?><span>Раздел</span></button>
             <?php endif; ?>
         </div>
     </div>
@@ -508,7 +509,7 @@ $iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '
     ?>
     <div class="res-panel<?= $i === 0 ? ' active' : '' ?>" id="panel-<?= htmlspecialchars($slug) ?>">
     <?php if ($slug === 'sd_video'): ?>
-        <?= resPanelHead($sx, $isAdmin, '🖥 Гайд по установке', false, true) ?>
+        <?= resPanelHead($sx, $isAdmin, 'Гайд по установке', false, true, 'book') ?>
         <?php if ($isAdmin): ?>
         <div class="res-guide-edit">
             <button type="button" class="rf-btn rf-btn--ghost rf-btn--sm" data-toggle="form-sd-guide"><?= ppkIcon('edit') ?><span>Изменить гайд</span></button>
@@ -533,7 +534,7 @@ $iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '
         <?php endif; ?>
 
         <div style="margin-top:36px;"></div>
-        <?= resPanelHead($sx, $isAdmin, '🎬 Видео и материалы', true, false) ?>
+        <?= resPanelHead($sx, $isAdmin, 'Видео и материалы', true, false, 'video') ?>
     <?php else: ?>
         <?= resPanelHead($sx, $isAdmin) ?>
     <?php endif; ?>
@@ -544,7 +545,7 @@ $iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '
 
     <!-- Избранное -->
     <div class="res-panel" id="panel-fav">
-        <div class="res-panel-head"><h2>⭐ Избранное</h2></div>
+        <div class="res-panel-head"><h2><span class="res-h-ico"><?= ppkIcon('bookmark', 'ai--loop') ?></span>Избранное</h2></div>
         <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.', $secBySlug) ?>
     </div>
 </main>
@@ -588,10 +589,10 @@ $iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '
         <div class="rf-field"><label class="rf-lab">Название раздела</label>
             <input class="rf-input" type="text" name="sec_title" maxlength="40" placeholder="Например: Экшены" required></div>
         <div class="rf-field"><label class="rf-lab">Иконка</label>
-            <div class="rf-emoji">
-                <?php foreach ($iconPresets as $em): ?><button type="button" class="rf-emo" data-emo="<?= $em ?>"><?= $em ?></button><?php endforeach; ?>
+            <div class="rf-emoji" role="radiogroup" aria-label="Иконка раздела">
+                <?php foreach ($iconPresets as $ik => $lab): ?><button type="button" class="rf-emo" data-ico="<?= $ik ?>" title="<?= htmlspecialchars($lab) ?>" aria-label="<?= htmlspecialchars($lab) ?>"><?= ppkIcon($ik) ?></button><?php endforeach; ?>
             </div>
-            <input class="rf-input rf-input--emo" type="text" name="sec_icon" maxlength="4" placeholder="📦" autocomplete="off">
+            <input type="hidden" name="sec_icon" value="box">
         </div>
         <div class="rf-actions">
             <button type="submit" name="action" value="save_section" class="rf-btn rf-btn--primary"><?= ppkIcon('check') ?><span>Сохранить</span></button>
@@ -737,7 +738,7 @@ function resSetView(mode) {
         f.querySelector('[name=slug]').value = d.slug || '';
         f.querySelector('[name=tab_back]').value = d.slug || resCurrentTab();
         f.querySelector('[name=sec_title]').value = d.title || '';
-        var ic = f.querySelector('[name=sec_icon]'); ic.value = d.icon || '';
+        var ic = f.querySelector('[name=sec_icon]'); ic.value = d.icon || 'box';
         markEmo(ic.value);
         var del = document.getElementById('secDel'), hint = document.getElementById('secHint');
         del.classList.remove('armed'); del.querySelector('span').textContent = 'Удалить раздел';
@@ -752,7 +753,7 @@ function resSetView(mode) {
         dlgSec.showModal();
     }
     function markEmo(v) {
-        document.querySelectorAll('.rf-emo').forEach(function(b){ b.classList.toggle('is-on', b.dataset.emo === v); });
+        document.querySelectorAll('.rf-emo').forEach(function(b){ b.classList.toggle('is-on', b.dataset.ico === v); });
     }
 
     document.addEventListener('click', function(ev){
@@ -781,7 +782,7 @@ function resSetView(mode) {
         if (t.closest('[data-close]')) { var dlg = t.closest('dialog'); if (dlg) dlg.close(); return; }
         if (t.tagName === 'DIALOG') { t.close(); return; } // клик по подложке
         var emo = t.closest('.rf-emo');
-        if (emo) { var inp = document.querySelector('#secForm [name=sec_icon]'); inp.value = emo.dataset.emo; markEmo(emo.dataset.emo); return; }
+        if (emo) { var inp = document.querySelector('#secForm [name=sec_icon]'); inp.value = emo.dataset.ico; markEmo(emo.dataset.ico); return; }
         var sd = t.closest('#secDel');
         if (sd && !sd.classList.contains('armed')) { // двойное подтверждение удаления раздела
             ev.preventDefault();
@@ -789,8 +790,6 @@ function resSetView(mode) {
             setTimeout(function(){ sd.classList.remove('armed'); sd.querySelector('span').textContent = 'Удалить раздел'; }, 3500);
         }
     });
-    var secInp = document.querySelector('#secForm [name=sec_icon]');
-    if (secInp) secInp.addEventListener('input', function(){ markEmo(secInp.value.trim()); });
 })();
 
 // Лайки/избранное — оптимистичное обновление UI + запрос в resources_api.php.

@@ -73,7 +73,6 @@
 .rf-input:hover { border-color: rgba(255,255,255,.2); }
 .rf-input:focus { border-color: var(--rf-or); box-shadow: 0 0 0 4px rgba(255,122,0,.16); background: #0e0e0e; }
 .rf-area { min-height: 84px; resize: vertical; }
-.rf-input--emo { max-width: 120px; text-align: center; font-size: 20px; padding: 9px; }
 
 /* ── Переключатель источника (сегмент) ── */
 .rf-seg { display: flex; gap: 4px; padding: 4px; background: var(--rf-bg); border: 1px solid var(--rf-line); border-radius: 14px; }
@@ -157,11 +156,85 @@
 .rf-del-ico .ai { width: 28px; height: 28px; vertical-align: 0; }
 .rf-del-t { margin: 0; text-align: center; font-size: 18px; }
 
-/* эмодзи-иконки раздела */
-.rf-emoji { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
-.rf-emo { aspect-ratio: 1; display: grid; place-items: center; font-size: 19px; cursor: pointer; border-radius: 11px; border: 1px solid var(--rf-line); background: var(--rf-bg); transition: transform .15s, border-color .2s, background .2s; }
-.rf-emo:hover { transform: scale(1.1); border-color: rgba(255,122,0,.5); }
-.rf-emo.is-on { border-color: var(--rf-or); background: rgba(255,122,0,.18); box-shadow: 0 0 0 3px rgba(255,122,0,.18); }
+/* выбор иконки раздела (линейные анимированные иконки) */
+.rf-emoji { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.rf-emo {
+    aspect-ratio: 1; display: grid; place-items: center; padding: 0; cursor: pointer; color: #b4b4bc;
+    border-radius: 13px; border: 1px solid var(--rf-line); background: var(--rf-bg);
+    transition: transform .15s, border-color .2s, background .2s, color .2s, box-shadow .2s;
+}
+.rf-emo .ai { width: 22px; height: 22px; vertical-align: 0; }
+.rf-emo:hover { transform: translateY(-2px); color: #fff; border-color: rgba(255,122,0,.5); }
+.rf-emo.is-on { color: var(--rf-or); border-color: var(--rf-or); background: rgba(255,122,0,.14); box-shadow: 0 0 0 3px rgba(255,122,0,.16); }
+.rf-emo.is-on .ai * { animation-play-state: running; }
+
+/* иконка в заголовке панели и на заглушке карточки */
+.res-h-ico { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; color: var(--rf-or);
+    background: rgba(255,122,0,.12); border: 1px solid rgba(255,122,0,.3); }
+.res-h-ico .ai { width: 18px; height: 18px; vertical-align: 0; }
+.res-card-media > .service-cover-placeholder .ai, .rd-media > .service-cover-placeholder .ai { width: 46px; height: 46px; color: var(--rf-or); vertical-align: 0; }
+.res-card-wrap:hover .service-cover-placeholder .ai * { animation-play-state: running; }
+.rf-drop-ico .ai * , .rib .ai * { animation-play-state: paused; }
+.rf-drop:hover .rf-drop-ico .ai * { animation-play-state: running; }
+
+/* ═════════ Анимации иконок разделов ═════════ */
+/* folder: передняя «створка» приоткрывается */
+.ai-folder .a-fl { transform-origin: 50% 100%; animation: icFolder 2.4s ease-in-out infinite; }
+@keyframes icFolder { 0%, 100% { transform: none; } 45%, 70% { transform: skewX(-8deg) scaleY(.9); } }
+/* layers: слои «раздвигаются» */
+.ai-layers .a-ly1 { animation: icLy1 2.4s ease-in-out infinite; }
+.ai-layers .a-ly3 { animation: icLy3 2.4s ease-in-out infinite; }
+@keyframes icLy1 { 0%, 100% { transform: none; } 45%, 70% { transform: translateY(-2.5px); } }
+@keyframes icLy3 { 0%, 100% { transform: none; } 45%, 70% { transform: translateY(2.5px); } }
+/* type: маленькая «a» подпрыгивает */
+.ai-type .a-tt { animation: icType 2.2s ease-in-out infinite; }
+@keyframes icType { 0%, 100% { transform: none; } 40% { transform: translateY(-2.5px) rotate(-8deg); } 60% { transform: translateY(0) rotate(4deg); } }
+/* brush: мазок */
+.ai-brush .a-brush { transform-origin: 20% 80%; animation: icBrush 2s ease-in-out infinite; }
+@keyframes icBrush { 0%, 100% { transform: none; } 35% { transform: rotate(-14deg) translate(-1px, 0); } 70% { transform: rotate(8deg); } }
+/* palette: точки краски мигают по очереди */
+.ai-palette .a-dot1 { animation: icDot 2.4s ease-in-out infinite 0s; }
+.ai-palette .a-dot2 { animation: icDot 2.4s ease-in-out infinite .2s; }
+.ai-palette .a-dot3 { animation: icDot 2.4s ease-in-out infinite .4s; }
+.ai-palette .a-dot4 { animation: icDot 2.4s ease-in-out infinite .6s; }
+@keyframes icDot { 0%, 60%, 100% { transform: scale(1); } 30% { transform: scale(1.9); } }
+/* sparkles: искры мерцают */
+.ai-sparkles .a-sp1 { animation: icSp1 2.2s ease-in-out infinite; }
+.ai-sparkles .a-sp2 { animation: icSp2 2.2s ease-in-out infinite; }
+@keyframes icSp1 { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(.82) rotate(18deg); } }
+@keyframes icSp2 { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .45; } }
+/* video: «камера» мигает как запись */
+.ai-video .a-cam { animation: icCam 2s ease-in-out infinite; }
+@keyframes icCam { 0%, 100% { transform: none; } 50% { transform: scaleX(.78) translateX(1.5px); } }
+/* camera: диафрагма «фокусируется» */
+.ai-camera .a-lens { animation: icLens 2.4s ease-in-out infinite; }
+@keyframes icLens { 0%, 100% { transform: scale(1); } 40% { transform: scale(.55); } 60% { transform: scale(1.12); } }
+/* box: подпрыгивает */
+.ai-box .a-box { animation: icBox 2s ease-in-out infinite; }
+@keyframes icBox { 0%, 100% { transform: none; } 40% { transform: translateY(-2.5px) rotate(-4deg); } 65% { transform: translateY(0) rotate(2deg); } }
+/* shapes: фигуры вращаются */
+.ai-shapes .a-sq { animation: icSq 2.6s ease-in-out infinite; }
+.ai-shapes .a-tri { animation: icTri 2.6s ease-in-out infinite; }
+@keyframes icSq { 0%, 100% { transform: none; } 50% { transform: rotate(90deg); } }
+@keyframes icTri { 0%, 100% { transform: none; } 50% { transform: rotate(-12deg) translateY(-1.5px); } }
+/* ruler: покачивается */
+.ai-ruler .a-ruler { animation: icRuler 2.2s ease-in-out infinite; }
+@keyframes icRuler { 0%, 100% { transform: none; } 40% { transform: rotate(-10deg); } 70% { transform: rotate(5deg); } }
+/* droplet: капля пульсирует */
+.ai-droplet .a-dr { transform-origin: 50% 70%; animation: icDrop 1.8s ease-in-out infinite; }
+@keyframes icDrop { 0%, 100% { transform: none; } 40% { transform: scale(.9, 1.12) translateY(-1px); } 70% { transform: scale(1.08, .92); } }
+/* zap / star */
+.ai-zap .a-zap { animation: icZap 1.6s ease-in-out infinite; }
+@keyframes icZap { 0%, 100% { transform: none; } 45% { transform: scale(1.14) rotate(-6deg); filter: drop-shadow(0 0 4px currentColor); } }
+.ai-star .a-st { animation: icStar 2.4s ease-in-out infinite; }
+@keyframes icStar { 0%, 100% { transform: none; } 50% { transform: rotate(72deg) scale(1.1); } }
+/* image: «солнце» пульсирует */
+.ai-image .a-sun { animation: icSun 2.2s ease-in-out infinite; }
+@keyframes icSun { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.5); } }
+/* plus: поворот при открытии */
+.ai-plus .a-plus { transform-origin: 50% 50%; }
+
+@media (prefers-reduced-motion: reduce) { .ai * { animation: none !important; } }
 
 /* ── Уведомление ── */
 .res-toast {
@@ -180,7 +253,7 @@
     .rf-form { padding: 16px; border-radius: 18px; }
     .rf-seg-opt span { padding: 10px 4px; font-size: 12px; gap: 5px; }
     .rf-seg-opt .ai { display: none; }
-    .rf-emoji { grid-template-columns: repeat(6, 1fr); }
+    .rf-emoji { grid-template-columns: repeat(4, 1fr); }
     .rf-actions .rf-btn { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
