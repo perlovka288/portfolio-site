@@ -318,7 +318,7 @@ function resItemFields(string $slug, bool $edit): string {
         . '<label class="rf-drop rf-drop--img" data-kind="image">'
         . '<input type="file" name="resource_image" accept="image/*">'
         . '<span class="rf-drop-ico">' . ppkIcon('image') . '</span>'
-        . '<span class="rf-drop-t"><b>Выбрать картинку</b><small>или перетащи сюда · JPG, PNG, WEBP</small></span>'
+        . '<span class="rf-drop-t"><b>Выбрать картинку</b><small>перетащи, либо нажми Ctrl+V — вставится скриншот из буфера</small></span>'
         . '<img class="rf-drop-thumb" alt="">'
         . '</label>'
         . ($edit ? '<label class="rf-switch"><input type="checkbox" name="remove_preview" value="1"><span class="rf-switch-track"><i></i></span><span class="rf-switch-t">Убрать превью</span></label>' : '')
@@ -703,6 +703,35 @@ function resSetView(mode) {
         if (!form.classList || !form.classList.contains('rf-form')) return;
         var btn = form.querySelector('.rf-btn--primary[type=submit]');
         if (btn) { btn.classList.add('is-busy'); btn.querySelector('span').textContent = 'Подожди…'; setTimeout(function(){ btn.disabled = true; }, 0); }
+    });
+
+    // ── Ctrl+V: вставка скриншота из буфера обмена прямо в «Превью» открытой формы ──
+    document.addEventListener('paste', function(ev){
+        var cd = ev.clipboardData; if (!cd || !cd.items) return;
+        var img = null;
+        for (var i = 0; i < cd.items.length; i++) {
+            if (cd.items[i].kind === 'file' && cd.items[i].type.indexOf('image/') === 0) { img = cd.items[i].getAsFile(); break; }
+        }
+        if (!img) return; // обычный текст вставляется как всегда
+        // какая форма активна: та, где курсор → открытое окно → раскрытая форма добавления
+        var form = document.activeElement && document.activeElement.closest ? document.activeElement.closest('form.rf-form') : null;
+        if (!form) {
+            var dlg = document.querySelector('dialog[open] form.rf-form');
+            var open = document.querySelector('.rf-wrap.is-open form.rf-form');
+            form = dlg || open;
+        }
+        if (!form) return;
+        var drop = form.querySelector('.rf-drop--img'); if (!drop) return;
+        var inp = drop.querySelector('input[type=file]');
+        var ext = (img.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        var file = new File([img], 'screenshot_' + Date.now() + '.' + ext, { type: img.type });
+        try {
+            var dt = new DataTransfer(); dt.items.add(file); inp.files = dt.files;
+        } catch (e) { return; }
+        ev.preventDefault();
+        var rm = form.querySelector('[name=remove_preview]'); if (rm) rm.checked = false;
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        drop.classList.add('is-pasted'); setTimeout(function(){ drop.classList.remove('is-pasted'); }, 900);
     });
 
     var dlgEdit = document.getElementById('dlgEdit'), dlgDel = document.getElementById('dlgDel'), dlgSec = document.getElementById('dlgSec');
