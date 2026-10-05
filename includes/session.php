@@ -122,7 +122,9 @@ function processTgAutoLink(PDO $pdo): void {
     $sid = session_id();
 
     try {
-        // Создаём таблицу tg_auto_links если вдруг нет
+        // Создаём таблицу tg_auto_links если вдруг нет (один раз на контейнер, не на каждый заход)
+        if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+        if (!kuiSchemaDone('tg_auto_links_table')) {
         $pdo->exec("CREATE TABLE IF NOT EXISTS tg_auto_links (
             id            SERIAL PRIMARY KEY,
             token         VARCHAR(64) NOT NULL UNIQUE,
@@ -134,6 +136,8 @@ function processTgAutoLink(PDO $pdo): void {
             created_at    TIMESTAMP DEFAULT NOW(),
             expires_at    TIMESTAMP DEFAULT NOW() + INTERVAL '72 hours'
         )");
+        kuiSchemaMark('tg_auto_links_table');
+        }
 
         // ⚠️ УДАЛЕНО: раньше здесь был "запасной" вариант токена вида
         // "tgid_<число>", который принимался БЕЗ какой-либо проверки —
@@ -295,12 +299,28 @@ function _saveTgToSession(PDO $pdo, string $sid, int $tg_id, string $uname, stri
 function ensureTgAvatarFresh(PDO $pdo, string $sid, string $tg_id, string $currentPhoto, ?string $lastCheckedAt = null): string {
     if ($tg_id === '') return $currentPhoto;
 
+    // ── Когда вообще имеет смысл ходить в Telegram ──────────────────────────────────────────
+    // РАНЬШЕ: ни один вызов (index/profile/support) не передавал $lastCheckedAt, поэтому функция
+    // считала аватарку «протухшей» на КАЖДОЙ загрузке страницы и каждый раз делала: ALTER TABLE,
+    // 3 запроса к Telegram API, скачивание фото и НОВУЮ заливку в Cloudinary (≈2 секунды на каждый
+    // заход привязанного пользователя + мусор в Cloudinary). ТЕПЕРЬ возраст проверки берём из БД
+    // (один быстрый запрос), полное обновление — раз в 6 часов; если фото пустое/временная ссылка
+    // Telegram — повтор не чаще раза в 15 минут.
     $refreshEveryHours = 6;
-    $isStale = true;
-    if ($lastCheckedAt) {
-        $isStale = (time() - strtotime($lastCheckedAt)) > ($refreshEveryHours * 3600);
+    $retrySeconds      = 900;
+    $ageSeconds        = null;                         // null = ещё ни разу не проверяли
+    try {
+        $ageStmt = $pdo->prepare("SELECT EXTRACT(EPOCH FROM (NOW() - tg_avatar_checked_at)) FROM tg_links WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+        $ageStmt->execute([$sid]);
+        $ageVal = $ageStmt->fetchColumn();
+        if ($ageVal !== false && $ageVal !== null) { $ageSeconds = (float)$ageVal; }
+    } catch (Throwable $e) {
+        // колонки ещё нет (свежий деплой) — ниже она создастся, обновим один раз
     }
-    $needsRefresh = ($currentPhoto === '' || str_starts_with($currentPhoto, 'https://api.telegram.org') || $isStale);
+    $brokenPhoto  = ($currentPhoto === '' || str_starts_with($currentPhoto, 'https://api.telegram.org'));
+    $needsRefresh = ($ageSeconds === null)
+        || ($ageSeconds > $refreshEveryHours * 3600)
+        || ($brokenPhoto && $ageSeconds > $retrySeconds);
     if (!$needsRefresh) return $currentPhoto;
 
     // Отмечаем момент проверки СРАЗУ (даже если ниже не получится ничего

@@ -49,6 +49,9 @@ function daFetchJson(string $url, array $fields = [], array $headers = []): ?arr
 
 function daEnsureTables(PDO $pdo): void
 {
+    // KUI: схема проверяется один раз на контейнер, а не на каждой загрузке страницы
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/includes/schema_once.php'; }
+    if (kuiSchemaDone('daEnsureTables')) { return; }
     $pdo->exec("CREATE TABLE IF NOT EXISTS da_tokens (
         id SERIAL PRIMARY KEY,
         access_token TEXT NOT NULL,
@@ -64,6 +67,7 @@ function daEnsureTables(PDO $pdo): void
         payout_date TIMESTAMP WITH TIME ZONE NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )");
+    kuiSchemaMark('daEnsureTables');
 }
 
 function daStoreTokens(PDO $pdo, array $tokens): void
