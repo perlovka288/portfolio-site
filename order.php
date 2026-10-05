@@ -803,10 +803,16 @@ function slotFormFields(int $slot, array $services, string $selectedService, str
             </div>
         </div>
         <div class="mb16">
-            <label class="order-label">Детали заказа (ТЗ, пожелания)</label>
-            <div class="tz-textarea-wrap">
-                <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль..." class="order-textarea tz-textarea"></textarea>
-                <button type="button" class="ai-tz-help-btn" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">✨ AI</button>
+            <div class="tz-field">
+                <textarea name="details" id="s<?= $s ?>_details" required placeholder="Опиши цвета, персонажей, текст, стиль…" class="tz-textarea" rows="4"></textarea>
+                <label for="s<?= $s ?>_details" class="tz-label">Детали заказа (ТЗ, пожелания)</label>
+                <div class="tz-foot">
+                    <span class="tz-count" data-tz-count="s<?= $s ?>_details">0 симв.</span>
+                    <button type="button" class="ai-tz-help-btn" title="ИИ поможет составить ТЗ" onclick="window.openAiWidgetPanel && window.openAiWidgetPanel('tz','s<?= $s ?>_details')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+                        <span>AI-помощник</span>
+                    </button>
+                </div>
             </div>
         </div>
         <div class="file-upload-block mb22" data-slot="<?= $s ?>">
@@ -1538,15 +1544,50 @@ document.getElementById('notify-modal').addEventListener('click', function(e) {
 .promo-hint { font-size:12px; margin-top:6px; min-height:1px; }
 .promo-hint.valid { color:#4ade80; }
 .promo-hint.invalid { color:#fb7185; }
-.ai-tz-help-btn {
-    position: absolute; right: 8px; bottom: 8px;
-    background: rgba(249,115,22,.15); border: 1px solid rgba(249,115,22,.4); color: #fdba74;
-    font-size: 11px; font-weight: 900; border-radius: 8px; padding: 7px 11px; cursor: pointer;
-    font-family: inherit; white-space: nowrap; transition: .15s; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+/* ── Поле ТЗ: «плавающий» заголовок + нижняя панель с кнопкой ИИ ── */
+.tz-field {
+    position: relative; background: var(--card2, #16161f); border: 1px solid var(--border2, #262633);
+    border-radius: 16px; transition: border-color .2s, box-shadow .2s;
 }
-.ai-tz-help-btn:hover { background: rgba(249,115,22,.28); border-color: #f97316; transform: translateY(-1px); }
-.tz-textarea-wrap { position: relative; }
-.tz-textarea { padding-bottom: 42px !important; }
+.tz-field:focus-within {
+    border-color: var(--accent, #f97316);
+    box-shadow: 0 0 0 3px rgba(249,115,22,.14), 0 0 26px rgba(249,115,22,.12);
+}
+.tz-textarea {
+    display: block; width: 100%; box-sizing: border-box; min-height: 118px; max-height: 360px;
+    resize: none; overflow-y: auto; background: transparent !important; border: 0 !important; outline: 0; box-shadow: none !important;
+    color: #fff; font: inherit; font-size: 16px; line-height: 1.5; padding: 32px 16px 6px; border-radius: 16px 16px 0 0 !important;
+}
+.tz-textarea::placeholder { color: transparent; transition: color .2s; }
+.tz-textarea:focus::placeholder { color: #6b6b76; }
+.tz-label {
+    position: absolute; left: 16px; top: 18px; margin: 0; max-width: calc(100% - 32px);
+    font-size: 15px; font-weight: 600; color: #8a8a96; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: none; transform-origin: left top;
+    transition: transform .22s cubic-bezier(.22,1,.36,1), color .2s, letter-spacing .2s;
+}
+.tz-textarea:focus ~ .tz-label,
+.tz-textarea:not(:placeholder-shown) ~ .tz-label {
+    transform: translateY(-10px) scale(.74); color: var(--accent2, #fb923c); font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
+}
+.tz-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 10px 10px 16px; }
+.tz-count { font-size: 11.5px; color: #6b6b76; font-variant-numeric: tabular-nums; user-select: none; }
+.ai-tz-help-btn {
+    display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px 8px 11px; border-radius: 999px; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 800; letter-spacing: .2px; color: #fdba74; white-space: nowrap;
+    background: linear-gradient(135deg, rgba(251,146,60,.20), rgba(249,115,22,.08));
+    border: 1px solid rgba(249,115,22,.40); box-shadow: 0 4px 14px -6px rgba(249,115,22,.55), inset 0 1px 0 rgba(255,255,255,.06);
+    transition: background .18s, color .18s, border-color .18s, box-shadow .18s, transform .12s;
+}
+.ai-tz-help-btn svg { width: 16px; height: 16px; flex-shrink: 0; color: #fb923c; transition: transform .35s cubic-bezier(.22,1,.36,1), color .18s; }
+.ai-tz-help-btn:hover {
+    color: #fff; border-color: transparent; background: linear-gradient(135deg, #fb923c, #f97316);
+    box-shadow: 0 8px 22px -8px rgba(249,115,22,.9);
+}
+.ai-tz-help-btn:hover svg { color: #fff; transform: rotate(18deg) scale(1.12); }
+.ai-tz-help-btn:active { transform: scale(.96); }
+.ai-tz-help-btn:focus-visible { outline: 2px solid rgba(251,146,60,.7); outline-offset: 2px; }
+@media (max-width: 380px) { .ai-tz-help-btn span { display: none; } .ai-tz-help-btn { padding: 9px 11px; } }
 .slot-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #1f1f2a; }
 .slot-header-title { font-size:14px; font-weight:900; color:#f97316; text-transform:uppercase; letter-spacing:1px; }
 .btn-remove-slot { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#fca5a5; border-radius:7px; padding:6px 12px; font-size:11px; font-weight:800; cursor:pointer; font-family:inherit; transition:.15s; }
@@ -2547,5 +2588,24 @@ $aiWidgetHideFab = true;
 include __DIR__ . '/includes/ai_widget.php';
 ?>
 <script src="/assets/kostlim-ui.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-ui.js') ?: time() ?>"></script>
+<script>
+(function () {
+    function sync(ta) {
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight + 2, 360) + 'px';
+        var c = document.querySelector('[data-tz-count="' + ta.id + '"]');
+        if (c) c.textContent = ta.value.length.toLocaleString('ru-RU') + ' симв.';
+    }
+    function init() {
+        document.querySelectorAll('.tz-textarea').forEach(function (ta) {
+            ta.addEventListener('input', function () { sync(ta); });
+            ta.addEventListener('focus', function () { sync(ta); });
+            sync(ta);
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+    window.kuiTzSync = function () { document.querySelectorAll('.tz-textarea').forEach(sync); };
+})();
+</script>
 </body>
 </html>
