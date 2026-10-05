@@ -1923,14 +1923,21 @@ $orderStats = $pdo->query("
     FROM orders
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
 
-$daAccessToken  = daEnsureAccessToken($pdo);
-$daConnected    = $daAccessToken !== null;
+// Статистика DonationAlerts в админке скрыта (блок ниже под if(false)), поэтому внешний запрос к API
+// (≈0.5 сек на каждую загрузку админки) больше не делаем. Включить обратно: $daStatsEnabled = true;
+$daStatsEnabled     = false;
+$daAccessToken      = null;
+$daConnected        = false;
 $daDonationTotalUsd = 0.0;
-$daPayoutStats  = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
-if ($daConnected) {
-    $daDonations = daGetDonations($pdo, 200);
-    $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
-    $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
+$daPayoutStats      = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+if ($daStatsEnabled) {
+    $daAccessToken = daEnsureAccessToken($pdo);
+    $daConnected   = $daAccessToken !== null;
+    if ($daConnected) {
+        $daDonations = daGetDonations($pdo, 200);
+        $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
+        $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
+    }
 }
 
 $revenue = $pdo->query("

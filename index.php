@@ -233,22 +233,23 @@ if (isset($_GET['code']) && trim((string)$_GET['code']) !== '') {
     }
 }
 
-$daAccessToken = daEnsureAccessToken($pdo);
-$daConnected = $daAccessToken !== null;
+// Эти значения на главной нигде не выводятся (статистика донатов убрана), а раньше тут шёл внешний
+// HTTP-запрос к DonationAlerts на каждую загрузку у админа (≈0.5 сек) + обновление токена у случайного
+// посетителя раз в час. Отключено. Включить обратно: $daStatsEnabled = true;
+// (обмен кода авторизации ?code=… выше остаётся — через него подключается DonationAlerts).
+$daStatsEnabled     = false;
+$daAccessToken      = null;
+$daConnected        = false;
 $daDonationTotalUsd = 0.0;
-$daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
-
-if ($isAdmin && $daConnected) {
-    // Раньше тут был внешний HTTP-запрос к DonationAlerts на КАЖДУЮ загрузку главной у админа (≈0.5 сек).
-    // Теперь результат кешируется на 90 секунд; пустой ответ (сбой API) не кешируем — повторим при следующем заходе.
-    require_once __DIR__ . '/includes/kui_cache.php';
-    $daDonations = kuiCache('da_donations', 90, function () use ($pdo) {
-        $d = daGetDonations($pdo, 200);
-        return !empty($d) ? $d : null;
-    });
-    if (!is_array($daDonations)) { $daDonations = []; }
-    $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
-    $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
+$daPayoutStats      = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
+if ($daStatsEnabled) {
+    $daAccessToken = daEnsureAccessToken($pdo);
+    $daConnected   = $daAccessToken !== null;
+    if ($isAdmin && $daConnected) {
+        $daDonations = daGetDonations($pdo, 200);
+        $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
+        $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
+    }
 }
 
 function imgSrc(string $val, string $base = 'uploads/'): string {
