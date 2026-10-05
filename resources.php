@@ -50,95 +50,120 @@ if (!$isPackDesigner) {
 
 $myTgId = $access['tgId'];
 
-// ── Добавление/удаление ресурсов прямо с этой страницы — ТОЛЬКО админ ──
-$message = '';
+// ── Все изменения (добавить / править / удалить материалы и разделы) — ТОЛЬКО админ ──
+$flashMsg = '';
+$flashType = 'ok';
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    if ($action === 'add_resource') {
-        $type = $_POST['type'] ?? '';
-        if (in_array($type, ['psd', 'font', 'brush', 'sd_video'], true)) {
-            $data = [
-                'type'        => $type,
-                'title'       => trim((string)($_POST['title'] ?? '')),
-                'description' => trim((string)($_POST['description'] ?? '')),
-            ];
-            if ($type === 'psd') {
-                $data['preview_image'] = uploadPackResourcePreview($pdo, 'resource_image', __DIR__ . '/uploads/pack_resources/');
-                if ($data['preview_image'] === '' && !empty($_FILES['resource_image']['name']) && !empty($GLOBALS['kuiImgWarn'])) { $message = $GLOBALS['kuiImgWarn']; }
-                $data['telegram_url']  = trim((string)($_POST['telegram_url'] ?? ''));
-            } elseif ($type === 'sd_video') {
-                $link = trim((string)($_POST['resource_link'] ?? ''));
-                if ($link !== '') {
-                    // Готовая ссылка (Блок «большой файл» — form-upload на
-                    // бесплатном хостинге ограничен размером POST-запроса и
-                    // временем выполнения, поэтому для файлов от ~15-20 МБ
-                    // надёжнее вставить прямую ссылку, а не грузить через форму).
-                    // Если это ссылка на Google Drive и файл лежит в папке,
-                    // доступной сервис-аккаунту — качаем потом через API
-                    // (download.php), это надёжнее, чем публичная ссылка
-                    // с предупреждением о вирусах у больших файлов.
-                    $data['video_url'] = $link;
-                    $gdId = extractGDriveFileId($link);
-                    if ($gdId) { $data['file_id'] = $gdId; $data['file_name'] = trim((string)($_POST['title'] ?? '')); }
-                } elseif (!empty($_FILES['resource_file']['name'])) {
-                    // FIX (Блок 2.2 ТЗ): раньше при неудачной загрузке на Google
-                    // Drive (например, если admin/gdrive_key.json не настроен)
-                    // ресурс всё равно создавался с пустой ссылкой, и страница
-                    // молча писала "✅ Добавлено" — а при попытке скачать было
-                    // "Файл недоступен". Теперь: сначала Google Drive (нужен
-                    // для больших видео), при неудаче — на сервер локально.
-                    $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
-                    if ($gd) {
-                        $data['video_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name'];
-                    } else {
-                        $local = uploadPackResourceFileLocal('resource_file', __DIR__ . '/uploads/pack_resources/');
-                        if ($local) { $data['video_url'] = $local['url']; $data['file_name'] = $local['file_name']; }
-                        else { $message = '❌ Не удалось загрузить видео (ни на Google Drive, ни локально). Проверь admin/gdrive_key.json или права на папку uploads/.'; }
-                    }
+    $action  = (string)($_POST['action'] ?? '');
+    $backTab = preg_replace('/[^a-z0-9_]/i', '', (string)($_POST['tab_back'] ?? ''));
+    $secList = getPackSections($pdo);
+    $secSlugs = array_column($secList, 'slug');
+    $secTitle = [];
+    foreach ($secList as $sx) { $secTitle[$sx['slug']] = $sx['title']; }
+    $localDir = __DIR__ . '/uploads/pack_resources/';
+    $imgWarn = '';
+
+    try {
+        if ($action === 'add_resource') {
+            $type = (string)($_POST['type'] ?? '');
+            $title = trim((string)($_POST['title'] ?? ''));
+            if (!in_array($type, $secSlugs, true)) {
+                $flashMsg = 'Неизвестный раздел.'; $flashType = 'err';
+            } elseif ($title === '') {
+                $flashMsg = 'Укажи название.'; $flashType = 'err';
+            } else {
+                $err = null;
+                $src = packResourceSourceFromPost($type, $_POST, $localDir, $err);
+                if ($err !== null) {
+                    $flashMsg = $err; $flashType = 'err';
                 } else {
-                    $message = '❌ Прикрепи файл или вставь ссылку.';
+                    $data = array_merge([
+                        'type' => $type, 'title' => $title,
+                        'description' => trim((string)($_POST['description'] ?? '')),
+                    ], $src);
+                    // Превью — для ЛЮБОГО раздела (необязательно)
+                    if (!empty($_FILES['resource_image']['name'])) {
+                        $data['preview_image'] = uploadPackResourcePreview($pdo, 'resource_image', $localDir);
+                        if ($data['preview_image'] === '') { $imgWarn = $GLOBALS['kuiImgWarn'] ?? 'Превью не загрузилось.'; }
+                    }
+                    createPackResource($pdo, $data);
+                    $flashMsg = $imgWarn !== '' ? 'Добавлено, но ' . $imgWarn : 'Добавлено.';
+                    if ($imgWarn !== '') $flashType = 'err';
+                    broadcastNotification($pdo, 'new_resource', '📁 Новый материал: ' . ($secTitle[$type] ?? $type),
+                        $title, 'resources.php', $myTgId);
                 }
-            } else { // font | brush
-                $link = trim((string)($_POST['resource_link'] ?? ''));
-                if ($link !== '') {
-                    $data['file_url'] = $link;
-                    // Если это Google Drive и сервис-аккаунт имеет доступ к
-                    // папке с файлом — скачивание пойдёт через API, без
-                    // страницы-предупреждения о вирусах для больших файлов.
-                    $gdId = extractGDriveFileId($link);
-                    if ($gdId) { $data['file_id'] = $gdId; $data['file_name'] = trim((string)($_POST['title'] ?? '')); }
-                } elseif (!empty($_FILES['resource_file']['name'])) {
-                    $gd = uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']));
-                    if ($gd) {
-                        $data['file_url'] = $gd['url']; $data['file_id'] = $gd['id']; $data['file_name'] = $gd['name'];
-                    } else {
-                        $local = uploadPackResourceFileLocal('resource_file', __DIR__ . '/uploads/pack_resources/');
-                        if ($local) { $data['file_url'] = $local['url']; $data['file_name'] = $local['file_name']; }
-                        else { $message = '❌ Не удалось загрузить файл (ни на Google Drive, ни локально). Проверь admin/gdrive_key.json или права на папку uploads/.'; }
-                    }
+                $backTab = $type;
+            }
+        } elseif ($action === 'update_resource') {
+            $rid = (int)($_POST['id'] ?? 0);
+            $cur = $rid > 0 ? getPackResource($pdo, $rid) : null;
+            $title = trim((string)($_POST['title'] ?? ''));
+            if (!$cur) {
+                $flashMsg = 'Материал не найден.'; $flashType = 'err';
+            } elseif ($title === '') {
+                $flashMsg = 'Название не может быть пустым.'; $flashType = 'err';
+                $backTab = $cur['type'];
+            } else {
+                $backTab = $cur['type'];
+                $err = null;
+                $src = packResourceSourceFromPost($cur['type'], $_POST, $localDir, $err);
+                if ($err !== null) {
+                    $flashMsg = $err; $flashType = 'err';
                 } else {
-                    $message = '❌ Прикрепи файл или вставь ссылку.';
+                    $fields = array_merge(['title' => $title, 'description' => trim((string)($_POST['description'] ?? ''))], $src);
+                    if (!empty($_POST['remove_preview'])) {
+                        $fields['preview_image'] = '';
+                    }
+                    if (!empty($_FILES['resource_image']['name'])) {
+                        $newPrev = uploadPackResourcePreview($pdo, 'resource_image', $localDir);
+                        if ($newPrev !== '') { $fields['preview_image'] = $newPrev; }
+                        else { $imgWarn = $GLOBALS['kuiImgWarn'] ?? 'Превью не загрузилось.'; }
+                    }
+                    updatePackResource($pdo, $rid, $fields);
+                    $flashMsg = $imgWarn !== '' ? 'Сохранено, но ' . $imgWarn : 'Изменения сохранены.';
+                    if ($imgWarn !== '') $flashType = 'err';
                 }
             }
-            if ($message === '') {
-                $newId = createPackResource($pdo, $data);
-                $message = '✅ Добавлено.';
-                // Блок 5.2 ТЗ: уведомление о новом материале всем дизайнерам.
-                $typeLabels = ['psd' => 'PSD-пак', 'font' => 'Шрифт', 'brush' => 'Стили/кисти', 'sd_video' => 'Видео SD'];
-                broadcastNotification($pdo, 'new_resource', '📁 Новый материал: ' . ($typeLabels[$type] ?? $type),
-                    (string)($data['title'] ?? ''), 'resources.php', $myTgId);
+        } elseif ($action === 'delete_resource') {
+            $rid = (int)($_POST['id'] ?? 0);
+            $cur = $rid > 0 ? getPackResource($pdo, $rid) : null;
+            if ($cur) { $backTab = $cur['type']; }
+            deletePackResource($pdo, $rid);
+            $flashMsg = 'Удалено.';
+        } elseif ($action === 'save_sd_guide') {
+            setResSetting($pdo, 'SD_INSTALL_GUIDE', (string)($_POST['sd_guide'] ?? ''));
+            $flashMsg = 'Гайд сохранён.';
+            $backTab = 'sd_video';
+        } elseif ($action === 'save_section') {
+            $slug = preg_replace('/[^a-z0-9_]/i', '', (string)($_POST['slug'] ?? ''));
+            $sTitle = (string)($_POST['sec_title'] ?? '');
+            $sIcon  = (string)($_POST['sec_icon'] ?? '');
+            if ($slug === '') {
+                $newSlug = createPackSection($pdo, $sTitle, $sIcon);
+                if ($newSlug === '') { $flashMsg = 'Укажи название раздела.'; $flashType = 'err'; }
+                else { $flashMsg = 'Раздел создан.'; $backTab = $newSlug; }
+            } elseif (in_array($slug, $secSlugs, true)) {
+                if (updatePackSection($pdo, $slug, $sTitle, $sIcon)) { $flashMsg = 'Раздел обновлён.'; $backTab = $slug; }
+                else { $flashMsg = 'Укажи название раздела.'; $flashType = 'err'; $backTab = $slug; }
             }
+        } elseif ($action === 'delete_section') {
+            $slug = preg_replace('/[^a-z0-9_]/i', '', (string)($_POST['slug'] ?? ''));
+            if (deletePackSection($pdo, $slug)) { $flashMsg = 'Раздел удалён.'; $backTab = ''; }
+            else { $flashMsg = 'Встроенный раздел удалить нельзя — его можно переименовать.'; $flashType = 'err'; }
         }
-    } elseif ($action === 'delete_resource') {
-        deletePackResource($pdo, (int)($_POST['id'] ?? 0));
-        $message = '🗑 Удалено.';
-    } elseif ($action === 'save_sd_guide') {
-        setResSetting($pdo, 'SD_INSTALL_GUIDE', (string)($_POST['sd_guide'] ?? ''));
-        $message = '✅ Гайд сохранён.';
+    } catch (Throwable $e) {
+        error_log('resources.php action error: ' . $e->getMessage());
+        $flashMsg = 'Ошибка сервера. Попробуй ещё раз.'; $flashType = 'err';
     }
     // PRG, чтобы не задваивалась отправка формы по F5
-    header('Location: resources.php?ok=1');
+    $q = ['m' => $flashMsg, 't' => $flashType];
+    if ($backTab !== '') $q['tab'] = $backTab;
+    header('Location: resources.php?' . http_build_query($q));
     exit;
+}
+if (isset($_GET['m'])) {
+    $flashMsg = mb_substr(trim((string)$_GET['m']), 0, 220);
+    $flashType = (($_GET['t'] ?? '') === 'err') ? 'err' : 'ok';
 }
 
 function resImg(string $val): string {
@@ -147,74 +172,93 @@ function resImg(string $val): string {
     return '/uploads/' . ltrim($val, '/');
 }
 
-$psdPosts = listPackResources($pdo, 'psd');
-$fonts    = listPackResources($pdo, 'font');
-$brushes  = listPackResources($pdo, 'brush');
-$videos   = listPackResources($pdo, 'sd_video');
-$sdGuide  = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
+$sections = getPackSections($pdo);
+$secBySlug = [];
+foreach ($sections as $sx) { $secBySlug[$sx['slug']] = $sx; }
+
+$itemsBySlug = [];
+$allRes = [];
+foreach ($sections as $sx) {
+    $itemsBySlug[$sx['slug']] = listPackResources($pdo, $sx['slug']);
+    $allRes = array_merge($allRes, $itemsBySlug[$sx['slug']]);
+}
+$sdGuide   = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
 $favorites = listFavoriteResources($pdo, $myTgId);
 
-$allIds = array_map(fn($r) => (int)$r['id'], array_merge($psdPosts, $fonts, $brushes, $videos, $favorites));
+$allIds = array_map(fn($r) => (int)$r['id'], array_merge($allRes, $favorites));
 $engagement = getResourceEngagement($pdo, array_unique($allIds), $myTgId);
+
+/** Допустимые расширения файла в зависимости от раздела (пусто = любые) */
+function resAccept(string $slug): string {
+    $map = [
+        'psd'      => '.psd,.psb,.zip,.rar,.7z',
+        'font'     => '.ttf,.otf,.woff,.woff2,.zip,.rar,.7z',
+        'brush'    => '.abr,.asl,.atn,.grd,.pat,.zip,.rar,.7z',
+        'sd_video' => 'video/*,.zip,.rar,.7z',
+    ];
+    return $map[$slug] ?? '';
+}
 
 /**
  * Единая карточка материала — работает и в режиме «Плитка», и в режиме
- * «Список» (раскладку переключает CSS через класс .res-view-list на
- * <main>, разметка одна и та же — см. Блок 2.1 ТЗ).
+ * «Список» (раскладку переключает CSS через класс .res-view-list на <main>).
+ * Превью есть у материала ЛЮБОГО раздела; нет превью — плашка с иконкой раздела.
  */
-function resCard(array $r, array $eng, bool $isAdmin): string {
+function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
     $id = (int)$r['id'];
     $e = $eng[$id] ?? ['likes' => 0, 'liked' => false, 'favorited' => false];
-    $type = $r['type'];
+    $type = (string)$r['type'];
+    $secIcon = $sec['icon'] !== '' ? $sec['icon'] : '📦';
+    $secTitle = $sec['title'] !== '' ? $sec['title'] : $type;
 
-    // Медиа + основная ссылка зависят от типа материала.
-    if ($type === 'psd') {
-        $img = resImg((string)$r['preview_image']);
-        $media = $img
-            ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
-            : '<div class="service-cover-placeholder"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
-        $tags = ['PSD'];
-        $sub = 'Открыть пост в Telegram';
-        // Блок 2.2 ТЗ: у PSD вместо кнопки «Заказать» — кнопка Telegram.
-        $href = htmlspecialchars((string)$r['telegram_url']);
+    $img = resImg((string)$r['preview_image']);
+    $media = $img
+        ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
+        : '<div class="service-cover-placeholder"><span>' . htmlspecialchars($secIcon) . '</span></div>';
+
+    $tg = trim((string)$r['telegram_url']);
+    $fileUrl = $type === 'sd_video' ? (string)$r['video_url'] : (string)$r['file_url'];
+    $desc = trim((string)$r['description']);
+    if ($tg !== '') {
+        $href = htmlspecialchars($tg);
         $ctaLabel = 'Открыть в Telegram'; $ctaIcon = 'send'; $ctaAttr = ' target="_blank" rel="noopener"'; $ctaTitle = 'Открыть пост в Telegram';
-    } elseif ($type === 'sd_video') {
-        $media = '<div class="service-cover-placeholder"><span>▶️</span></div>';
-        $tags = ['SD', 'Видео'];
-        $sub = 'Видео-инструкция по установке';
+        $sub = $desc !== '' ? $desc : 'Открыть пост в Telegram';
+    } else {
         $href = 'download.php?rid=' . $id;
         $ctaLabel = 'Скачать'; $ctaIcon = 'download'; $ctaAttr = ''; $ctaTitle = 'Скачать';
-    } else { // font | brush
-        $icon = $type === 'font' ? '🔤' : '🎨';
-        $media = '<div class="service-cover-placeholder"><span>' . $icon . '</span></div>';
-        $tags = [$type === 'font' ? 'Шрифт' : 'Стили и кисти'];
-        $sub = $type === 'font' ? 'Скачать файл шрифта' : (string)($r['description'] ?: 'Набор стилей и кистей');
-        $href = 'download.php?rid=' . $id;
-        $ctaLabel = 'Скачать'; $ctaIcon = 'download'; $ctaAttr = ''; $ctaTitle = 'Скачать';
+        $sub = $desc !== '' ? $desc : 'Скачать материал';
     }
 
-    $delBtn = '';
+    $adminCtl = '';
     if ($isAdmin) {
-        $delBtn = '<form class="res-del-form" method="post" onsubmit="return confirm(\'Удалить?\')"><input type="hidden" name="action" value="delete_resource"><input type="hidden" name="id" value="' . $id . '"><button class="res-del-btn" type="submit">✕</button></form>';
+        $isExternal = $fileUrl !== '' && !str_starts_with($fileUrl, '/uploads/');
+        $payload = [
+            'id' => $id, 'type' => $type, 'title' => (string)$r['title'], 'description' => $desc,
+            'preview' => $img, 'telegram_url' => $tg, 'link' => $isExternal ? $fileUrl : '',
+            'has_file' => $fileUrl !== '', 'accept' => resAccept($type), 'section' => $secTitle,
+        ];
+        $json = htmlspecialchars(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES);
+        $adminCtl = '<div class="res-admin-ctl">'
+            . '<button type="button" class="rib" title="Редактировать" data-edit="' . $json . '">' . ppkIcon('edit') . '</button>'
+            . '<button type="button" class="rib rib--danger" title="Удалить" data-del="' . $id . '" data-del-title="' . htmlspecialchars((string)$r['title'], ENT_QUOTES) . '">' . ppkIcon('trash') . '</button>'
+            . '</div>';
     }
 
     $likedClass = $e['liked'] ? ' is-active' : '';
     $favClass   = $e['favorited'] ? ' is-active' : '';
-    $tagsHtml = '';
-    foreach ($tags as $t) $tagsHtml .= '<span class="hc hc--sm hc--secondary hc--accent">' . htmlspecialchars($t) . '</span>';
+    $tagsHtml = '<span class="hc hc--sm hc--secondary hc--accent">' . htmlspecialchars($secTitle) . '</span>';
     $cta = '<a class="rd-cta" href="' . $href . '"' . $ctaAttr . ' onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . $ctaLabel . '</a>';
     $act = '<a class="res-act ' . ($ctaIcon === 'send' ? 'res-tg-btn' : 'res-dl-btn') . '" href="' . $href . '"' . $ctaAttr . ' title="' . $ctaTitle . '" onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . '</a>';
 
-    // Разметка 1:1 с glass-blog-card: обложка → теги → hover-кнопка → заголовок/описание → футер.
     return '
     <div class="res-card-wrap" data-rid="' . $id . '">
-        ' . $delBtn . '
+        ' . $adminCtl . '
         <div class="res-card-media">' . $media . '<span class="rd-shade"></span>
             <div class="rd-tags">' . $tagsHtml . '</div>
             <div class="rd-hover">' . $cta . '</div>
         </div>
         <div class="res-card-body">
-            <h3>' . htmlspecialchars($r['title']) . '</h3>
+            <h3>' . htmlspecialchars((string)$r['title']) . '</h3>
             <span class="res-card-sub">' . htmlspecialchars($sub) . '</span>
         </div>
         <div class="res-card-actions">
@@ -229,14 +273,114 @@ function resCard(array $r, array $eng, bool $isAdmin): string {
     </div>';
 }
 
-function resSection(array $items, array $eng, bool $isAdmin, string $emptyText): string {
+function resSection(array $items, array $eng, bool $isAdmin, string $emptyText, array $secBySlug): string {
     if (empty($items)) {
-        return '<p style="text-align:center;color:var(--text2);padding:30px 0;">' . htmlspecialchars($emptyText) . '</p>';
+        return '<p class="res-empty">' . htmlspecialchars($emptyText) . '</p>';
     }
     $html = '<section class="price-grid-local">';
-    foreach ($items as $r) { $html .= resCard($r, $eng, $isAdmin); }
+    foreach ($items as $r) {
+        $sec = $secBySlug[$r['type']] ?? ['title' => (string)$r['type'], 'icon' => '📦'];
+        $html .= resCard($r, $eng, $isAdmin, $sec);
+    }
     return $html . '</section>';
 }
+
+/**
+ * Форма материала (общая для «Добавить» и «Редактировать»).
+ * Поля: название, описание, превью (картинка — для любого раздела),
+ * источник — переключатель «Файл / Ссылка / Telegram» (+ «Оставить» при правке).
+ */
+function resItemFields(string $slug, bool $edit): string {
+    $defMode = $edit ? 'keep' : ($slug === 'psd' ? 'tg' : 'file');
+    $modes = [];
+    if ($edit) $modes['keep'] = ['check', 'Оставить'];
+    $modes['file'] = ['upload', 'Файл'];
+    $modes['link'] = ['link', 'Ссылка'];
+    $modes['tg']   = ['send', 'Telegram'];
+
+    $seg = '<div class="rf-seg" role="radiogroup" aria-label="Источник материала">';
+    foreach ($modes as $val => [$ic, $lab]) {
+        $seg .= '<label class="rf-seg-opt"><input type="radio" name="src_mode" value="' . $val . '"' . ($val === $defMode ? ' checked' : '') . '><span>' . ppkIcon($ic) . $lab . '</span></label>';
+    }
+    $seg .= '</div>';
+
+    $accept = resAccept($slug);
+    $on = function (string $m) use ($defMode): string { return $m === $defMode ? ' is-on' : ''; };
+
+    $h  = '<div class="rf-field"><label class="rf-lab">Название</label>'
+        . '<input class="rf-input" type="text" name="title" placeholder="Например: Neon Pack Vol.2" required maxlength="200"></div>';
+    $h .= '<div class="rf-field"><label class="rf-lab">Описание <em>необязательно</em></label>'
+        . '<textarea class="rf-input rf-area" name="description" placeholder="Коротко: что внутри, для чего подходит" maxlength="600"></textarea></div>';
+
+    // превью
+    $h .= '<div class="rf-field"><label class="rf-lab">Превью <em>картинка — для любого раздела</em></label>'
+        . '<div class="rf-prev-row">'
+        . '<label class="rf-drop rf-drop--img" data-kind="image">'
+        . '<input type="file" name="resource_image" accept="image/*">'
+        . '<span class="rf-drop-ico">' . ppkIcon('image') . '</span>'
+        . '<span class="rf-drop-t"><b>Выбрать картинку</b><small>или перетащи сюда · JPG, PNG, WEBP</small></span>'
+        . '<img class="rf-drop-thumb" alt="">'
+        . '</label>'
+        . ($edit ? '<label class="rf-switch"><input type="checkbox" name="remove_preview" value="1"><span class="rf-switch-track"><i></i></span><span class="rf-switch-t">Убрать превью</span></label>' : '')
+        . '</div></div>';
+
+    // источник
+    $h .= '<div class="rf-field"><label class="rf-lab">Источник</label>' . $seg;
+    if ($edit) {
+        $h .= '<div class="rf-src is-on" data-src="keep"><p class="rf-hint">Текущий файл или ссылка останутся без изменений.</p></div>';
+    }
+    $h .= '<div class="rf-src' . $on('file') . '" data-src="file">'
+        . '<label class="rf-drop" data-kind="file"><input type="file" name="resource_file"' . ($accept !== '' ? ' accept="' . $accept . '"' : '') . '>'
+        . '<span class="rf-drop-ico">' . ppkIcon('upload') . '</span>'
+        . '<span class="rf-drop-t"><b>Выбрать файл</b><small>или перетащи сюда</small></span></label>'
+        . '<p class="rf-hint">Большие файлы (от ~20 МБ) надёжнее добавлять через «Ссылка» — загрузка через форму ограничена хостингом.</p></div>';
+    $h .= '<div class="rf-src' . $on('link') . '" data-src="link">'
+        . '<input class="rf-input" type="text" name="resource_link" placeholder="https://drive.google.com/file/d/…" autocomplete="off">'
+        . '<p class="rf-hint">Google Drive определяется автоматически — скачивание пойдёт напрямую.</p></div>';
+    $h .= '<div class="rf-src' . $on('tg') . '" data-src="tg">'
+        . '<input class="rf-input" type="text" name="telegram_url" placeholder="https://t.me/c/…/123" autocomplete="off">'
+        . '<p class="rf-hint">Карточка будет открывать этот пост в Telegram.</p></div>';
+    $h .= '</div>';
+    return $h;
+}
+
+/** Блок «+»: раскрывающаяся форма добавления материала в раздел */
+function resAddBlock(string $slug, string $secTitle): string {
+    $id = 'add-' . $slug;
+    return '<div class="rf-wrap" id="' . $id . '"><div class="rf-inner">'
+        . '<form class="rf-form" method="post" enctype="multipart/form-data">'
+        . '<input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="' . htmlspecialchars($slug) . '">'
+        . '<input type="hidden" name="tab_back" value="' . htmlspecialchars($slug) . '">'
+        . '<div class="rf-form-head"><h4>Новый материал · ' . htmlspecialchars($secTitle) . '</h4></div>'
+        . resItemFields($slug, false)
+        . '<div class="rf-actions"><button type="submit" class="rf-btn rf-btn--primary">' . ppkIcon('check') . '<span>Добавить</span></button>'
+        . '<button type="button" class="rf-btn rf-btn--ghost" data-toggle="' . $id . '">Отмена</button></div>'
+        . '</form></div></div>';
+}
+
+/** Шапка панели: заголовок + иконки управления разделом (только админ) */
+function resPanelHead(array $sec, bool $isAdmin, string $titleOverride = '', bool $withAdd = true, bool $withGear = true): string {
+    $title = $titleOverride !== '' ? $titleOverride : (($sec['icon'] !== '' ? $sec['icon'] . ' ' : '') . $sec['title']);
+    $h = '<div class="res-panel-head"><h2>' . htmlspecialchars($title) . '</h2>';
+    if ($isAdmin) {
+        $secJson = htmlspecialchars(json_encode([
+            'slug' => $sec['slug'], 'title' => $sec['title'], 'icon' => $sec['icon'], 'builtin' => (bool)$sec['is_builtin'],
+        ], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES);
+        $h .= '<div class="res-head-ctl">';
+        if ($withGear) $h .= '<button type="button" class="rib" title="Настроить раздел" data-sec="' . $secJson . '">' . ppkIcon('gear') . '</button>';
+        if ($withAdd)  $h .= '<button type="button" class="rib rib--add" title="Добавить материал" data-toggle="add-' . htmlspecialchars($sec['slug']) . '">' . ppkIcon('plus') . '</button>';
+        $h .= '</div>';
+    }
+    return $h . '</div>';
+}
+
+$emptyTexts = [
+    'psd'      => 'Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.',
+    'font'     => 'Шрифтов пока нет.',
+    'brush'    => 'Стилей и кистей пока нет.',
+    'sd_video' => 'Видео пока нет.',
+];
+$iconPresets = ['📁', '🖼', '🔤', '🎨', '🖌', '✨', '🎬', '🎞', '📦', '🧩', '📐', '🧰', '🌈', '📷', '⚡', '⭐'];
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -249,33 +393,9 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
     <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
     <style>
-        .res-tabs { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:22px; }
-        .res-tab-btn {
-            background: var(--card); border: 1px solid var(--border); color: var(--text2);
-            padding: 9px 18px; border-radius: 999px; cursor: pointer; font-size: 12.5px;
-            font-weight: 700; font-family: inherit; transition: all .2s;
-        }
-        .res-tab-btn:hover { border-color: rgba(249,115,22,.35); color: var(--accent); }
-        .res-tab-btn.active { background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff; border-color: transparent; box-shadow: 0 0 16px rgba(249,115,22,.3); }
         .res-panel { display:none; } .res-panel.active { display:block; }
         .res-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
         .res-panel-head h2 { margin:0; font-size:16px; }
-        .res-add-btn {
-            width:38px; height:38px; border-radius:50%; border:none; flex-shrink:0;
-            background: linear-gradient(135deg, var(--accent2), var(--accent)); color:#fff;
-            font-size:22px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
-            box-shadow: 0 4px 14px rgba(249,115,22,.35); transition: transform .15s;
-        }
-        .res-add-btn:hover { transform: scale(1.08); }
-        .res-add-form { display:none; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 22px; }
-        .res-add-form.show { display:block; }
-        .res-add-form input[type=text], .res-add-form textarea, .res-add-form input[type=file] {
-            width:100%; box-sizing:border-box; background: rgba(0,0,0,.15); border:1px solid var(--border); color: var(--text);
-            padding:9px 11px; border-radius:8px; font-family:inherit; margin-bottom:10px; font-size:13px;
-        }
-        .res-add-form textarea { min-height:70px; resize:vertical; }
-        .res-del-form { display:inline; }
-        .res-del-btn { position:absolute; top:8px; right:8px; z-index:2; background:rgba(0,0,0,.55); color:#fff; border:none; border-radius:6px; width:26px; height:26px; cursor:pointer; }
         .res-guide { line-height:1.7; background: var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; color: var(--text2); }
         .res-guide p { margin: 0 0 12px; }
         .res-guide img { max-width:100%; border-radius:8px; }
@@ -322,7 +442,6 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         .res-view-list .res-card-media { width:56px; height:56px; flex:0 0 56px; aspect-ratio:auto; border-radius:8px; margin:8px 0 8px 10px; }
         .res-view-list .res-card-body { padding:8px 10px; }
         .res-view-list .res-card-actions { padding:8px 12px 8px 0; }
-        .res-view-list .res-del-btn { top:6px; right:6px; }
 
         @media (max-width:520px) {
             .res-view-list .res-card-body h3 { font-size:12.5px; }
@@ -330,6 +449,7 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         }
     </style>
     <link rel="stylesheet" href="assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/res-forms.css?v=<?= @filemtime(__DIR__ . '/assets/res-forms.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
 </head>
 <body>
@@ -356,17 +476,23 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         <p>Материалы и инструменты для дизайнеров пака<?= $isAdmin ? ' · режим администратора' : '' ?></p>
     </div>
 
-    <?php if ($message): ?><p style="text-align:center;color:var(--accent);margin-bottom:20px;"><?= htmlspecialchars($message) ?></p><?php endif; ?>
+    <?php if ($flashMsg !== ''): ?>
+    <div class="res-toast res-toast--<?= $flashType ?>" id="resToast" role="status">
+        <?= ppkIcon($flashType === 'err' ? 'close' : 'check') ?><span><?= htmlspecialchars($flashMsg) ?></span>
+    </div>
+    <?php endif; ?>
 
     <div class="res-glass-zone"></div>
     <div class="rd-mhead">
         <h2>Материалы</h2>
         <div class="res-tabs">
-            <button class="res-tab-btn active" data-panel="psd" onclick="resTab('psd')">PSD <span class="rd-cnt">(<?= count($psdPosts) ?>)</span></button>
-            <button class="res-tab-btn" data-panel="fonts" onclick="resTab('fonts')">Шрифты <span class="rd-cnt">(<?= count($fonts) ?>)</span></button>
-            <button class="res-tab-btn" data-panel="brushes" onclick="resTab('brushes')">Стили <span class="rd-cnt">(<?= count($brushes) ?>)</span></button>
-            <button class="res-tab-btn" data-panel="sd" onclick="resTab('sd')">SD</button>
-            <button class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
+            <?php foreach ($sections as $i => $sx): ?>
+            <button type="button" class="res-tab-btn<?= $i === 0 ? ' active' : '' ?>" data-panel="<?= htmlspecialchars($sx['slug']) ?>" onclick="resTab('<?= htmlspecialchars($sx['slug']) ?>')"><?= htmlspecialchars($sx['title']) ?><?php if ($sx['slug'] !== 'sd_video'): ?> <span class="rd-cnt">(<?= count($itemsBySlug[$sx['slug']] ?? []) ?>)</span><?php endif; ?></button>
+            <?php endforeach; ?>
+            <button type="button" class="res-tab-btn" data-panel="fav" onclick="resTab('fav')">Избранное <span class="rd-cnt">(<?= count($favorites) ?>)</span></button>
+            <?php if ($isAdmin): ?>
+            <button type="button" class="res-tab-add" title="Новый раздел" data-sec='{"slug":"","title":"","icon":"📦","builtin":false}'><?= ppkIcon('plus') ?><span>Раздел</span></button>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -375,102 +501,119 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText):
         <button type="button" class="res-view-btn" data-view="list" onclick="resSetView('list')"><?= ppkIcon('list') ?>Список</button>
     </div>
 
-    <!-- PSD -->
-    <div class="res-panel active" id="panel-psd">
-        <div class="res-panel-head"><h2>📁 PSD-паки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить PSD-пост" onclick="document.getElementById('form-psd').classList.toggle('show')">+</button><?php endif; ?></div>
+    <?php foreach ($sections as $i => $sx):
+        $slug = $sx['slug'];
+        $items = $itemsBySlug[$slug] ?? [];
+        $empty = $emptyTexts[$slug] ?? 'В этом разделе пока ничего нет.';
+    ?>
+    <div class="res-panel<?= $i === 0 ? ' active' : '' ?>" id="panel-<?= htmlspecialchars($slug) ?>">
+    <?php if ($slug === 'sd_video'): ?>
+        <?= resPanelHead($sx, $isAdmin, '🖥 Гайд по установке', false, true) ?>
         <?php if ($isAdmin): ?>
-        <form class="res-add-form" id="form-psd" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="psd">
-            <input type="text" name="title" placeholder="Название поста" required>
-            <input type="text" name="telegram_url" placeholder="Ссылка на сообщение в TG (t.me/c/.../ID)" required>
-            <input type="file" name="resource_image" accept="image/*">
-            <button type="submit" class="save-all-btn">Добавить</button>
-        </form>
-        <?php endif; ?>
-        <?= resSection($psdPosts, $engagement, $isAdmin, 'Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.') ?>
-    </div>
-
-    <!-- Fonts -->
-    <div class="res-panel" id="panel-fonts">
-        <div class="res-panel-head"><h2>🔤 Шрифты</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить шрифт" onclick="document.getElementById('form-fonts').classList.toggle('show')">+</button><?php endif; ?></div>
-        <?php if ($isAdmin): ?>
-        <form class="res-add-form" id="form-fonts" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="font">
-            <input type="text" name="title" placeholder="Название шрифта" required>
-            <input type="file" name="resource_file" accept=".ttf,.otf">
-            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (если он большой)">
-            <button type="submit" class="save-all-btn">Добавить</button>
-        </form>
-        <?php endif; ?>
-        <?= resSection($fonts, $engagement, $isAdmin, 'Шрифтов пока нет.') ?>
-    </div>
-
-    <!-- Brushes -->
-    <div class="res-panel" id="panel-brushes">
-        <div class="res-panel-head"><h2>🎨 Стили и кисти</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить набор" onclick="document.getElementById('form-brushes').classList.toggle('show')">+</button><?php endif; ?></div>
-        <?php if ($isAdmin): ?>
-        <form class="res-add-form" id="form-brushes" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="brush">
-            <input type="text" name="title" placeholder="Название набора" required>
-            <textarea name="description" placeholder="Описание (необязательно)"></textarea>
-            <input type="file" name="resource_file" accept=".abr,.asl,.zip,.rar,.7z">
-            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на файл (если он большой — загрузка через форму ограничена хостингом)">
-            <button type="submit" class="save-all-btn">Добавить</button>
-        </form>
-        <?php endif; ?>
-        <?= resSection($brushes, $engagement, $isAdmin, 'Стилей и кистей пока нет.') ?>
-    </div>
-
-    <!-- SD -->
-    <div class="res-panel" id="panel-sd">
-        <div class="res-panel-head"><h2>🖥 Гайд по установке</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Изменить гайд" onclick="document.getElementById('form-sd-guide').classList.toggle('show')">✏️</button><?php endif; ?></div>
-        <?php if ($isAdmin): ?>
-        <form class="res-add-form" id="form-sd-guide" method="post">
-            <input type="hidden" name="action" value="save_sd_guide">
-            <?php renderRichEditor('sd_guide', $sdGuide); ?>
-            <button type="submit" class="save-all-btn" style="margin-top:10px;">Сохранить гайд</button>
-        </form>
+        <div class="res-guide-edit">
+            <button type="button" class="rf-btn rf-btn--ghost rf-btn--sm" data-toggle="form-sd-guide"><?= ppkIcon('edit') ?><span>Изменить гайд</span></button>
+        </div>
+        <div class="rf-wrap" id="form-sd-guide"><div class="rf-inner">
+            <form class="rf-form" method="post">
+                <input type="hidden" name="action" value="save_sd_guide">
+                <input type="hidden" name="tab_back" value="sd_video">
+                <?php renderRichEditor('sd_guide', $sdGuide); ?>
+                <div class="rf-actions"><button type="submit" class="rf-btn rf-btn--primary"><?= ppkIcon('check') ?><span>Сохранить гайд</span></button>
+                <button type="button" class="rf-btn rf-btn--ghost" data-toggle="form-sd-guide">Отмена</button></div>
+            </form>
+        </div></div>
         <?php endif; ?>
         <?php if ($sdGuide !== ''): ?>
             <div class="res-guide"><?php
-                // Обратная совместимость: гайд, сохранённый ДО подключения
-                // редактора, — обычный текст без HTML-тегов. Определяем по
-                // отсутствию '<' и в этом случае оборачиваем как раньше
-                // (экранируем + переносы строк), иначе — новый HTML-гайд как есть.
+                // Обратная совместимость: гайд без HTML-тегов — обычный текст.
                 echo (strpos($sdGuide, '<') === false) ? nl2br(htmlspecialchars($sdGuide)) : $sdGuide;
             ?></div>
         <?php else: ?>
-            <p style="text-align:center;color:var(--text2);padding:20px 0;">Гайд ещё не добавлен.</p>
+            <p class="res-empty">Гайд ещё не добавлен.</p>
         <?php endif; ?>
 
-        <div class="res-panel-head" style="margin-top:36px;"><h2>🎬 Видео установки</h2><?php if ($isAdmin): ?><button type="button" class="res-add-btn" title="Добавить видео" onclick="document.getElementById('form-sdvideo').classList.toggle('show')">+</button><?php endif; ?></div>
-        <?php if ($isAdmin): ?>
-        <form class="res-add-form" id="form-sdvideo" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="action" value="add_resource"><input type="hidden" name="type" value="sd_video">
-            <input type="text" name="title" placeholder="Название видео" required>
-            <input type="file" name="resource_file" accept="video/*">
-            <input type="text" name="resource_link" placeholder="...или вставь готовую ссылку на видео (если оно большое)">
-            <button type="submit" class="save-all-btn">Загрузить</button>
-        </form>
-        <?php endif; ?>
-        <?= resSection($videos, $engagement, $isAdmin, 'Видео пока нет.') ?>
+        <div style="margin-top:36px;"></div>
+        <?= resPanelHead($sx, $isAdmin, '🎬 Видео и материалы', true, false) ?>
+    <?php else: ?>
+        <?= resPanelHead($sx, $isAdmin) ?>
+    <?php endif; ?>
+        <?php if ($isAdmin) echo resAddBlock($slug, $sx['title']); ?>
+        <?= resSection($items, $engagement, $isAdmin, $empty, $secBySlug) ?>
     </div>
+    <?php endforeach; ?>
 
     <!-- Избранное -->
     <div class="res-panel" id="panel-fav">
         <div class="res-panel-head"><h2>⭐ Избранное</h2></div>
-        <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.') ?>
+        <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.', $secBySlug) ?>
     </div>
 </main>
+
+<?php if ($isAdmin): ?>
+<!-- Редактирование материала -->
+<dialog class="rd-dlg" id="dlgEdit">
+    <form class="rf-form rf-form--dlg" method="post" enctype="multipart/form-data" id="editForm">
+        <div class="rf-form-head"><h4 id="editTitle">Редактировать материал</h4>
+            <button type="button" class="rib" data-close title="Закрыть"><?= ppkIcon('close') ?></button></div>
+        <input type="hidden" name="action" value="update_resource">
+        <input type="hidden" name="id" value="">
+        <input type="hidden" name="tab_back" value="">
+        <?= resItemFields('', true) ?>
+        <div class="rf-actions"><button type="submit" class="rf-btn rf-btn--primary"><?= ppkIcon('check') ?><span>Сохранить</span></button>
+        <button type="button" class="rf-btn rf-btn--ghost" data-close>Отмена</button></div>
+    </form>
+</dialog>
+
+<!-- Удаление материала -->
+<dialog class="rd-dlg rd-dlg--sm" id="dlgDel">
+    <form class="rf-form rf-form--dlg" method="post">
+        <div class="rf-del-ico"><?= ppkIcon('trash') ?></div>
+        <h4 class="rf-del-t">Удалить материал?</h4>
+        <p class="rf-hint" id="delText" style="text-align:center"></p>
+        <input type="hidden" name="action" value="delete_resource">
+        <input type="hidden" name="id" value="">
+        <input type="hidden" name="tab_back" value="">
+        <div class="rf-actions rf-actions--center"><button type="submit" class="rf-btn rf-btn--danger"><?= ppkIcon('trash') ?><span>Удалить</span></button>
+        <button type="button" class="rf-btn rf-btn--ghost" data-close>Отмена</button></div>
+    </form>
+</dialog>
+
+<!-- Раздел: создать / переименовать / удалить -->
+<dialog class="rd-dlg rd-dlg--sm" id="dlgSec">
+    <form class="rf-form rf-form--dlg" method="post" id="secForm">
+        <div class="rf-form-head"><h4 id="secHead">Новый раздел</h4>
+            <button type="button" class="rib" data-close title="Закрыть"><?= ppkIcon('close') ?></button></div>
+        <input type="hidden" name="slug" value="">
+        <input type="hidden" name="tab_back" value="">
+        <div class="rf-field"><label class="rf-lab">Название раздела</label>
+            <input class="rf-input" type="text" name="sec_title" maxlength="40" placeholder="Например: Экшены" required></div>
+        <div class="rf-field"><label class="rf-lab">Иконка</label>
+            <div class="rf-emoji">
+                <?php foreach ($iconPresets as $em): ?><button type="button" class="rf-emo" data-emo="<?= $em ?>"><?= $em ?></button><?php endforeach; ?>
+            </div>
+            <input class="rf-input rf-input--emo" type="text" name="sec_icon" maxlength="4" placeholder="📦" autocomplete="off">
+        </div>
+        <div class="rf-actions">
+            <button type="submit" name="action" value="save_section" class="rf-btn rf-btn--primary"><?= ppkIcon('check') ?><span>Сохранить</span></button>
+            <button type="submit" name="action" value="delete_section" id="secDel" class="rf-btn rf-btn--danger" formnovalidate><?= ppkIcon('trash') ?><span>Удалить раздел</span></button>
+        </div>
+        <p class="rf-hint" id="secHint"></p>
+    </form>
+</dialog>
+<?php endif; ?>
 
 <script>
 function resTab(name) {
     document.querySelectorAll('.res-tab-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.panel === name); });
     document.querySelectorAll('.res-panel').forEach(function(p){ p.classList.toggle('active', p.id === 'panel-' + name); });
+    try { history.replaceState(null, '', '?tab=' + encodeURIComponent(name)); } catch (e) {}
+}
+function resCurrentTab() {
+    var a = document.querySelector('.res-tab-btn.active');
+    return a ? a.dataset.panel : '';
 }
 
-// Переключатель Плитка/Список — режим сохраняется в localStorage, чтобы
-// не сбрасывался при перезагрузке страницы (Блок 2.1 ТЗ).
+// Переключатель Плитка/Список — режим сохраняется в localStorage.
 function resSetView(mode) {
     document.getElementById('resMain').classList.toggle('res-view-list', mode === 'list');
     document.querySelectorAll('.res-view-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.view === mode); });
@@ -480,6 +623,174 @@ function resSetView(mode) {
     var saved = 'tile';
     try { saved = localStorage.getItem('res_view_mode') || 'tile'; } catch (e) {}
     if (saved === 'list') resSetView('list');
+    // открыть вкладку из ?tab= (после добавления/правки остаёмся в том же разделе)
+    var m = location.search.match(/[?&]tab=([^&]+)/);
+    if (m) {
+        var t = decodeURIComponent(m[1]);
+        if (document.getElementById('panel-' + t)) resTab(t);
+    }
+    var toast = document.getElementById('resToast');
+    if (toast) {
+        setTimeout(function(){ toast.classList.add('is-out'); }, 4200);
+        try { // убираем служебные параметры из адреса, чтобы тост не повторялся по F5
+            var tab = resCurrentTab();
+            history.replaceState(null, '', tab ? '?tab=' + encodeURIComponent(tab) : location.pathname);
+        } catch (e) {}
+    }
+})();
+
+// ── Формы: переключатель источника, дропзоны, диалоги ──
+(function(){
+    function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ'; }
+
+    function syncSeg(form) {
+        var checked = form.querySelector('.rf-seg input:checked');
+        if (!checked) return;
+        form.querySelectorAll('.rf-src').forEach(function(p){ p.classList.toggle('is-on', p.dataset.src === checked.value); });
+    }
+    document.addEventListener('change', function(ev){
+        var t = ev.target;
+        if (t.matches('.rf-seg input')) { syncSeg(t.closest('form')); return; }
+        if (t.matches('.rf-drop input[type=file]')) {
+            var drop = t.closest('.rf-drop'), f = t.files && t.files[0];
+            var title = drop.querySelector('.rf-drop-t');
+            if (!drop.dataset.def) drop.dataset.def = title.innerHTML;
+            var thumb = drop.querySelector('.rf-drop-thumb');
+            if (!f) {
+                drop.classList.remove('has-file'); title.innerHTML = drop.dataset.def;
+                if (thumb && drop.dataset.orig) { thumb.src = drop.dataset.orig; drop.classList.add('has-thumb'); }
+                else if (thumb) { thumb.removeAttribute('src'); drop.classList.remove('has-thumb'); }
+                return;
+            }
+            drop.classList.add('has-file');
+            title.innerHTML = '<b></b><small></small>';
+            title.querySelector('b').textContent = f.name;
+            title.querySelector('small').textContent = fmtSize(f.size) + ' · нажми, чтобы заменить';
+            if (thumb && f.type.indexOf('image/') === 0) {
+                thumb.src = URL.createObjectURL(f); drop.classList.add('has-thumb');
+            }
+        }
+    });
+    ['dragenter', 'dragover'].forEach(function(n){
+        document.addEventListener(n, function(ev){
+            var d = ev.target.closest && ev.target.closest('.rf-drop');
+            if (d) { ev.preventDefault(); d.classList.add('is-drag'); }
+        });
+    });
+    ['dragleave', 'drop'].forEach(function(n){
+        document.addEventListener(n, function(ev){
+            var d = ev.target.closest && ev.target.closest('.rf-drop');
+            if (!d) return;
+            d.classList.remove('is-drag');
+            if (n === 'drop') {
+                ev.preventDefault();
+                var inp = d.querySelector('input[type=file]');
+                if (ev.dataTransfer && ev.dataTransfer.files.length && inp) {
+                    inp.files = ev.dataTransfer.files;
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        });
+    });
+    // чтобы случайный дроп мимо зоны не открывал файл в браузере
+    window.addEventListener('dragover', function(e){ e.preventDefault(); });
+    window.addEventListener('drop', function(e){ if (!e.target.closest || !e.target.closest('.rf-drop')) e.preventDefault(); });
+
+    // индикатор загрузки на кнопке отправки
+    document.addEventListener('submit', function(ev){
+        var form = ev.target;
+        if (!form.classList || !form.classList.contains('rf-form')) return;
+        var btn = form.querySelector('.rf-btn--primary[type=submit]');
+        if (btn) { btn.classList.add('is-busy'); btn.querySelector('span').textContent = 'Подожди…'; setTimeout(function(){ btn.disabled = true; }, 0); }
+    });
+
+    var dlgEdit = document.getElementById('dlgEdit'), dlgDel = document.getElementById('dlgDel'), dlgSec = document.getElementById('dlgSec');
+
+    function openEdit(d) {
+        var f = document.getElementById('editForm');
+        f.reset();
+        f.querySelector('[name=id]').value = d.id;
+        f.querySelector('[name=tab_back]').value = d.type;
+        f.querySelector('[name=title]').value = d.title || '';
+        f.querySelector('[name=description]').value = d.description || '';
+        f.querySelector('[name=telegram_url]').value = d.telegram_url || '';
+        f.querySelector('[name=resource_link]').value = d.link || '';
+        var fileInp = f.querySelector('[name=resource_file]');
+        if (d.accept) fileInp.setAttribute('accept', d.accept); else fileInp.removeAttribute('accept');
+        f.querySelector('.rf-seg input[value=keep]').checked = true;
+        // сброс дропзон и подстановка текущего превью
+        f.querySelectorAll('.rf-drop').forEach(function(dr){
+            dr.classList.remove('has-file', 'has-thumb'); delete dr.dataset.orig;
+            if (dr.dataset.def) dr.querySelector('.rf-drop-t').innerHTML = dr.dataset.def;
+        });
+        var prevDrop = f.querySelector('.rf-drop--img'), thumb = prevDrop.querySelector('.rf-drop-thumb');
+        if (d.preview) { thumb.src = d.preview; prevDrop.classList.add('has-thumb'); prevDrop.dataset.orig = d.preview; }
+        else { thumb.removeAttribute('src'); }
+        syncSeg(f);
+        document.getElementById('editTitle').textContent = 'Редактировать · ' + (d.section || 'материал');
+        dlgEdit.showModal();
+    }
+    var secIcon = null;
+    function openSec(d) {
+        var f = document.getElementById('secForm');
+        f.reset();
+        f.querySelector('[name=slug]').value = d.slug || '';
+        f.querySelector('[name=tab_back]').value = d.slug || resCurrentTab();
+        f.querySelector('[name=sec_title]').value = d.title || '';
+        var ic = f.querySelector('[name=sec_icon]'); ic.value = d.icon || '';
+        markEmo(ic.value);
+        var del = document.getElementById('secDel'), hint = document.getElementById('secHint');
+        del.classList.remove('armed'); del.querySelector('span').textContent = 'Удалить раздел';
+        if (!d.slug) {
+            document.getElementById('secHead').textContent = 'Новый раздел';
+            del.style.display = 'none'; hint.textContent = 'После создания открой раздел и нажми «+», чтобы добавить материалы.';
+        } else {
+            document.getElementById('secHead').textContent = 'Настройки раздела';
+            if (d.builtin) { del.style.display = 'none'; hint.textContent = 'Встроенный раздел можно переименовать и сменить иконку, но нельзя удалить.'; }
+            else { del.style.display = ''; hint.textContent = 'При удалении раздела все его материалы тоже удаляются.'; }
+        }
+        dlgSec.showModal();
+    }
+    function markEmo(v) {
+        document.querySelectorAll('.rf-emo').forEach(function(b){ b.classList.toggle('is-on', b.dataset.emo === v); });
+    }
+
+    document.addEventListener('click', function(ev){
+        var t = ev.target;
+        var tg = t.closest('[data-toggle]');
+        if (tg) {
+            var w = document.getElementById(tg.dataset.toggle);
+            if (w) {
+                var open = w.classList.toggle('is-open');
+                document.querySelectorAll('[data-toggle="' + tg.dataset.toggle + '"]').forEach(function(b){ b.classList.toggle('is-open', open); });
+                if (open) { var first = w.querySelector('input[type=text]'); if (first) setTimeout(function(){ first.focus({ preventScroll: true }); }, 250); }
+            }
+            return;
+        }
+        var ed = t.closest('[data-edit]');
+        if (ed && dlgEdit) { try { openEdit(JSON.parse(ed.dataset.edit)); } catch (e) {} return; }
+        var dl = t.closest('[data-del]');
+        if (dl && dlgDel) {
+            dlgDel.querySelector('[name=id]').value = dl.dataset.del;
+            dlgDel.querySelector('[name=tab_back]').value = resCurrentTab();
+            document.getElementById('delText').textContent = '«' + (dl.dataset.delTitle || '') + '» будет удалён без возможности восстановления.';
+            dlgDel.showModal(); return;
+        }
+        var sc = t.closest('[data-sec]');
+        if (sc && dlgSec) { try { openSec(JSON.parse(sc.dataset.sec)); } catch (e) {} return; }
+        if (t.closest('[data-close]')) { var dlg = t.closest('dialog'); if (dlg) dlg.close(); return; }
+        if (t.tagName === 'DIALOG') { t.close(); return; } // клик по подложке
+        var emo = t.closest('.rf-emo');
+        if (emo) { var inp = document.querySelector('#secForm [name=sec_icon]'); inp.value = emo.dataset.emo; markEmo(emo.dataset.emo); return; }
+        var sd = t.closest('#secDel');
+        if (sd && !sd.classList.contains('armed')) { // двойное подтверждение удаления раздела
+            ev.preventDefault();
+            sd.classList.add('armed'); sd.querySelector('span').textContent = 'Точно удалить?';
+            setTimeout(function(){ sd.classList.remove('armed'); sd.querySelector('span').textContent = 'Удалить раздел'; }, 3500);
+        }
+    });
+    var secInp = document.querySelector('#secForm [name=sec_icon]');
+    if (secInp) secInp.addEventListener('input', function(){ markEmo(secInp.value.trim()); });
 })();
 
 // Лайки/избранное — оптимистичное обновление UI + запрос в resources_api.php.
@@ -499,11 +810,6 @@ document.addEventListener('click', async function(ev){
         var r = await res.json();
         if (r.ok) {
             if (likeBtn) {
-                likeBtn.classList.toggle('is-active', r.liked);
-                var countEl = likeBtn.querySelector('.res-like-count');
-                if (countEl) countEl.textContent = r.likes;
-                // Тот же материал может быть виден и в других вкладках/списке —
-                // синхронизируем все его карточки на странице.
                 document.querySelectorAll('.res-like-btn[data-rid="' + rid + '"]').forEach(function(b){
                     b.classList.toggle('is-active', r.liked);
                     var c = b.querySelector('.res-like-count'); if (c) c.textContent = r.likes;

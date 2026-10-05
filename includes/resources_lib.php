@@ -51,6 +51,19 @@ function ensureResourcesSchema__run(PDO $pdo): void
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             UNIQUE(resource_id, tg_id)
         )");
+        // Разделы закрытого раздела (встроенные + созданные админом).
+        $pdo->exec("CREATE TABLE IF NOT EXISTS pack_sections (
+            id SERIAL PRIMARY KEY,
+            slug VARCHAR(30) NOT NULL UNIQUE,
+            title VARCHAR(80) NOT NULL,
+            icon VARCHAR(16) NOT NULL DEFAULT '',
+            sort_order INT NOT NULL DEFAULT 100,
+            is_builtin BOOLEAN NOT NULL DEFAULT FALSE
+        )");
+        $seed = $pdo->prepare("INSERT INTO pack_sections (slug, title, icon, sort_order, is_builtin) VALUES (?, ?, ?, ?, TRUE) ON CONFLICT (slug) DO NOTHING");
+        foreach (packBuiltinSections() as $i => $b) {
+            $seed->execute([$b['slug'], $b['title'], $b['icon'], ($i + 1) * 10]);
+        }
     } catch (Throwable $e) {
         error_log('ensureResourcesSchema error: ' . $e->getMessage());
     }
@@ -60,9 +73,9 @@ function ensureResourcesSchema__run(PDO $pdo): void
 function ensureResourcesSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensureResourcesSchema')) { return; }
+    if (kuiSchemaDone('ensureResourcesSchema_v2')) { return; }
     ensureResourcesSchema__run($pdo);
-    kuiSchemaMark('ensureResourcesSchema');
+    kuiSchemaMark('ensureResourcesSchema_v2');
 }
 
 function getResSetting(PDO $pdo, string $key, string $default = ''): string
@@ -275,7 +288,7 @@ function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
     if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) return null;
     $origName = basename((string)$_FILES[$field]['name']);
     $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-    $allowed = ['ttf', 'otf', 'abr', 'asl', 'zip', 'rar', '7z', 'mp4', 'mov', 'webm'];
+    $allowed = ['ttf', 'otf', 'woff', 'woff2', 'abr', 'asl', 'atn', 'grd', 'pat', 'psd', 'psb', 'zip', 'rar', '7z', 'pdf', 'mp4', 'mov', 'webm'];
     if (!in_array($ext, $allowed, true)) return null;
     if (!is_dir($uploadDir)) @mkdir($uploadDir, 0777, true);
     if (!is_writable($uploadDir)) return null;
@@ -284,4 +297,155 @@ function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
         return ['url' => '/uploads/pack_resources/' . $filename, 'file_name' => $origName];
     }
     return null;
+}
+
+
+/* ═════════ Разделы (вкладки) закрытого раздела ═════════ */
+
+/** Встроенные разделы — их нельзя удалить, но можно переименовать и сменить иконку. */
+function packBuiltinSections(): array
+{
+    return [
+        ['slug' => 'psd',      'title' => 'PSD',     'icon' => '📁'],
+        ['slug' => 'font',     'title' => 'Шрифты',  'icon' => '🔤'],
+        ['slug' => 'brush',    'title' => 'Стили',   'icon' => '🎨'],
+        ['slug' => 'sd_video', 'title' => 'SD',      'icon' => '🖥'],
+    ];
+}
+
+/** @return array<int, array{id:int,slug:string,title:string,icon:string,sort_order:int,is_builtin:bool}> */
+function getPackSections(PDO $pdo): array
+{
+    try {
+        $rows = $pdo->query("SELECT * FROM pack_sections ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($rows) {
+            foreach ($rows as &$r) { $r['id'] = (int)$r['id']; $r['is_builtin'] = !empty($r['is_builtin']) && $r['is_builtin'] !== 'f'; }
+            unset($r);
+            return $rows;
+        }
+    } catch (Throwable $e) {
+        error_log('getPackSections error: ' . $e->getMessage());
+    }
+    $out = [];
+    foreach (packBuiltinSections() as $i => $b) {
+        $out[] = ['id' => 0, 'slug' => $b['slug'], 'title' => $b['title'], 'icon' => $b['icon'], 'sort_order' => ($i + 1) * 10, 'is_builtin' => true];
+    }
+    return $out;
+}
+
+function cleanSectionTitle(string $t): string
+{
+    $t = trim(preg_replace('/\s+/u', ' ', strip_tags($t)));
+    return mb_substr($t, 0, 40);
+}
+
+function cleanSectionIcon(string $i): string
+{
+    $i = trim(strip_tags($i));
+    return mb_substr($i, 0, 4);
+}
+
+function createPackSection(PDO $pdo, string $title, string $icon): string
+{
+    $title = cleanSectionTitle($title);
+    if ($title === '') return '';
+    $slug = 'c' . substr(md5(uniqid('', true)), 0, 9);
+    $max = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), 0) FROM pack_sections")->fetchColumn();
+    $pdo->prepare("INSERT INTO pack_sections (slug, title, icon, sort_order, is_builtin) VALUES (?, ?, ?, ?, FALSE)")
+        ->execute([$slug, $title, cleanSectionIcon($icon) ?: '📦', $max + 10]);
+    return $slug;
+}
+
+function updatePackSection(PDO $pdo, string $slug, string $title, string $icon): bool
+{
+    $title = cleanSectionTitle($title);
+    if ($title === '') return false;
+    $pdo->prepare("UPDATE pack_sections SET title = ?, icon = ? WHERE slug = ?")
+        ->execute([$title, cleanSectionIcon($icon) ?: '📦', $slug]);
+    return true;
+}
+
+/** Удаляет только пользовательский раздел вместе с его материалами. */
+function deletePackSection(PDO $pdo, string $slug): bool
+{
+    $stmt = $pdo->prepare("SELECT is_builtin FROM pack_sections WHERE slug = ?");
+    $stmt->execute([$slug]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || !empty($row['is_builtin']) && $row['is_builtin'] !== 'f') return false;
+    $pdo->prepare("DELETE FROM pack_resources WHERE type = ?")->execute([$slug]);
+    $pdo->prepare("DELETE FROM pack_sections WHERE slug = ?")->execute([$slug]);
+    return true;
+}
+
+/* ═════════ Редактирование материала ═════════ */
+
+function getPackResource(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare("SELECT * FROM pack_resources WHERE id = ? LIMIT 1");
+    $stmt->execute([$id]);
+    $r = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $r ?: null;
+}
+
+/** Обновляет только переданные поля (белый список колонок). */
+function updatePackResource(PDO $pdo, int $id, array $fields): void
+{
+    $allowed = ['title', 'description', 'preview_image', 'telegram_url', 'file_url', 'file_id', 'file_name', 'video_url'];
+    $set = []; $vals = [];
+    foreach ($fields as $k => $v) {
+        if (!in_array($k, $allowed, true)) continue;
+        $set[] = "$k = ?"; $vals[] = (string)$v;
+    }
+    if (!$set) return;
+    $vals[] = $id;
+    $pdo->prepare("UPDATE pack_resources SET " . implode(', ', $set) . " WHERE id = ?")->execute($vals);
+}
+
+/**
+ * Единый разбор «источника» материала из формы (добавление и правка):
+ *   src_mode = file — загруженный файл (Google Drive → локально),
+ *              link — готовая ссылка (Google Drive определяется автоматически),
+ *              tg   — ссылка на пост в Telegram,
+ *              keep — ничего не менять (только при правке).
+ * Возвращает набор полей для БД; в $err — текст ошибки, если не получилось.
+ * Для sd_video ссылка на файл хранится в video_url, для остальных — в file_url.
+ */
+function packResourceSourceFromPost(string $slug, array $post, string $localDir, ?string &$err = null): array
+{
+    $mode = (string)($post['src_mode'] ?? 'file');
+    $urlCol = $slug === 'sd_video' ? 'video_url' : 'file_url';
+    $title = trim((string)($post['title'] ?? ''));
+    $err = null;
+
+    if ($mode === 'keep') return [];
+
+    if ($mode === 'tg') {
+        $tg = trim((string)($post['telegram_url'] ?? ''));
+        if ($tg === '') { $err = 'Вставь ссылку на пост в Telegram.'; return []; }
+        return ['telegram_url' => $tg, $urlCol => '', 'file_id' => '', 'file_name' => ''];
+    }
+
+    if ($mode === 'link') {
+        $link = trim((string)($post['resource_link'] ?? ''));
+        if ($link === '') { $err = 'Вставь ссылку на файл.'; return []; }
+        $out = [$urlCol => $link, 'telegram_url' => '', 'file_id' => '', 'file_name' => ''];
+        $gdId = extractGDriveFileId($link);
+        if ($gdId) { $out['file_id'] = $gdId; $out['file_name'] = $title; }
+        return $out;
+    }
+
+    // file
+    if (empty($_FILES['resource_file']['name'])) { $err = 'Прикрепи файл или выбери «Ссылка».'; return []; }
+    $gd = function_exists('uploadToGoogleDriveDetailed')
+        ? uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']))
+        : null;
+    if ($gd) {
+        return [$urlCol => $gd['url'], 'file_id' => $gd['id'], 'file_name' => $gd['name'], 'telegram_url' => ''];
+    }
+    $local = uploadPackResourceFileLocal('resource_file', $localDir);
+    if ($local) {
+        return [$urlCol => $local['url'], 'file_id' => '', 'file_name' => $local['file_name'], 'telegram_url' => ''];
+    }
+    $err = 'Не удалось загрузить файл (ни на Google Drive, ни локально). Для больших файлов используй «Ссылка».';
+    return [];
 }
