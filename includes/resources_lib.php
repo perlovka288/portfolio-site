@@ -303,6 +303,46 @@ function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
 }
 
 
+/**
+ * Загрузка файла материала (шрифт/кисти/PSD/видео) в Cloudinary — постоянное хранилище,
+ * файлы переживают любой git push / деплой (в отличие от папки uploads/ на Render).
+ * Ключи: CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET (окружение или админка → «Ключи и API»).
+ * Возвращает ['url' => https-ссылка Cloudinary, 'file_name' => исходное имя] или null (причина — в $error).
+ */
+function uploadPackResourceFileCloudinary(string $field, ?PDO $pdo = null, ?string &$error = null): ?array
+{
+    $error = null;
+    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
+    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return null;
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
+        $error = 'файл не дошёл до сервера (возможно, больше upload_max_filesize / post_max_size)';
+        return null;
+    }
+    $origName = basename((string)$_FILES[$field]['name']);
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    $allowed = ['ttf', 'otf', 'woff', 'woff2', 'abr', 'asl', 'atn', 'grd', 'pat', 'psd', 'psb', 'zip', 'rar', '7z', 'pdf', 'mp4', 'mov', 'webm'];
+    if (!in_array($ext, $allowed, true)) { $error = 'недопустимое расширение .' . $ext; return null; }
+
+    require_once __DIR__ . '/image_store.php';
+    if (!($pdo instanceof PDO)) { $pdo = $GLOBALS['pdo'] ?? null; }
+    if (!imageStoreConfigured($pdo)) { $error = 'Cloudinary не настроен'; return null; }
+
+    $base = pathinfo($origName, PATHINFO_FILENAME);
+    $e = null;
+    // folder != 'kostlim' → файл НЕ пережимается как картинка, грузится как есть
+    $url = imageStoreUpload($_FILES[$field]['tmp_name'], 'res_' . $base, $pdo, $e, 300, 2, 'kostlim/resources', $origName);
+    if ($url === '') { $error = (string)$e ?: 'Cloudinary не принял файл'; return null; }
+    return ['url' => $url, 'file_name' => $origName];
+}
+
+/** true — ссылка ведёт на файл в Cloudinary (https://res.cloudinary.com/...). */
+function isCloudinaryUrl(string $url): bool
+{
+    $p = parse_url($url);
+    return $p && ($p['scheme'] ?? '') === 'https' && ($p['host'] ?? '') === 'res.cloudinary.com';
+}
+
+
 /* ═════════ Разделы (вкладки) закрытого раздела ═════════ */
 
 /** Встроенные разделы — их нельзя удалить, но можно переименовать и сменить иконку. */
@@ -438,7 +478,7 @@ function updatePackResource(PDO $pdo, int $id, array $fields): void
  * Возвращает набор полей для БД; в $err — текст ошибки, если не получилось.
  * Для sd_video ссылка на файл хранится в video_url, для остальных — в file_url.
  */
-function packResourceSourceFromPost(string $slug, array $post, string $localDir, ?string &$err = null): array
+function packResourceSourceFromPost(string $slug, array $post, string $localDir, ?string &$err = null, ?PDO $pdo = null): array
 {
     $mode = (string)($post['src_mode'] ?? 'file');
     $urlCol = $slug === 'sd_video' ? 'video_url' : 'file_url';
@@ -462,18 +502,24 @@ function packResourceSourceFromPost(string $slug, array $post, string $localDir,
         return $out;
     }
 
-    // file
+    // file: 1) Cloudinary (постоянное хранилище) → 2) Google Drive.
+    // На локальный диск НЕ сохраняем — uploads/ стирается при деплое (файл «пропадал» после пуша).
     if (empty($_FILES['resource_file']['name'])) { $err = 'Прикрепи файл или выбери «Ссылка».'; return []; }
+
+    $cloudErr = null;
+    $cl = uploadPackResourceFileCloudinary('resource_file', $pdo, $cloudErr);
+    if ($cl) {
+        return [$urlCol => $cl['url'], 'file_id' => '', 'file_name' => $cl['file_name'], 'telegram_url' => ''];
+    }
+
     $gd = function_exists('uploadToGoogleDriveDetailed')
         ? uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']))
         : null;
     if ($gd) {
         return [$urlCol => $gd['url'], 'file_id' => $gd['id'], 'file_name' => $gd['name'], 'telegram_url' => ''];
     }
-    $local = uploadPackResourceFileLocal('resource_file', $localDir);
-    if ($local) {
-        return [$urlCol => $local['url'], 'file_id' => '', 'file_name' => $local['file_name'], 'telegram_url' => ''];
-    }
-    $err = 'Не удалось загрузить файл (ни на Google Drive, ни локально). Для больших файлов используй «Ссылка».';
+    $err = '❌ Файл не загрузился в Cloudinary' . ($cloudErr ? " ({$cloudErr})" : '')
+         . '. Проверь ключи Cloudinary в «Ключи и API» (диагностика: /admin/storage_test.php) или вставь готовую ссылку. '
+         . 'На сервер файл не сохраняется — там он пропадает при деплое.';
     return [];
 }

@@ -73,6 +73,44 @@ if (str_starts_with($sourceUrl, '/uploads/')) {
     http_response_code(404); exit('Файл недоступен');
 }
 
+// Файл в Cloudinary — стримим через сервер с Content-Disposition: attachment,
+// чтобы браузер именно скачивал файл (шрифт, архив), а не открывал его во вкладке.
+if (isCloudinaryUrl($sourceUrl)) {
+    $dlName = str_replace(['"', "\r", "\n", '/', '\\'], '', $fileName ?: basename(parse_url($sourceUrl, PHP_URL_PATH) ?: 'file'));
+    $started = false;
+    $ch = curl_init($sourceUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 3,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT        => 300,
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$started, $dlName) {
+            if (stripos($line, 'HTTP/') === 0) { $started = false; }
+            return strlen($line);
+        },
+        CURLOPT_WRITEFUNCTION  => function ($c, $chunk) use (&$started, $dlName) {
+            if (!$started) {
+                if ((int)curl_getinfo($c, CURLINFO_HTTP_CODE) !== 200) { return 0; } // не 200 — прерываем, уйдём на редирект
+                $started = true;
+                header('Content-Description: File Transfer');
+                header('Content-Type: application/octet-stream');
+                header('Content-Disposition: attachment; filename="' . preg_replace('/[^\x20-\x7E]/', '_', $dlName) . '"; filename*=UTF-8\'\'' . rawurlencode($dlName));
+                header('Cache-Control: private, max-age=0, must-revalidate');
+                while (ob_get_level()) { @ob_end_clean(); }
+            }
+            echo $chunk;
+            return strlen($chunk);
+        },
+    ]);
+    @set_time_limit(0);
+    curl_exec($ch);
+    curl_close($ch);
+    if ($started) { exit; }
+    // Cloudinary не ответил 200 — отдаём прямую ссылку
+    header('Location: ' . $sourceUrl);
+    exit;
+}
+
 // Старые записи с внешней ссылкой без сохранённого file_id (добавлены до
 // этого обновления) — отдаём как есть; для них принудительный
 // Content-Disposition недоступен.

@@ -23,7 +23,7 @@ $message = '';
 /** Загружает файл на Google Drive и возвращает [url, file_id, file_name] либо null */
 function uploadResourceFileDetailed(string $field): ?array
 {
-    global $message;
+    global $message, $pdo;
     $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
     if ($err === UPLOAD_ERR_NO_FILE) return null;
     if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
@@ -32,14 +32,15 @@ function uploadResourceFileDetailed(string $field): ?array
     }
     $tmp  = $_FILES[$field]['tmp_name'];
     $name = basename((string)$_FILES[$field]['name']);
-    $gd   = uploadToGoogleDriveDetailed($tmp, $name);
+    // 1) Cloudinary — постоянное хранилище, файл переживает деплой
+    $cloudErr = null;
+    $cl = uploadPackResourceFileCloudinary($field, $pdo ?? null, $cloudErr);
+    if ($cl !== null) return ['id' => '', 'url' => $cl['url'], 'name' => $cl['file_name']];
+    // 2) Google Drive
+    $gd = uploadToGoogleDriveDetailed($tmp, $name);
     if ($gd !== null) return $gd;
-    // FIX: Google Drive не настроен (нет admin/gdrive_key.json) или недоступен —
-    // не проваливаем загрузку молча, а сохраняем файл прямо на сервер, чтобы
-    // материал всё равно можно было скачать.
-    $local = uploadPackResourceFileLocal($field, __DIR__ . '/../uploads/pack_resources/');
-    if ($local !== null) return ['id' => '', 'url' => $local['url'], 'name' => $local['file_name']];
-    $message = '❌ Не удалось загрузить файл ни на Google Drive, ни локально — проверь admin/gdrive_key.json или права на папку uploads/.';
+    // Локально НЕ сохраняем: uploads/ стирается при деплое
+    $message = '❌ Файл не загрузился в Cloudinary' . ($cloudErr ? " ({$cloudErr})" : '') . ' — проверь ключи в «Ключи и API» или вставь ссылку.';
     return null;
 }
 
