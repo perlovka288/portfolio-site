@@ -1,0 +1,40 @@
+/* Kostlim: окна (.rd-dlg) — по центру на ПК, «шторка» снизу на телефоне.
+   Причина смещения в левый верхний угол: глобальный сброс `* { margin: 0 }`
+   в style.css убирал у <dialog> родное `margin: auto`. */
+
+dialog.rd-dlg { margin: auto; overscroll-behavior: contain; }
+dialog.rd-dlg::backdrop { animation: rdFade .2s ease-out; }
+@keyframes rdFade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 640px) {
+    dialog.rd-dlg,
+    dialog.rd-dlg.rd-dlg--sm,
+    dialog.rd-dlg.rd-dlg--player {
+        position: fixed; inset: 0; margin: auto 0 0 0;
+        width: 100%; max-width: 100%;
+        max-height: 92vh; max-height: 92dvh;
+        will-change: transform;
+    }
+    dialog.rd-dlg[open] { animation: rdSheetIn .34s cubic-bezier(.2,.9,.25,1); }
+    @keyframes rdSheetIn { from { transform: translateY(100%); } to { transform: none; } }
+
+    dialog.rd-dlg .rf-form--dlg {
+        max-height: 92vh; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain;
+        border-radius: 24px 24px 0 0; border-bottom: 0;
+        padding: 12px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -20px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,122,0,.12);
+    }
+    dialog.rd-dlg .pl-box { border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+    /* «ручка» сверху шторки */
+    dialog.rd-dlg .rf-form--dlg::before,
+    dialog.rd-dlg .pl-box::before {
+        content: ''; display: block; flex: 0 0 auto; width: 42px; height: 5px; border-radius: 5px;
+        background: rgba(255,255,255,.24); margin: 0 auto 4px;
+    }
+    dialog.rd-dlg .pl-box::before { margin: 10px auto 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    dialog.rd-dlg[open], dialog.rd-dlg::backdrop { animation: none !important; }
+}

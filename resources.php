@@ -499,6 +499,7 @@ $iconPresets = packIconLabels();
     <link rel="stylesheet" href="assets/res-forms.css?v=<?= @filemtime(__DIR__ . '/assets/res-forms.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-video.css?v=<?= @filemtime(__DIR__ . '/assets/res-video.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-files.css?v=<?= @filemtime(__DIR__ . '/assets/res-files.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/dialog-sheet.css?v=<?= @filemtime(__DIR__ . '/assets/dialog-sheet.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
     <link rel="stylesheet" href="assets/rich-content.css?v=<?= @filemtime(__DIR__ . '/assets/rich-content.css') ?: time() ?>">
 </head>
@@ -1004,5 +1005,6 @@ document.addEventListener('click', async function(ev){
     btn.disabled = false;
 });
 </script>
+<script src="assets/dialog-sheet.js?v=<?= @filemtime(__DIR__ . '/assets/dialog-sheet.js') ?: time() ?>"></script>
 </body>
 </html>
