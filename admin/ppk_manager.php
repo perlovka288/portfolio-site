@@ -26,6 +26,7 @@ $adminTgId = getenv('ADMIN_ID') ?: '1710365896';
 $token = ppkBotToken($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  try {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'grant') {
@@ -113,8 +114,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = ppkReject($pdo, (int)($_POST['id'] ?? 0));
         $message = nl2br(pmH($res['text']));
     }
+  } catch (Throwable $e) {
+    error_log('ppk_manager POST error: ' . $e->getMessage());
+    $message = '❌ Ошибка: ' . pmH($e->getMessage());
+  }
 }
 
+require_once __DIR__ . '/../includes/kui_cache.php';
+if (function_exists('kuiCacheForget')) { kuiCacheForget('settings_all'); }
 $settings = [
     'chat'  => ppkSiteSetting($pdo, 'PRIVATE_CHAT_ID'),
     'link'  => ppkSiteSetting($pdo, 'PRIVATE_CHAT_INVITE_LINK'),

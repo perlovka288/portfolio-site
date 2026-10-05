@@ -42,8 +42,24 @@ function ppkChatId(PDO $pdo): string
 
 function ppkSetSetting(PDO $pdo, string $key, string $value): void
 {
-    $pdo->prepare("INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW())
-                   ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()")->execute([$key, $value]);
+    // site_settings в проекте создаётся в нескольких местах по-разному: где-то есть колонка updated_at,
+    // где-то нет; в старых базах значение лежало в setting_value. Раньше запись падала с фаталом
+    // (HTTP 500 при сохранении настроек). Теперь пробуем все варианты и только потом сдаёмся.
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+    } catch (Throwable $e) {}
+    $variants = [
+        "INSERT INTO site_settings (setting_key, value, updated_at) VALUES (?, ?, NOW()) ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+        "INSERT INTO site_settings (setting_key, value) VALUES (?, ?) ON CONFLICT (setting_key) DO UPDATE SET value = EXCLUDED.value",
+        "INSERT INTO site_settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value",
+    ];
+    $last = null; $ok = false;
+    foreach ($variants as $sql) {
+        try { $pdo->prepare($sql)->execute([$key, $value]); $ok = true; break; }
+        catch (Throwable $e) { $last = $e; }
+    }
+    if (!$ok) { throw new RuntimeException('не удалось записать настройку ' . $key . ': ' . ($last ? $last->getMessage() : '')); }
+    require_once __DIR__ . '/kui_cache.php';
     if (function_exists('kuiCacheForget')) { kuiCacheForget('settings_all'); }
 }
 
