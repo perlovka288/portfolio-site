@@ -176,6 +176,28 @@ body::before {
     </div>
     <?php endif; ?>
 
+    <?php
+        // 🛒 Покупка Приват Пака (кнопка ведёт на buy_pack.php; админу в TG придёт «клиент купил пак»)
+        require_once __DIR__ . '/includes/ppk_purchase.php';
+        $__ppkHave   = !empty($isAdmin) || !empty($isPackDesigner);
+        $__ppkPrices = [];
+        try { $__ppkPrices = ppkPrices($pdo); } catch (Throwable $e) {}
+    ?>
+    <div class="kui-card accent" style="margin:0 0 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div style="min-width:220px;flex:1">
+            <b style="font-size:16px">🔒 Приват Пак</b>
+            <div style="color:#c9c9cf;font-size:13.5px;margin-top:4px">PSD-исходники, шрифты, кисти, SD-гайд, ИИ-тренажёр, планер и закрытый чат.</div>
+            <?php if ($__ppkPrices && !$__ppkHave): ?>
+                <div style="margin-top:6px;font-weight:800;color:#ffb067"><?= htmlspecialchars(implode(' · ', array_map(fn($c, $v) => ppkFormatMoney($v, $c), array_keys($__ppkPrices), $__ppkPrices))) ?></div>
+            <?php endif; ?>
+        </div>
+        <?php if ($__ppkHave): ?>
+            <a class="kui-btn" href="privat_pak.php">Открыть Приват Пак</a>
+        <?php else: ?>
+            <a class="kui-btn" href="buy_pack.php">🛒 Купить пак</a>
+        <?php endif; ?>
+    </div>
+
     <section class="price-grid-local">
     <?php foreach ($services as $service): ?>
     <article class="service-card" data-id="<?= (int)$service['id'] ?>">

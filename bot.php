@@ -38,6 +38,7 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/order_flow.php';
 require_once __DIR__ . '/includes/pay_lib.php'; // автооплата (pay.php)
 require_once __DIR__ . '/includes/pack_role.php';
+require_once __DIR__ . '/includes/ppk_purchase.php'; // покупка Приват Пака, одноразовые инвайты
 require_once __DIR__ . '/admin/bot_commands.php'; // FIX: was missing, caused fatal error on every request
 
 // Автоматическая миграция таблиц для новых функций
@@ -81,7 +82,7 @@ $site_url = getenv('SITE_URL')  ?: "https://kostlimdzn.kesug.com/";
 // chat_id приватной группы пака читается из той же настройки, что
 // редактируется в админке (вкладка "Ключи и API" → "Приватный чат для
 // PSD-паков") — группу можно сменить без деплоя, бот подхватит на лету.
-$packGroupChatId = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+$packGroupChatId = ppkResolveChatId(getSiteSetting($pdo, 'PRIVATE_CHAT_ID'));
 
 /**
  * Обновляет кэш роли "Designer PPK" для этого пользователя (см.
@@ -124,15 +125,15 @@ if (isset($update['chat_member'])) {
     $cmChatId = (string)($cm['chat']['id'] ?? '');
     $cmUserId = (string)($cm['new_chat_member']['user']['id'] ?? '');
     $cmStatus = (string)($cm['new_chat_member']['status'] ?? '');
-    if ($cmChatId !== '' && $cmChatId === $packGroupChatId && $cmUserId !== '') {
-        $cmIsMember = in_array($cmStatus, ['member', 'administrator', 'creator', 'restricted'], true);
+    if ($cmChatId !== '' && $cmChatId === (string)$packGroupChatId && $cmUserId !== '') {
+        // restricted считается участником только если is_member=true (см. packStatusIsMember)
+        $cmIsMember = packStatusIsMember((array)$cm['new_chat_member']);
         try {
-            ensurePackRoleSchema($pdo);
-            $pdo->prepare("
-                INSERT INTO pack_membership_cache (tg_id, is_member, checked_at) VALUES (?, ?, NOW())
-                ON CONFLICT (tg_id) DO UPDATE SET is_member = EXCLUDED.is_member, checked_at = NOW()
-            ")->execute([$cmUserId, $cmIsMember ? 1 : 0]);
-        } catch (Throwable $e) {}
+            // бот запоминает, кто в чате пака: профиль + кэш роли PPK
+            packMemberUpsert($pdo, $cmUserId, $cmIsMember, (array)($cm['new_chat_member']['user'] ?? []), $cmStatus, 'chat_member');
+            // вошёл по нашей одноразовой ссылке → помечаем использованной и отзываем
+            if ($cmIsMember) { ppkHandleInviteJoin($pdo, $cm); }
+        } catch (Throwable $e) { botLog('chat_member error: ' . $e->getMessage()); }
     }
     exit;
 }
@@ -274,6 +275,24 @@ if (isset($update['callback_query'])) {
             'text'              => 'Доступ закрыт',
             'show_alert'        => true,
         ]);
+        exit;
+    }
+
+    // ── 🛒 Покупка Приват Пака: ✅ Одобрить / ❌ Отклонить ──
+    if (strpos($callback_data, 'ppk_ok_') === 0 || strpos($callback_data, 'ppk_no_') === 0) {
+        $ppkPid  = (int)substr($callback_data, 7);
+        $ppkOk   = strpos($callback_data, 'ppk_ok_') === 0;
+        try {
+            $ppkRes = $ppkOk ? ppkApprove($pdo, $ppkPid) : ppkReject($pdo, $ppkPid);
+        } catch (Throwable $e) {
+            botLog('ppk approve/reject error: ' . $e->getMessage());
+            $ppkRes = ['ok' => false, 'text' => 'Ошибка: ' . $e->getMessage()];
+        }
+        if ($ppkRes['ok']) { // убираем кнопки — решение принято
+            sendTelegram($token, 'editMessageReplyMarkup', ['chat_id' => $cal_chat_id, 'message_id' => $msg_id, 'reply_markup' => json_encode(['inline_keyboard' => []])]);
+        }
+        sendTelegram($token, 'sendMessage', ['chat_id' => $admin_id, 'text' => "🛒 Покупка #{$ppkPid}\n" . $ppkRes['text']]);
+        sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => $ppkRes['ok'] ? ($ppkOk ? 'Доступ выдан ✅' : 'Отклонено') : 'Не получилось']);
         exit;
     }
 
@@ -621,6 +640,23 @@ if (isset($update['message'])) {
     $text      = trim($update['message']['text'] ?? '');
     $text_key  = normalizeBotText($text);
 
+    // ── Бот знает, кто в приватном чате пака (в т.ч. в темах группы) ──
+    // Любое сообщение в группе пака = человек точно в чате; служебные сообщения
+    // о входе/выходе тоже учитываем. Ответов не шлём, обработка идёт дальше.
+    if ($chat_type !== 'private' && $packGroupChatId !== '' && (string)$chat_id === (string)$packGroupChatId) {
+        try {
+            $trFrom = $update['message']['from'] ?? [];
+            if (!empty($trFrom['id']) && empty($trFrom['is_bot'])) { packMemberUpsert($pdo, (string)$trFrom['id'], true, $trFrom, '', 'message'); }
+            foreach (($update['message']['new_chat_members'] ?? []) as $trNew) {
+                if (!empty($trNew['id']) && empty($trNew['is_bot'])) { packMemberUpsert($pdo, (string)$trNew['id'], true, $trNew, 'member', 'joined'); }
+            }
+            if (!empty($update['message']['left_chat_member']['id'])) {
+                $trLeft = $update['message']['left_chat_member'];
+                if (empty($trLeft['is_bot'])) { packMemberUpsert($pdo, (string)$trLeft['id'], false, $trLeft, 'left', 'left'); }
+            }
+        } catch (Throwable $e) { botLog('pack member track error: ' . $e->getMessage()); }
+    }
+
     // ── /id — узнать numeric chat_id текущего чата (нужен для настройки
     // "Приватный чат для PSD-паков" в админке: getChatMember принимает
     // ТОЛЬКО числовой id вида -1001234567890, а не пригласительную ссылку
@@ -654,7 +690,7 @@ if (isset($update['message'])) {
     // как текст правки.
     static $reservedMenuTexts = [
         'смотреть portfolio', 'прайс-лист', 'сделать заказ', 'отзывы',
-        'пригласить друга', 'admin panel', 'админ панель', 'личный кабинет',
+        'пригласить друга', 'купить пак', 'admin panel', 'админ панель', 'личный кабинет',
         'мои заказы', 'главное меню', 'назад в меню', 'отмена рассылки',
         'начать рассылку', 'статистика', 'рассылка клиентам',
         'привязки / настройки', 'управление бд', 'бэкап бд',
@@ -1361,6 +1397,26 @@ if (isset($update['message'])) {
     // рабочими для тех, кто их уже использует).
     if ($text_key === 'личный кабинет' || $text_key === 'мои заказы' || $text === '/cabinet') {
         showCabinet($pdo, $token, $chat_id);
+        exit;
+    }
+
+    // 🛒 Купить пак — ссылка на страницу оплаты (с автовходом по tg_token)
+    if (in_array($text_key, ['купить пак', 'купи пак', 'пак', 'приват пак'], true) || $text === '/pack') {
+        $hasPack = false;
+        try { $hasPack = ppkUserHasAccess($pdo, (string)$chat_id); } catch (Throwable $e) {}
+        if ($hasPack) {
+            sendTelegram($token, 'sendMessage', [
+                'chat_id' => $chat_id, 'text' => "✅ У тебя уже есть доступ к Приват Паку.",
+                'reply_markup' => json_encode(['inline_keyboard' => [[['text' => '🔓 Открыть Приват Пак', 'url' => rtrim($site_url, '/') . '/privat_pak.php?tg_token=' . autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? [])]]]], JSON_UNESCAPED_UNICODE),
+            ]);
+            exit;
+        }
+        $buyUrl = rtrim($site_url, '/') . '/buy_pack.php?tg_token=' . autoLinkGenerateToken($pdo, $chat_id, $update['message']['from'] ?? []);
+        sendTelegram($token, 'sendMessage', [
+            'chat_id'      => $chat_id,
+            'text'         => "🛒 Приват Пак\n\nPSD-исходники, шрифты, кисти, гайд по Stable Diffusion, ИИ-тренажёр, планер и закрытый чат.\n\nЖми кнопку, оплати — и после подтверждения я пришлю одноразовую ссылку в приватный чат.",
+            'reply_markup' => json_encode(['inline_keyboard' => [[['text' => '🛒 Купить пак', 'url' => $buyUrl]]]], JSON_UNESCAPED_UNICODE),
+        ]);
         exit;
     }
 
@@ -2433,7 +2489,7 @@ function mainKeyboard($isAdmin) {
     $buttons = [
         [['text' => '🎨 Смотреть portfolio'], ['text' => '📋 Прайс-лист']],
         [['text' => '🤖 Сделать заказ'],      ['text' => '⭐ Отзывы']],
-        [['text' => '👥 Пригласить друга']],
+        [['text' => '👥 Пригласить друга'], ['text' => '🛒 Купить пак']],
     ];
     if ($isAdmin) { $buttons[] = [['text' => '⚙️ Админ-панель']]; }
     return ['keyboard' => $buttons, 'resize_keyboard' => true];

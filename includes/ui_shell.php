@@ -19,6 +19,19 @@ $isLinked        = !empty($isLinked);
 $tgProfile       = (isset($tgProfile) && is_array($tgProfile)) ? $tgProfile : [];
 $ppkHasAccess    = $isAdmin || $isPackDesigner;
 
+// FIX (ключи/покупка «не открывают доступ»): страницы считали роль по-разному — главная
+// смотрела только членство в группе, support.php не считал вовсе, поэтому человек с ключом
+// видел замок. Теперь оболочка сама перепроверяет роль единой функцией resolvePpkAccess
+// (админ + ручные выдачи/ключи/покупки + участие в группе), если страница её не определила.
+if (!$ppkHasAccess && !empty($tgProfile['tg_id']) && isset($pdo) && $pdo instanceof PDO) {
+    try {
+        require_once __DIR__ . '/ppk_access.php';
+        $__acc = resolvePpkAccess($pdo);
+        if (!empty($__acc['isPackDesigner'])) { $isPackDesigner = true; $ppkHasAccess = true; }
+        if (!empty($__acc['isAdmin'])) { $isAdmin = true; $ppkHasAccess = true; }
+    } catch (Throwable $__e) {}
+}
+
 $kuiName  = ($tgProfile['tg_first_name'] ?? '') ?: (!empty($tgProfile['tg_username']) ? '@' . $tgProfile['tg_username'] : 'Гость');
 $kuiPhoto = '/assets/img/logo.webp';
 if (!empty($tgProfile['tg_photo_url']) && function_exists('imgSrc')) {

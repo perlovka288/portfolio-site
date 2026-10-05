@@ -17,7 +17,24 @@
  *   - в боте — при каждом /start и при заходе в главное меню.
  */
 
-function ensurePackRoleSchema__run(PDO $pdo): void
+/**
+ * chat_id приватной группы «PPK | Private Pack Kostlim». Берётся из настройки PRIVATE_CHAT_ID
+ * (админка → «Ключи и API» или «Управление Приват Паком»), затем из переменной окружения,
+ * и в последнюю очередь — вот это значение по умолчанию (то же, что уже зашито в admin/*).
+ * Раньше для проверки доступа резерва не было: пока настройка не сохранена, группа считалась
+ * «не заданной», и участники чата не получали доступ на сайте.
+ */
+const PPK_DEFAULT_CHAT_ID = '-1003781426510';
+
+function ppkResolveChatId(?string $fromSettings = null): string
+{
+    $v = trim((string)$fromSettings);
+    if ($v === '') { $v = trim((string)(getenv('PRIVATE_CHAT_ID') ?: '')); }
+    if ($v === '' || preg_match('~^https?://t\.me/~i', $v)) { $v = PPK_DEFAULT_CHAT_ID; } // пусто или вставили ссылку — берём дефолт
+    return $v;
+}
+
+function ensurePackRoleSchema__run(PDO $pdo): bool
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS pack_membership_cache (
@@ -25,8 +42,23 @@ function ensurePackRoleSchema__run(PDO $pdo): void
             is_member BOOLEAN NOT NULL DEFAULT FALSE,
             checked_at TIMESTAMP NOT NULL DEFAULT NOW()
         )");
+        // Кто сейчас состоит в приватной группе пака — бот пополняет таблицу сам:
+        // события chat_member, сообщения в группе (в т.ч. в темах), вступление по
+        // инвайт-ссылке, проверка getChatMember при заходе человека на сайт.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS pack_members (
+            tg_id VARCHAR(64) PRIMARY KEY,
+            username VARCHAR(128) NOT NULL DEFAULT '',
+            first_name VARCHAR(255) NOT NULL DEFAULT '',
+            status VARCHAR(20) NOT NULL DEFAULT '',
+            is_member BOOLEAN NOT NULL DEFAULT FALSE,
+            source VARCHAR(32) NOT NULL DEFAULT '',
+            first_seen TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )");
+        return true;
     } catch (Throwable $e) {
         error_log('ensurePackRoleSchema error: ' . $e->getMessage());
+        return false;
     }
 }
 
@@ -34,9 +66,52 @@ function ensurePackRoleSchema__run(PDO $pdo): void
 function ensurePackRoleSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensurePackRoleSchema')) { return; }
-    ensurePackRoleSchema__run($pdo);
-    kuiSchemaMark('ensurePackRoleSchema');
+    if (kuiSchemaDone('ensurePackRoleSchema_v2')) { return; }
+    // FIX: раньше «готово» отмечалось даже если CREATE TABLE упал — и больше не повторялось.
+    if (ensurePackRoleSchema__run($pdo)) { kuiSchemaMark('ensurePackRoleSchema_v2'); }
+}
+
+/** Запомнить/обновить участника приватной группы (и кэш проверки роли). */
+function packMemberUpsert(PDO $pdo, string $tgId, bool $isMember, array $user = [], string $status = '', string $source = ''): void
+{
+    if ($tgId === '') return;
+    ensurePackRoleSchema($pdo);
+    try {
+        $pdo->prepare("
+            INSERT INTO pack_members (tg_id, username, first_name, status, is_member, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (tg_id) DO UPDATE SET
+                username   = CASE WHEN EXCLUDED.username   <> '' THEN EXCLUDED.username   ELSE pack_members.username   END,
+                first_name = CASE WHEN EXCLUDED.first_name <> '' THEN EXCLUDED.first_name ELSE pack_members.first_name END,
+                status     = CASE WHEN EXCLUDED.status     <> '' THEN EXCLUDED.status     ELSE pack_members.status     END,
+                is_member  = EXCLUDED.is_member,
+                source     = CASE WHEN EXCLUDED.source     <> '' THEN EXCLUDED.source     ELSE pack_members.source     END,
+                updated_at = NOW()
+        ")->execute([
+            $tgId,
+            (string)($user['username'] ?? ''),
+            trim((string)($user['first_name'] ?? '') . ' ' . (string)($user['last_name'] ?? '')),
+            $status,
+            $isMember ? 'true' : 'false',
+            $source,
+        ]);
+        $pdo->prepare("
+            INSERT INTO pack_membership_cache (tg_id, is_member, checked_at) VALUES (?, ?, NOW())
+            ON CONFLICT (tg_id) DO UPDATE SET is_member = EXCLUDED.is_member, checked_at = NOW()
+        ")->execute([$tgId, $isMember ? 'true' : 'false']);
+    } catch (Throwable $e) {
+        error_log('packMemberUpsert error: ' . $e->getMessage());
+    }
+}
+
+/** Статус из ответа getChatMember → состоит ли человек в группе прямо сейчас. */
+function packStatusIsMember(array $member): bool
+{
+    $status = (string)($member['status'] ?? '');
+    if (in_array($status, ['member', 'administrator', 'creator'], true)) return true;
+    // restricted — человек ограничен, но МОЖЕТ уже не быть в чате: смотрим is_member
+    if ($status === 'restricted') return !empty($member['is_member']);
+    return false; // left / kicked / пусто
 }
 
 /**
@@ -77,6 +152,7 @@ function checkPackMembership(PDO $pdo, string $token, string $groupChatId, strin
     } catch (Throwable $e) {}
 
     $isMember = false;
+    $member = [];
     try {
         $ch = curl_init("https://api.telegram.org/bot{$token}/getChatMember");
         curl_setopt_array($ch, [
@@ -90,22 +166,24 @@ function checkPackMembership(PDO $pdo, string $token, string $groupChatId, strin
         curl_close($ch);
         if ($err !== '') throw new RuntimeException($err);
 
-        $data   = json_decode((string)$res, true);
-        $status = $data['result']['status'] ?? '';
-        // "left"/"kicked" — не участник; member/administrator/creator/
-        // restricted (но не покинувший) — считаем участником пака.
-        $isMember = in_array($status, ['member', 'administrator', 'creator', 'restricted'], true);
+        $data = json_decode((string)$res, true);
+        if (!is_array($data) || empty($data['ok'])) {
+            // FIX: раньше ответ с ошибкой («chat not found», «user not found», бот не в группе)
+            // превращался в «не участник» и ЗАПИСЫВАЛСЯ в кэш. Теперь ошибка просто логируется,
+            // а в кэш ничего не пишется — отдаём прошлое известное значение.
+            $desc = is_array($data) ? (string)($data['description'] ?? '') : 'bad response';
+            $m = "checkPackMembership: Telegram ответил ошибкой для tg_id={$tgId}: {$desc}";
+            function_exists('botLog') ? botLog($m) : error_log($m);
+            return $cached ? (bool)$cached['is_member'] : false;
+        }
+        $member   = (array)($data['result'] ?? []);
+        $isMember = packStatusIsMember($member);
     } catch (Throwable $e) {
         error_log('checkPackMembership error: ' . $e->getMessage());
         return $cached ? (bool)$cached['is_member'] : false;
     }
 
-    try {
-        $pdo->prepare("
-            INSERT INTO pack_membership_cache (tg_id, is_member, checked_at) VALUES (?, ?, NOW())
-            ON CONFLICT (tg_id) DO UPDATE SET is_member = EXCLUDED.is_member, checked_at = NOW()
-        ")->execute([$tgId, $isMember ? 1 : 0]);
-    } catch (Throwable $e) {}
+    packMemberUpsert($pdo, $tgId, $isMember, (array)($member['user'] ?? []), (string)($member['status'] ?? ''), 'getChatMember');
 
     return $isMember;
 }

@@ -37,7 +37,7 @@ $ppkHasAccess = $ppkHasAccess ?? false;
                     <source src="/assets/img/ppk_preview.mp4" type="video/mp4">
                 </video>
             </div>
-            <a href="https://t.me/Perlo_ovka" target="_blank" class="save-all-btn" style="display:block;text-align:center;text-decoration:none;margin-top:16px;">🛒 Приобрести пак</a>
+            <a href="buy_pack.php" class="save-all-btn" style="display:block;text-align:center;text-decoration:none;margin-top:16px;">🛒 Купить пак</a>
 
             <details style="margin-top:14px;">
                 <summary style="cursor:pointer;color:var(--text2);font-size:13px;">Уже купил и есть ключ активации?</summary>

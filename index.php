@@ -168,8 +168,14 @@ $isPackDesigner = false;
 // не блокируем сам вызов условием на tg_id.
 if ($isAdmin || !empty($tgProfile['tg_id'])) {
     $botTokenForRoleCheck = getSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-    $packGroupChatIdForRoleCheck = getSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+    $packGroupChatIdForRoleCheck = ppkResolveChatId(getSiteSetting($pdo, 'PRIVATE_CHAT_ID'));
     $isPackDesigner = isPackDesigner($pdo, $botTokenForRoleCheck, $packGroupChatIdForRoleCheck, (string)($tgProfile['tg_id'] ?? ''), $isAdmin);
+    // FIX: выше учитывалось только членство в группе — ручные выдачи, активированные ключи и
+    // одобренные покупки игнорировались, и на главной у таких людей пропадал доступ к Приват Паку.
+    if (!$isPackDesigner && !empty($tgProfile['tg_id'])) {
+        require_once __DIR__ . '/includes/badges.php';
+        $isPackDesigner = hasManualPpkGrant($pdo, (string)$tgProfile['tg_id']);
+    }
 }
 
 // Удаление отзыва (теперь $isAdmin определен корректно)

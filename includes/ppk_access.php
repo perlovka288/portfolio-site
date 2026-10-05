@@ -43,7 +43,7 @@ function resolvePpkAccess(PDO $pdo): array
 
     ensurePpkManualSchema($pdo);
     $botToken  = ppkSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
-    $groupChat = ppkSiteSetting($pdo, 'PRIVATE_CHAT_ID') ?: (getenv('PRIVATE_CHAT_ID') ?: '');
+    $groupChat = ppkResolveChatId(ppkSiteSetting($pdo, 'PRIVATE_CHAT_ID'));
 
     $isPackDesigner = $isAdmin
         || hasManualPpkGrant($pdo, $tgId)
@@ -56,4 +56,19 @@ function resolvePpkAccess(PDO $pdo): array
         'tgProfile'      => $tgProfile,
         'sid'            => $sid,
     ];
+}
+
+/**
+ * Есть ли доступ к Приват Паку у конкретного Telegram ID (без сессии) —
+ * для бота: админ / ручная выдача (ключ, покупка) / участник приватной группы.
+ */
+function ppkUserHasAccess(PDO $pdo, string $tgId): bool
+{
+    if ($tgId === '') return false;
+    if ($tgId === (getenv('ADMIN_ID') ?: '1710365896')) return true;
+    ensurePpkManualSchema($pdo);
+    if (hasManualPpkGrant($pdo, $tgId)) return true;
+    $botToken  = ppkSiteSetting($pdo, 'BOT_TOKEN') ?: (getenv('TELEGRAM_BOT_TOKEN') ?: getenv('BOT_TOKEN') ?: '');
+    $groupChat = ppkResolveChatId(ppkSiteSetting($pdo, 'PRIVATE_CHAT_ID'));
+    return checkPackMembership($pdo, $botToken, $groupChat, $tgId);
 }

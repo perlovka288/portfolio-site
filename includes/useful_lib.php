@@ -45,6 +45,13 @@ function createUsefulPost(PDO $pdo, string $authorTgId, string $authorName, stri
     return (int)$stmt->fetchColumn();
 }
 
+function updateUsefulPost(PDO $pdo, int $id, string $title, string $bodyHtml): bool
+{
+    $st = $pdo->prepare("UPDATE useful_posts SET title = ?, body_html = ?, updated_at = NOW() WHERE id = ?");
+    $st->execute([$title, $bodyHtml, $id]);
+    return $st->rowCount() > 0;
+}
+
 function listUsefulPosts(PDO $pdo): array
 {
     return $pdo->query("

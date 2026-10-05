@@ -49,6 +49,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: useful.php?ok=1');
         exit;
     }
+    if ($action === 'update_post' && $isAdmin) {
+        $editId = (int)($_POST['id'] ?? 0);
+        $title  = trim((string)($_POST['title'] ?? ''));
+        $body   = trim((string)($_POST['body'] ?? ''));
+        // пустой Quill отдаёт <p><br></p> — считаем это пустым текстом
+        $bodyEmpty = trim(html_entity_decode(strip_tags($body), ENT_QUOTES, 'UTF-8')) === '' && stripos($body, '<img') === false;
+        if ($editId > 0 && $title !== '' && !$bodyEmpty) {
+            updateUsefulPost($pdo, $editId, $title, $body);
+            header('Location: useful.php?id=' . $editId . '&saved=1');
+        } else {
+            header('Location: useful.php?id=' . $editId . '&edit=1&err=1');
+        }
+        exit;
+    }
     if ($action === 'delete_post' && $isAdmin) {
         deleteUsefulPost($pdo, (int)($_POST['id'] ?? 0));
         header('Location: useful.php');
@@ -137,6 +151,15 @@ function usefulRuDate(string $ts): string
         .useful-post-excerpt { color: var(--text2); font-size:13px; margin-top:8px; line-height:1.5; }
         .useful-empty { text-align:center; color: var(--text2); font-size:13px; padding: 40px 0; }
 
+        .useful-admin-tools { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+        .useful-edit-btn {
+            background: rgba(255,122,0,.12); border:1px solid rgba(255,122,0,.4); color:#ffb067; padding:7px 14px;
+            border-radius:10px; font-size:12.5px; font-weight:800; cursor:pointer; font-family:inherit;
+        }
+        .useful-edit-btn:hover, .useful-edit-btn.on { background: rgba(255,122,0,.25); }
+        .useful-flash { padding:10px 14px; border-radius:10px; font-size:13px; margin-bottom:12px; }
+        .useful-flash.ok { background: rgba(74,222,128,.12); border:1px solid rgba(74,222,128,.35); color:#4ade80; }
+        .useful-flash.err { background: rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.35); color:#f87171; }
         .useful-article { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:26px; margin-bottom:24px; }
         .useful-article h1 { margin:0 0 8px; font-size:20px; }
         .useful-article .useful-post-meta { margin-bottom:18px; }
@@ -171,10 +194,27 @@ function usefulRuDate(string $ts): string
         <h1 class="useful-title">📚 Полезности</h1>
         <div class="useful-article">
             <?php if ($isAdmin): ?>
-            <form method="post" onsubmit="return confirm('Удалить статью?')" style="float:right;">
-                <input type="hidden" name="action" value="delete_post">
+            <div class="useful-admin-tools">
+                <button type="button" class="useful-edit-btn" id="usefulEditBtn" onclick="document.getElementById('editPostForm').classList.toggle('show');this.classList.toggle('on')">✏️ Редактировать</button>
+                <form method="post" onsubmit="return confirm('Удалить статью?')" style="margin:0;">
+                    <input type="hidden" name="action" value="delete_post">
+                    <input type="hidden" name="id" value="<?= (int)$openPost['id'] ?>">
+                    <button type="submit" class="useful-del-btn">🗑 Удалить</button>
+                </form>
+            </div>
+            <?php if (!empty($_GET['saved'])): ?><div class="useful-flash ok">✅ Статья сохранена</div><?php endif; ?>
+            <?php if (!empty($_GET['err'])): ?><div class="useful-flash err">Заголовок и текст не должны быть пустыми — изменения не сохранены.</div><?php endif; ?>
+
+            <form class="useful-add-form <?= !empty($_GET['edit']) ? 'show' : '' ?>" id="editPostForm" method="post">
+                <input type="hidden" name="action" value="update_post">
                 <input type="hidden" name="id" value="<?= (int)$openPost['id'] ?>">
-                <button type="submit" class="useful-del-btn">🗑 Удалить</button>
+                <input type="text" name="title" value="<?= htmlspecialchars($openPost['title']) ?>" placeholder="Заголовок статьи" required>
+                <?php renderRichEditor('body', (string)$openPost['body_html']); ?>
+                <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+                    <button type="submit" class="save-all-btn">Сохранить изменения</button>
+                    <button type="button" class="save-all-btn" style="background:#1e1e2a;box-shadow:none;border:1px solid #2a2a38"
+                            onclick="document.getElementById('editPostForm').classList.remove('show');document.getElementById('usefulEditBtn').classList.remove('on')">Отмена</button>
+                </div>
             </form>
             <?php endif; ?>
             <h1><?= htmlspecialchars($openPost['title']) ?></h1>

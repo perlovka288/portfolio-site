@@ -14,6 +14,7 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/ppk_access.php';
+require_once __DIR__ . '/includes/ppk_purchase.php';
 require_once __DIR__ . '/includes/notifications_lib.php';
 require_once __DIR__ . '/includes/notifications_bell.php';
 require_once __DIR__ . '/includes/ppk_icons.php';
@@ -160,6 +161,18 @@ function imgSrcPpk(?string $url): string
     </div>
     <?php endif; ?>
 
+    <?php
+        // Одноразовая ссылка в приватный чат — показываем владельцу, пока она не использована
+        $__ppkBuy = (!$isAdmin && !empty($tgProfile['tg_id'])) ? ppkApprovedPurchase($pdo, (string)$tgProfile['tg_id']) : null;
+        if ($__ppkBuy && !$__ppkBuy['invite_used'] && $__ppkBuy['invite_link'] !== ''):
+    ?>
+    <div class="kui-card accent">
+        <b>🔗 Вступить в приватный Telegram-чат</b>
+        <p style="margin:6px 0 10px;color:#c9c9cf;font-size:13.5px">Ссылка одноразовая: после вступления она перестанет работать.</p>
+        <a class="kui-btn block" href="<?= htmlspecialchars($__ppkBuy['invite_link']) ?>" target="_blank" rel="noopener">Войти в чат</a>
+    </div>
+    <?php endif; ?>
+
     <div class="kui-card kui-ppk-note">Материалы обновляются в приватном Telegram-канале — если чего-то не хватает, напишите в поддержку.</div>
 
 <?php else: ?>
@@ -171,7 +184,7 @@ function imgSrcPpk(?string $url): string
         <div class="kui-ppk-chips">
             <span>PSD-исходники</span><span>Шрифты</span><span>Кисти и стили</span><span>Гайд по Stable Diffusion</span><span>ИИ-тренажёр клиента</span><span>Личный планер заказов</span>
         </div>
-        <a href="https://t.me/Perlo_ovka" target="_blank" rel="noopener" class="kui-btn block">🛒 Приобрести пак</a>
+        <a href="buy_pack.php" class="kui-btn block">🛒 Купить пак</a>
     </div>
 
     <div class="kui-card kui-ppk-key">

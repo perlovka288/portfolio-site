@@ -48,7 +48,7 @@ function renderRoleBadges(array $flags): string
  * активировал одноразовый ключ — доступ не должен пропасть, если бота
  * временно не удалось опросить.
  */
-function ensurePpkManualSchema__run(PDO $pdo): void
+function ensurePpkManualSchema__run(PDO $pdo): bool
 {
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS ppk_manual_grants (
@@ -65,8 +65,10 @@ function ensurePpkManualSchema__run(PDO $pdo): void
             used_at TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )");
+        return true;
     } catch (Throwable $e) {
         error_log('ensurePpkManualSchema error: ' . $e->getMessage());
+        return false;
     }
 }
 
@@ -74,9 +76,9 @@ function ensurePpkManualSchema__run(PDO $pdo): void
 function ensurePpkManualSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensurePpkManualSchema')) { return; }
-    ensurePpkManualSchema__run($pdo);
-    kuiSchemaMark('ensurePpkManualSchema');
+    if (kuiSchemaDone('ensurePpkManualSchema_v2')) { return; }
+    // FIX: раньше «готово» отмечалось даже при ошибке CREATE TABLE — и таблица грантов не создавалась никогда.
+    if (ensurePpkManualSchema__run($pdo)) { kuiSchemaMark('ensurePpkManualSchema_v2'); }
 }
 
 function hasManualPpkGrant(PDO $pdo, string $tgId): bool
@@ -155,6 +157,21 @@ function redeemPpkKey(PDO $pdo, string $rawCode, string $tgId): array
         return ['ok' => false, 'error' => 'Ошибка сервера, попробуйте позже.'];
     }
 
-    grantManualPpk($pdo, $tgId, 'key:' . $code, 'Активирован ключом');
+    // Ключ погашен — теперь выдаём доступ и ПРОВЕРЯЕМ, что он реально записался
+    // (раньше «ключ сработал» показывалось, даже если выдача молча не прошла).
+    try {
+        grantManualPpk($pdo, $tgId, 'key:' . $code, 'Активирован ключом');
+    } catch (Throwable $e) {
+        error_log('redeemPpkKey grant error: ' . $e->getMessage());
+    }
+    if (!hasManualPpkGrant($pdo, $tgId)) {
+        // откатываем ключ, чтобы человек не потерял его зря
+        try { $pdo->prepare("UPDATE ppk_activation_keys SET is_used = FALSE, used_by_tg_id = '', used_at = NULL WHERE code = ?")->execute([$code]); } catch (Throwable $e) {}
+        return ['ok' => false, 'error' => 'Не удалось выдать доступ. Ключ не потрачен — попробуйте ещё раз или напишите админу.'];
+    }
+    // Админу — уведомление, что ключ активирован (удобно видеть, кто и когда)
+    if (function_exists('ppkNotifyAdmin')) {
+        try { ppkNotifyAdmin("🔑 Ключ <code>" . htmlspecialchars($code) . "</code> активирован пользователем <code>" . htmlspecialchars($tgId) . "</code>.", null, $pdo); } catch (Throwable $e) {}
+    }
     return ['ok' => true];
 }

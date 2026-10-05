@@ -29,3 +29,14 @@ if (empty($tgProfile) && isset($pdo) && $pdo instanceof PDO) {
         }
     } catch (Throwable $__e) {}
 }
+
+// FIX: если страница уже сама заполнила $tgProfile (и блок выше пропущен), роль PPK всё равно
+// нужно посчитать — иначе человек с ключом/покупкой видит замок в меню.
+if (!$isPackDesigner && isset($pdo) && $pdo instanceof PDO && (!empty($tgProfile['tg_id']) || $isAdmin)) {
+    try {
+        require_once __DIR__ . '/ppk_access.php';
+        $__acc2 = resolvePpkAccess($pdo);
+        $isPackDesigner = !empty($__acc2['isPackDesigner']);
+        if (!empty($__acc2['isAdmin'])) { $isAdmin = true; }
+    } catch (Throwable $__e) {}
+}
