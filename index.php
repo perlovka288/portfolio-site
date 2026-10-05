@@ -239,7 +239,14 @@ $daDonationTotalUsd = 0.0;
 $daPayoutStats = ['gross' => 0.0, 'count' => 0, 'commission' => 0.0, 'net' => 0.0];
 
 if ($isAdmin && $daConnected) {
-    $daDonations = daGetDonations($pdo, 200);
+    // Раньше тут был внешний HTTP-запрос к DonationAlerts на КАЖДУЮ загрузку главной у админа (≈0.5 сек).
+    // Теперь результат кешируется на 90 секунд; пустой ответ (сбой API) не кешируем — повторим при следующем заходе.
+    require_once __DIR__ . '/includes/kui_cache.php';
+    $daDonations = kuiCache('da_donations', 90, function () use ($pdo) {
+        $d = daGetDonations($pdo, 200);
+        return !empty($d) ? $d : null;
+    });
+    if (!is_array($daDonations)) { $daDonations = []; }
     $daDonationTotalUsd = daGetCurrentMonthDonationTotalUsd($daDonations);
     $daPayoutStats = daGetCurrentMonthPayoutStats($pdo);
 }
@@ -289,6 +296,8 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
+<link rel="dns-prefetch" href="https://res.cloudinary.com">
     <script defer src="/assets/ai-support-patch.js?v=<?= @filemtime(__DIR__ . '/assets/ai-support-patch.js') ?: 1 ?>"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
