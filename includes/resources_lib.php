@@ -343,6 +343,67 @@ function isCloudinaryUrl(string $url): bool
 }
 
 
+/* ═════════ Видео: встраивание плеера по ссылке ═════════ */
+
+/**
+ * Определяет, как показать видео по ссылке — прямо на сайте, без скачивания.
+ * Поддерживается: YouTube (в т.ч. shorts / youtu.be), Vimeo, Rutube, Google Drive,
+ * видео в Cloudinary и прямые ссылки на .mp4/.webm/.mov/.m4v.
+ * @return array{kind:string,src:string,thumb:string}|null  kind = 'iframe' | 'video'; null — встроить нельзя
+ */
+function videoEmbedInfo(string $url): ?array
+{
+    $url = trim($url);
+    if ($url === '' || !preg_match('#^https?://#i', $url)) return null;
+    $p = parse_url($url);
+    $host = strtolower(preg_replace('/^www\./', '', $p['host'] ?? ''));
+    $path = $p['path'] ?? '';
+    parse_str($p['query'] ?? '', $q);
+
+    // YouTube
+    $yt = '';
+    if ($host === 'youtu.be') { $yt = trim($path, '/'); }
+    elseif (in_array($host, ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'], true)) {
+        if (!empty($q['v'])) { $yt = (string)$q['v']; }
+        elseif (preg_match('#^/(?:embed|shorts|live|v)/([A-Za-z0-9_-]{6,})#', $path, $m)) { $yt = $m[1]; }
+    }
+    if ($yt !== '' && preg_match('/^[A-Za-z0-9_-]{6,20}$/', $yt)) {
+        $start = '';
+        if (!empty($q['t']) && preg_match('/^(\d+)/', (string)$q['t'], $tm)) { $start = '&start=' . (int)$tm[1]; }
+        return ['kind' => 'iframe',
+            'src'   => 'https://www.youtube-nocookie.com/embed/' . $yt . '?rel=0&modestbranding=1&playsinline=1' . $start,
+            'thumb' => 'https://i.ytimg.com/vi/' . $yt . '/hqdefault.jpg'];
+    }
+
+    // Vimeo
+    if (in_array($host, ['vimeo.com', 'player.vimeo.com'], true) && preg_match('#/(\d{5,})#', $path, $m)) {
+        return ['kind' => 'iframe', 'src' => 'https://player.vimeo.com/video/' . $m[1], 'thumb' => ''];
+    }
+
+    // Rutube
+    if ($host === 'rutube.ru' && preg_match('#/(?:video|play/embed)/([a-f0-9]{32})#i', $path, $m)) {
+        return ['kind' => 'iframe', 'src' => 'https://rutube.ru/play/embed/' . $m[1], 'thumb' => ''];
+    }
+
+    // Google Drive (файл должен быть открыт «всем, у кого есть ссылка»)
+    if (in_array($host, ['drive.google.com', 'drive.usercontent.google.com'], true)) {
+        $gid = extractGDriveFileId($url);
+        if ($gid) return ['kind' => 'iframe', 'src' => 'https://drive.google.com/file/d/' . $gid . '/preview', 'thumb' => ''];
+    }
+
+    // Cloudinary-видео и прямые ссылки на видеофайл
+    $isCloudVideo = $host === 'res.cloudinary.com' && strpos($path, '/video/upload/') !== false;
+    if ($isCloudVideo || preg_match('#\.(mp4|webm|mov|m4v|ogv)$#i', $path)) {
+        $thumb = '';
+        if ($isCloudVideo) {
+            $thumb = preg_replace('#/video/upload/#', '/video/upload/so_1,w_800,c_limit,f_jpg,q_auto/', $url, 1);
+            $thumb = preg_replace('#\.[A-Za-z0-9]{2,4}(\?.*)?$#', '.jpg', $thumb);
+        }
+        return ['kind' => 'video', 'src' => $url, 'thumb' => $thumb];
+    }
+    return null;
+}
+
 /* ═════════ Разделы (вкладки) закрытого раздела ═════════ */
 
 /** Встроенные разделы — их нельзя удалить, но можно переименовать и сменить иконку. */

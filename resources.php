@@ -194,7 +194,7 @@ function resAccept(string $slug): string {
         'psd'      => '.psd,.psb,.zip,.rar,.7z',
         'font'     => '.ttf,.otf,.woff,.woff2,.zip,.rar,.7z',
         'brush'    => '.abr,.asl,.atn,.grd,.pat,.zip,.rar,.7z',
-        'sd_video' => 'video/*,.zip,.rar,.7z',
+        'sd_video' => 'video/*',
     ];
     return $map[$slug] ?? '';
 }
@@ -212,14 +212,24 @@ function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
     $secTitle = $sec['title'] !== '' ? $sec['title'] : $type;
 
     $img = resImg((string)$r['preview_image']);
-    $media = $img
-        ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
-        : '<div class="service-cover-placeholder">' . ppkIcon($secIcon) . '</div>';
-
     $tg = trim((string)$r['telegram_url']);
     $fileUrl = $type === 'sd_video' ? (string)$r['video_url'] : (string)$r['file_url'];
     $desc = trim((string)$r['description']);
-    if ($tg !== '') {
+
+    // Видео-раздел: карточка открывает плеер на сайте (как на видеосайте), а не скачивает файл
+    $emb = ($type === 'sd_video' && $tg === '') ? videoEmbedInfo($fileUrl) : null;
+    if ($emb && $img === '' && $emb['thumb'] !== '') { $img = $emb['thumb']; }
+
+    $media = $img
+        ? '<img src="' . htmlspecialchars($img) . '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'media-broken\')">'
+        : '<div class="service-cover-placeholder">' . ppkIcon($secIcon) . '</div>';
+    if ($emb) { $media .= '<span class="res-play-badge" aria-hidden="true">' . ppkIcon('play') . '</span>'; }
+
+    if ($emb) {
+        $href = '#';
+        $ctaLabel = 'Смотреть'; $ctaIcon = 'play'; $ctaAttr = ''; $ctaTitle = 'Смотреть видео';
+        $sub = $desc !== '' ? $desc : 'Смотреть видео';
+    } elseif ($tg !== '') {
         $href = htmlspecialchars($tg);
         $ctaLabel = 'Открыть в Telegram'; $ctaIcon = 'send'; $ctaAttr = ' target="_blank" rel="noopener"'; $ctaTitle = 'Открыть пост в Telegram';
         $sub = $desc !== '' ? $desc : 'Открыть пост в Telegram';
@@ -249,9 +259,17 @@ function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
     $tagsHtml = '<span class="hc hc--sm hc--secondary hc--accent">' . htmlspecialchars($secTitle) . '</span>';
     $cta = '<a class="rd-cta" href="' . $href . '"' . $ctaAttr . ' onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . $ctaLabel . '</a>';
     $act = '<a class="res-act ' . ($ctaIcon === 'send' ? 'res-tg-btn' : 'res-dl-btn') . '" href="' . $href . '"' . $ctaAttr . ' title="' . $ctaTitle . '" onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . '</a>';
+    $playAttr = '';
+    if ($emb) {
+        $cta = '<button type="button" class="rd-cta">' . ppkIcon('play') . 'Смотреть</button>';
+        $act = '<button type="button" class="res-act res-dl-btn res-play-btn" title="Смотреть видео">' . ppkIcon('play') . '</button>';
+        $playAttr = ' data-play="' . htmlspecialchars(json_encode([
+            'kind' => $emb['kind'], 'src' => $emb['src'], 'title' => (string)$r['title'], 'desc' => $desc,
+        ], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES) . '"';
+    }
 
     return '
-    <div class="res-card-wrap" data-rid="' . $id . '">
+    <div class="res-card-wrap' . ($emb ? ' res-card-video' : '') . '" data-rid="' . $id . '"' . $playAttr . '>
         ' . $adminCtl . '
         <div class="res-card-media">' . $media . '<span class="rd-shade"></span>
             <div class="rd-tags">' . $tagsHtml . '</div>
@@ -335,8 +353,10 @@ function resItemFields(string $slug, bool $edit): string {
         . '<span class="rf-drop-t"><b>Выбрать файл</b><small>или перетащи сюда</small></span></label>'
         . '<p class="rf-hint">Большие файлы (от ~20 МБ) надёжнее добавлять через «Ссылка» — загрузка через форму ограничена хостингом.</p></div>';
     $h .= '<div class="rf-src' . $on('link') . '" data-src="link">'
-        . '<input class="rf-input" type="text" name="resource_link" placeholder="https://drive.google.com/file/d/…" autocomplete="off">'
-        . '<p class="rf-hint">Google Drive определяется автоматически — скачивание пойдёт напрямую.</p></div>';
+        . '<input class="rf-input" type="text" name="resource_link" placeholder="' . ($slug === 'sd_video' ? 'https://www.youtube.com/watch?v=…' : 'https://drive.google.com/file/d/…') . '" autocomplete="off">'
+        . '<p class="rf-hint">' . ($slug === 'sd_video'
+            ? 'Видео откроется в плеере прямо на сайте. Подходит: YouTube, Vimeo, Rutube, Google Drive (доступ «по ссылке») или прямая ссылка на .mp4.'
+            : 'Google Drive определяется автоматически — скачивание пойдёт напрямую.') . '</p></div>';
     $h .= '<div class="rf-src' . $on('tg') . '" data-src="tg">'
         . '<input class="rf-input" type="text" name="telegram_url" placeholder="https://t.me/c/…/123" autocomplete="off">'
         . '<p class="rf-hint">Карточка будет открывать этот пост в Telegram.</p></div>';
@@ -379,7 +399,7 @@ $emptyTexts = [
     'psd'      => 'Пока пусто — посты появляются автоматически при публикации новых работ в приват-пак.',
     'font'     => 'Шрифтов пока нет.',
     'brush'    => 'Стилей и кистей пока нет.',
-    'sd_video' => 'Видео пока нет.',
+    'sd_video' => 'Видео пока нет — нажми «+», чтобы добавить первое.',
 ];
 $iconPresets = packIconLabels();
 ?>
@@ -451,6 +471,7 @@ $iconPresets = packIconLabels();
     </style>
     <link rel="stylesheet" href="assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-forms.css?v=<?= @filemtime(__DIR__ . '/assets/res-forms.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/res-video.css?v=<?= @filemtime(__DIR__ . '/assets/res-video.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
 </head>
 <body>
@@ -549,6 +570,16 @@ $iconPresets = packIconLabels();
         <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.', $secBySlug) ?>
     </div>
 </main>
+
+<!-- Видеоплеер (открывается по клику на видео-карточку) -->
+<dialog class="rd-dlg rd-dlg--player" id="dlgPlayer" aria-label="Видеоплеер">
+    <div class="pl-box">
+        <div class="pl-head"><h4 id="plTitle"></h4>
+            <button type="button" class="rib" data-close title="Закрыть"><?= ppkIcon('close') ?></button></div>
+        <div class="pl-stage" id="plStage"></div>
+        <p class="pl-desc" id="plDesc"></p>
+    </div>
+</dialog>
 
 <?php if ($isAdmin): ?>
 <!-- Редактирование материала -->
@@ -745,6 +776,7 @@ function resSetView(mode) {
         f.querySelector('[name=description]').value = d.description || '';
         f.querySelector('[name=telegram_url]').value = d.telegram_url || '';
         f.querySelector('[name=resource_link]').value = d.link || '';
+        f.querySelector('[name=resource_link]').placeholder = d.type === 'sd_video' ? 'Ссылка на видео: YouTube, Vimeo, Rutube, Google Drive, .mp4' : 'https://drive.google.com/file/d/…';
         var fileInp = f.querySelector('[name=resource_file]');
         if (d.accept) fileInp.setAttribute('accept', d.accept); else fileInp.removeAttribute('accept');
         f.querySelector('.rf-seg input[value=keep]').checked = true;
@@ -818,6 +850,40 @@ function resSetView(mode) {
             sd.classList.add('armed'); sd.querySelector('span').textContent = 'Точно удалить?';
             setTimeout(function(){ sd.classList.remove('armed'); sd.querySelector('span').textContent = 'Удалить раздел'; }, 3500);
         }
+    });
+})();
+
+// ── Видеоплеер: клик по видео-карточке открывает плеер в окне ──
+(function(){
+    var dlg = document.getElementById('dlgPlayer'); if (!dlg) return;
+    var stage = document.getElementById('plStage');
+    function openPlayer(d) {
+        document.getElementById('plTitle').textContent = d.title || '';
+        var desc = document.getElementById('plDesc'); desc.textContent = d.desc || ''; desc.style.display = d.desc ? '' : 'none';
+        stage.innerHTML = '';
+        var el;
+        if (d.kind === 'video') {
+            el = document.createElement('video');
+            el.controls = true; el.autoplay = true; el.playsInline = true; el.preload = 'metadata';
+            el.src = d.src;
+        } else {
+            el = document.createElement('iframe');
+            el.src = d.src + (d.src.indexOf('?') > -1 ? '&' : '?') + 'autoplay=1';
+            el.allowFullscreen = true;
+            el.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
+            el.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+        }
+        stage.appendChild(el);
+        dlg.showModal();
+    }
+    dlg.addEventListener('close', function(){ stage.innerHTML = ''; }); // стоп видео при закрытии
+    document.addEventListener('click', function(ev){
+        var t = ev.target;
+        if (t.closest('.res-like-btn, .res-fav-btn, .res-admin-ctl')) return;
+        var card = t.closest('.res-card-wrap[data-play]');
+        if (!card) return;
+        ev.preventDefault();
+        try { openPlayer(JSON.parse(card.dataset.play)); } catch (e) {}
     });
 })();
 
