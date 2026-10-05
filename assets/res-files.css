@@ -1,0 +1,17 @@
+/* Несколько файлов у одного материала (шрифты и т.п.) */
+.rf-files[hidden] { display: none; }
+.rf-files-list { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; }
+.rf-file-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 12px; cursor: pointer;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); font-size: 13px; }
+.rf-file-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rf-file-row em { font-style: normal; font-size: 12px; color: #70707a; }
+.rf-file-row:has(input:checked) { border-color: rgba(225,29,72,.5); background: rgba(225,29,72,.1); }
+.rf-file-row:has(input:checked) span { text-decoration: line-through; opacity: .6; }
+.rf-file-row:has(input:checked) em { color: #ff6b88; }
+.fl-list { display: flex; flex-direction: column; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; }
+.fl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px;
+    text-decoration: none; color: #fff; font-size: 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    transition: border-color .2s, background .2s; }
+.fl-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-row i { font-style: normal; font-weight: 700; color: #ff7a00; }
+.fl-row:hover { border-color: rgba(255,122,0,.55); background: rgba(255,122,0,.08); }

@@ -106,7 +106,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $backTab = $cur['type'];
                 $err = null;
-                $src = packResourceSourceFromPost($cur['type'], $_POST, $localDir, $err);
+                $src = packResourceSourceFromPost($cur['type'], $_POST, $localDir, $err, $pdo, $cur);
                 if ($err !== null) {
                     $flashMsg = $err; $flashType = 'err';
                 } else {
@@ -246,6 +246,7 @@ function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
             'id' => $id, 'type' => $type, 'title' => (string)$r['title'], 'description' => $desc,
             'preview' => $img, 'telegram_url' => $tg, 'link' => $isExternal ? $fileUrl : '',
             'has_file' => $fileUrl !== '', 'accept' => resAccept($type), 'section' => $secTitle,
+            'files' => $type === 'sd_video' ? [] : array_map(fn($f) => $f['name'] !== '' ? $f['name'] : basename((string)parse_url($f['url'], PHP_URL_PATH)), packResourceFiles($r)),
         ];
         $json = htmlspecialchars(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES);
         $adminCtl = '<div class="res-admin-ctl">'
@@ -260,6 +261,23 @@ function resCard(array $r, array $eng, bool $isAdmin, array $sec): string {
     $cta = '<a class="rd-cta" href="' . $href . '"' . $ctaAttr . ' onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . $ctaLabel . '</a>';
     $act = '<a class="res-act ' . ($ctaIcon === 'send' ? 'res-tg-btn' : 'res-dl-btn') . '" href="' . $href . '"' . $ctaAttr . ' title="' . $ctaTitle . '" onclick="event.stopPropagation()">' . ppkIcon($ctaIcon) . '</a>';
     $playAttr = '';
+    // Несколько файлов (например, семейство шрифтов): кнопка «Скачать» открывает список файлов
+    $mfiles = (!$emb && $tg === '') ? packResourceFiles($r) : [];
+    if (count($mfiles) > 1) {
+        $items = [];
+        foreach ($mfiles as $i => $f) {
+            $nm = $f['name'] !== '' ? $f['name'] : basename((string)parse_url($f['url'], PHP_URL_PATH));
+            $items[] = ['name' => $nm, 'href' => 'download.php?rid=' . $id . '&i=' . $i];
+        }
+        $playAttr = ' data-files="' . htmlspecialchars(json_encode([
+            'title' => (string)$r['title'], 'files' => $items,
+            'all'   => class_exists('ZipArchive') ? 'download.php?rid=' . $id . '&all=1' : '',
+        ], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS), ENT_QUOTES) . '"';
+        $href = '#';
+        $sub = $desc !== '' ? $desc : count($mfiles) . ' ' . (count($mfiles) < 5 ? 'файла' : 'файлов');
+        $cta = '<button type="button" class="rd-cta" data-files-open>' . ppkIcon('download') . 'Скачать (' . count($mfiles) . ')</button>';
+        $act = '<button type="button" class="res-act res-dl-btn" data-files-open title="Скачать файлы">' . ppkIcon('download') . '</button>';
+    }
     if ($emb) {
         $cta = '<button type="button" class="rd-cta">' . ppkIcon('play') . 'Смотреть</button>';
         $act = '<button type="button" class="res-act res-dl-btn res-play-btn" title="Смотреть видео">' . ppkIcon('play') . '</button>';
@@ -311,8 +329,8 @@ function resSection(array $items, array $eng, bool $isAdmin, string $emptyText, 
 function resItemFields(string $slug, bool $edit): string {
     $defMode = $edit ? 'keep' : ($slug === 'psd' ? 'tg' : 'file');
     $modes = [];
-    if ($edit) $modes['keep'] = ['check', 'Оставить'];
-    $modes['file'] = ['upload', 'Файл'];
+    if ($edit) { $modes['keep'] = ['check', 'Оставить']; $modes['add'] = ['plus', 'Добавить']; }
+    $modes['file'] = ['upload', $edit ? 'Заменить' : 'Файл'];
     $modes['link'] = ['link', 'Ссылка'];
     $modes['tg']   = ['send', 'Telegram'];
 
@@ -342,15 +360,20 @@ function resItemFields(string $slug, bool $edit): string {
         . ($edit ? '<label class="rf-switch"><input type="checkbox" name="remove_preview" value="1"><span class="rf-switch-track"><i></i></span><span class="rf-switch-t">Убрать превью</span></label>' : '')
         . '</div></div>';
 
+    // текущие файлы материала (только при правке; список заполняет JS) — можно убрать любой
+    if ($edit) {
+        $h .= '<div class="rf-field rf-files" id="rfFiles" hidden><label class="rf-lab">Текущие файлы <em>отметь, чтобы удалить</em></label><div class="rf-files-list"></div></div>';
+    }
+
     // источник
     $h .= '<div class="rf-field"><label class="rf-lab">Источник</label>' . $seg;
     if ($edit) {
         $h .= '<div class="rf-src is-on" data-src="keep"><p class="rf-hint">Текущий файл или ссылка останутся без изменений.</p></div>';
     }
     $h .= '<div class="rf-src' . $on('file') . '" data-src="file">'
-        . '<label class="rf-drop" data-kind="file"><input type="file" name="resource_file"' . ($accept !== '' ? ' accept="' . $accept . '"' : '') . '>'
+        . '<label class="rf-drop" data-kind="file"><input type="file" name="resource_file[]" multiple' . ($accept !== '' ? ' accept="' . $accept . '"' : '') . '>'
         . '<span class="rf-drop-ico">' . ppkIcon('upload') . '</span>'
-        . '<span class="rf-drop-t"><b>Выбрать файл</b><small>или перетащи сюда</small></span></label>'
+        . '<span class="rf-drop-t"><b>Выбрать файлы</b><small>можно несколько сразу · или перетащи сюда</small></span></label>'
         . '<p class="rf-hint">Большие файлы (от ~20 МБ) надёжнее добавлять через «Ссылка» — загрузка через форму ограничена хостингом.</p></div>';
     $h .= '<div class="rf-src' . $on('link') . '" data-src="link">'
         . '<input class="rf-input" type="text" name="resource_link" placeholder="' . ($slug === 'sd_video' ? 'https://www.youtube.com/watch?v=…' : 'https://drive.google.com/file/d/…') . '" autocomplete="off">'
@@ -472,6 +495,7 @@ $iconPresets = packIconLabels();
     <link rel="stylesheet" href="assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-forms.css?v=<?= @filemtime(__DIR__ . '/assets/res-forms.css') ?: time() ?>">
     <link rel="stylesheet" href="assets/res-video.css?v=<?= @filemtime(__DIR__ . '/assets/res-video.css') ?: time() ?>">
+    <link rel="stylesheet" href="assets/res-files.css?v=<?= @filemtime(__DIR__ . '/assets/res-files.css') ?: time() ?>">
     <?php if ($isAdmin) renderRichEditorAssets(); // редактор нужен только тому, кто пишет гайд ?>
 </head>
 <body>
@@ -570,6 +594,16 @@ $iconPresets = packIconLabels();
         <?= resSection($favorites, $engagement, false, 'Пока ничего не добавлено — нажимай 🔖 на понравившихся материалах.', $secBySlug) ?>
     </div>
 </main>
+
+<!-- Список файлов материала (если файлов несколько) -->
+<dialog class="rd-dlg rd-dlg--sm" id="dlgFiles" aria-label="Файлы материала">
+    <div class="rf-form rf-form--dlg">
+        <div class="rf-form-head"><h4 id="flTitle">Файлы</h4>
+            <button type="button" class="rib" data-close title="Закрыть"><?= ppkIcon('close') ?></button></div>
+        <div class="fl-list" id="flList"></div>
+        <a class="rf-btn rf-btn--primary" id="flAll" href="#" style="display:none;text-decoration:none;justify-content:center"><?= ppkIcon('download') ?><span>Скачать всё (.zip)</span></a>
+    </div>
+</dialog>
 
 <!-- Видеоплеер (открывается по клику на видео-карточку) -->
 <dialog class="rd-dlg rd-dlg--player" id="dlgPlayer" aria-label="Видеоплеер">
@@ -678,7 +712,8 @@ function resSetView(mode) {
     function syncSeg(form) {
         var checked = form.querySelector('.rf-seg input:checked');
         if (!checked) return;
-        form.querySelectorAll('.rf-src').forEach(function(p){ p.classList.toggle('is-on', p.dataset.src === checked.value); });
+        var v = checked.value === 'add' ? 'file' : checked.value;   // «Добавить» и «Заменить» используют одну зону выбора файлов
+        form.querySelectorAll('.rf-src').forEach(function(p){ p.classList.toggle('is-on', p.dataset.src === v); });
     }
     document.addEventListener('change', function(ev){
         var t = ev.target;
@@ -696,8 +731,16 @@ function resSetView(mode) {
             }
             drop.classList.add('has-file');
             title.innerHTML = '<b></b><small></small>';
-            title.querySelector('b').textContent = f.name;
-            title.querySelector('small').textContent = fmtSize(f.size) + ' · нажми, чтобы заменить';
+            var n = t.files.length;
+            if (n > 1) {
+                var total = 0, names = [];
+                for (var k = 0; k < n; k++) { total += t.files[k].size; names.push(t.files[k].name); }
+                title.querySelector('b').textContent = 'Выбрано файлов: ' + n;
+                title.querySelector('small').textContent = names.join(', ') + ' · ' + fmtSize(total);
+            } else {
+                title.querySelector('b').textContent = f.name;
+                title.querySelector('small').textContent = fmtSize(f.size) + ' · нажми, чтобы заменить';
+            }
             if (thumb && f.type.indexOf('image/') === 0) {
                 thumb.src = URL.createObjectURL(f); drop.classList.add('has-thumb');
             }
@@ -780,6 +823,18 @@ function resSetView(mode) {
         var fileInp = f.querySelector('[name=resource_file]');
         if (d.accept) fileInp.setAttribute('accept', d.accept); else fileInp.removeAttribute('accept');
         f.querySelector('.rf-seg input[value=keep]').checked = true;
+        // текущие файлы с чекбоксами «удалить» + кнопка «Добавить» (не для видео)
+        var fl = document.getElementById('rfFiles'), fln = fl.querySelector('.rf-files-list'); fln.innerHTML = '';
+        (d.files || []).forEach(function(nm, idx){
+            var lb = document.createElement('label'); lb.className = 'rf-file-row';
+            var cb = document.createElement('input'); cb.type = 'checkbox'; cb.name = 'remove_files[]'; cb.value = idx;
+            var sp = document.createElement('span'); sp.textContent = nm;
+            var tr = document.createElement('em'); tr.textContent = 'удалить';
+            lb.appendChild(cb); lb.appendChild(sp); lb.appendChild(tr); fln.appendChild(lb);
+        });
+        fl.hidden = !(d.files && d.files.length > 1);
+        var addOpt = f.querySelector('.rf-seg input[value=add]');
+        if (addOpt) addOpt.closest('.rf-seg-opt').style.display = isVid ? 'none' : '';
         // сброс дропзон и подстановка текущего превью
         f.querySelectorAll('.rf-drop').forEach(function(dr){
             dr.classList.remove('has-file', 'has-thumb'); delete dr.dataset.orig;
@@ -850,6 +905,28 @@ function resSetView(mode) {
             sd.classList.add('armed'); sd.querySelector('span').textContent = 'Точно удалить?';
             setTimeout(function(){ sd.classList.remove('armed'); sd.querySelector('span').textContent = 'Удалить раздел'; }, 3500);
         }
+    });
+})();
+
+// ── Несколько файлов у материала: окно со списком + «Скачать всё» ──
+(function(){
+    var dlg = document.getElementById('dlgFiles'); if (!dlg) return;
+    document.addEventListener('click', function(ev){
+        var b = ev.target.closest('[data-files-open]'); if (!b) return;
+        var card = b.closest('.res-card-wrap[data-files]'); if (!card) return;
+        ev.preventDefault();
+        var d; try { d = JSON.parse(card.dataset.files); } catch (e) { return; }
+        document.getElementById('flTitle').textContent = d.title || 'Файлы';
+        var list = document.getElementById('flList'); list.innerHTML = '';
+        (d.files || []).forEach(function(f){
+            var a = document.createElement('a'); a.className = 'fl-row'; a.href = f.href;
+            var n = document.createElement('span'); n.textContent = f.name;
+            var i = document.createElement('i'); i.textContent = '↓';
+            a.appendChild(n); a.appendChild(i); list.appendChild(a);
+        });
+        var all = document.getElementById('flAll');
+        if (d.all) { all.href = d.all; all.style.display = 'flex'; } else { all.style.display = 'none'; }
+        dlg.showModal();
     });
 })();
 

@@ -31,6 +31,8 @@ function ensureResourcesSchema__run(PDO $pdo): void
         // добавляем недостающие колонки под прямое скачивание (Блок 2.2 ТЗ).
         $pdo->exec("ALTER TABLE pack_resources ADD COLUMN IF NOT EXISTS file_id TEXT NOT NULL DEFAULT ''");
         $pdo->exec("ALTER TABLE pack_resources ADD COLUMN IF NOT EXISTS file_name TEXT NOT NULL DEFAULT ''");
+        // Несколько файлов у одного материала (например, семейство шрифтов): JSON-список [{url,name,id}]
+        $pdo->exec("ALTER TABLE pack_resources ADD COLUMN IF NOT EXISTS files_json TEXT NOT NULL DEFAULT ''");
         $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (
             setting_key VARCHAR(64) PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
@@ -76,9 +78,9 @@ function ensureResourcesSchema__run(PDO $pdo): void
 function ensureResourcesSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensureResourcesSchema_v3')) { return; }
+    if (kuiSchemaDone('ensureResourcesSchema_v4')) { return; }
     ensureResourcesSchema__run($pdo);
-    kuiSchemaMark('ensureResourcesSchema_v3');
+    kuiSchemaMark('ensureResourcesSchema_v4');
 }
 
 function getResSetting(PDO $pdo, string $key, string $default = ''): string
@@ -139,8 +141,8 @@ function extractGDriveFileId(string $link): ?string
 function createPackResource(PDO $pdo, array $data): int
 {
     $stmt = $pdo->prepare("
-        INSERT INTO pack_resources (type, title, description, preview_image, telegram_url, file_url, file_id, file_name, video_url)
-        VALUES (:type, :title, :description, :preview_image, :telegram_url, :file_url, :file_id, :file_name, :video_url)
+        INSERT INTO pack_resources (type, title, description, preview_image, telegram_url, file_url, file_id, file_name, video_url, files_json)
+        VALUES (:type, :title, :description, :preview_image, :telegram_url, :file_url, :file_id, :file_name, :video_url, :files_json)
     ");
     $stmt->execute([
         ':type'          => $data['type'] ?? '',
@@ -152,6 +154,7 @@ function createPackResource(PDO $pdo, array $data): int
         ':file_id'       => $data['file_id'] ?? '',
         ':file_name'     => $data['file_name'] ?? '',
         ':video_url'     => $data['video_url'] ?? '',
+        ':files_json'    => $data['files_json'] ?? '',
     ]);
     return (int)$pdo->lastInsertId('pack_resources_id_seq');
 }
@@ -312,27 +315,95 @@ function uploadPackResourceFileLocal(string $field, string $uploadDir): ?array
 function uploadPackResourceFileCloudinary(string $field, ?PDO $pdo = null, ?string &$error = null): ?array
 {
     $error = null;
-    $err = $_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE;
-    if ($err === UPLOAD_ERR_NO_FILE || empty($_FILES[$field]['name'])) return null;
-    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES[$field]['tmp_name'])) {
-        $error = 'файл не дошёл до сервера (возможно, больше upload_max_filesize / post_max_size)';
+    $files = packNormalizeUploads($field);
+    if (!$files) return null;
+    return uploadPackUploadedToCloudinary($files[0], $pdo, $error);
+}
+
+/**
+ * Приводит $_FILES[$field] к списку файлов — и для одиночного <input type=file>,
+ * и для <input type=file name="x[]" multiple>. Пустые слоты (файл не выбран) пропускает.
+ * @return array<int, array{name:string,tmp_name:string,error:int,size:int}>
+ */
+function packNormalizeUploads(string $field): array
+{
+    if (empty($_FILES[$field])) return [];
+    $f = $_FILES[$field];
+    $out = [];
+    if (is_array($f['name'])) {
+        foreach ($f['name'] as $i => $n) {
+            $e = (int)($f['error'][$i] ?? UPLOAD_ERR_NO_FILE);
+            if ($e === UPLOAD_ERR_NO_FILE || $n === '') continue;
+            $out[] = ['name' => (string)$n, 'tmp_name' => (string)$f['tmp_name'][$i], 'error' => $e, 'size' => (int)($f['size'][$i] ?? 0)];
+        }
+    } else {
+        $e = (int)($f['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($e !== UPLOAD_ERR_NO_FILE && $f['name'] !== '') {
+            $out[] = ['name' => (string)$f['name'], 'tmp_name' => (string)$f['tmp_name'], 'error' => $e, 'size' => (int)($f['size'] ?? 0)];
+        }
+    }
+    return $out;
+}
+
+/** Загружает ОДИН файл из списка packNormalizeUploads() в Cloudinary. @return array{url:string,file_name:string}|null */
+function uploadPackUploadedToCloudinary(array $file, ?PDO $pdo = null, ?string &$error = null): ?array
+{
+    $error = null;
+    $origName = basename((string)$file['name']);
+    if ((int)$file['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
+        $error = $origName . ': файл не дошёл до сервера (возможно, больше upload_max_filesize / post_max_size)';
         return null;
     }
-    $origName = basename((string)$_FILES[$field]['name']);
     $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
     $allowed = ['ttf', 'otf', 'woff', 'woff2', 'abr', 'asl', 'atn', 'grd', 'pat', 'psd', 'psb', 'zip', 'rar', '7z', 'pdf', 'mp4', 'mov', 'webm'];
-    if (!in_array($ext, $allowed, true)) { $error = 'недопустимое расширение .' . $ext; return null; }
+    if (!in_array($ext, $allowed, true)) { $error = $origName . ': недопустимое расширение .' . $ext; return null; }
 
     require_once __DIR__ . '/image_store.php';
     if (!($pdo instanceof PDO)) { $pdo = $GLOBALS['pdo'] ?? null; }
     if (!imageStoreConfigured($pdo)) { $error = 'Cloudinary не настроен'; return null; }
 
-    $base = pathinfo($origName, PATHINFO_FILENAME);
     $e = null;
     // folder != 'kostlim' → файл НЕ пережимается как картинка, грузится как есть
-    $url = imageStoreUpload($_FILES[$field]['tmp_name'], 'res_' . $base, $pdo, $e, 300, 2, 'kostlim/resources', $origName);
-    if ($url === '') { $error = (string)$e ?: 'Cloudinary не принял файл'; return null; }
+    $url = imageStoreUpload($file['tmp_name'], 'res_' . pathinfo($origName, PATHINFO_FILENAME), $pdo, $e, 300, 2, 'kostlim/resources', $origName);
+    if ($url === '') { $error = $origName . ': ' . ((string)$e ?: 'Cloudinary не принял файл'); return null; }
     return ['url' => $url, 'file_name' => $origName];
+}
+
+/**
+ * Все файлы материала одним списком: files_json (несколько) либо одиночный file_url (старые записи).
+ * @return array<int, array{url:string,name:string,id:string}>
+ */
+function packResourceFiles(array $r): array
+{
+    $json = trim((string)($r['files_json'] ?? ''));
+    if ($json !== '') {
+        $arr = json_decode($json, true);
+        if (is_array($arr)) {
+            $out = [];
+            foreach ($arr as $f) {
+                if (!is_array($f) || empty($f['url'])) continue;
+                $out[] = ['url' => (string)$f['url'], 'name' => (string)($f['name'] ?? ''), 'id' => (string)($f['id'] ?? '')];
+            }
+            if ($out) return $out;
+        }
+    }
+    $url = (string)($r['file_url'] ?? '');
+    if ($url === '' || trim((string)($r['telegram_url'] ?? '')) !== '' || ($r['type'] ?? '') === 'sd_video') return [];
+    return [['url' => $url, 'name' => (string)($r['file_name'] ?? ''), 'id' => (string)($r['file_id'] ?? '')]];
+}
+
+/** Набор полей БД для списка файлов: первый файл дублируется в file_url/file_name (совместимость), 2+ файла — в files_json. */
+function packFilesToFields(array $files, string $urlCol): array
+{
+    $files = array_values($files);
+    $first = $files[0] ?? ['url' => '', 'name' => '', 'id' => ''];
+    return [
+        $urlCol        => $first['url'],
+        'file_id'      => $first['id'],
+        'file_name'    => $first['name'],
+        'files_json'   => count($files) > 1 ? json_encode($files, JSON_UNESCAPED_UNICODE) : '',
+        'telegram_url' => '',
+    ];
 }
 
 /** true — ссылка ведёт на файл в Cloudinary (https://res.cloudinary.com/...). */
@@ -519,7 +590,7 @@ function getPackResource(PDO $pdo, int $id): ?array
 /** Обновляет только переданные поля (белый список колонок). */
 function updatePackResource(PDO $pdo, int $id, array $fields): void
 {
-    $allowed = ['title', 'description', 'preview_image', 'telegram_url', 'file_url', 'file_id', 'file_name', 'video_url'];
+    $allowed = ['title', 'description', 'preview_image', 'telegram_url', 'file_url', 'file_id', 'file_name', 'video_url', 'files_json'];
     $set = []; $vals = [];
     foreach ($fields as $k => $v) {
         if (!in_array($k, $allowed, true)) continue;
@@ -539,48 +610,66 @@ function updatePackResource(PDO $pdo, int $id, array $fields): void
  * Возвращает набор полей для БД; в $err — текст ошибки, если не получилось.
  * Для sd_video ссылка на файл хранится в video_url, для остальных — в file_url.
  */
-function packResourceSourceFromPost(string $slug, array $post, string $localDir, ?string &$err = null, ?PDO $pdo = null): array
+function packResourceSourceFromPost(string $slug, array $post, string $localDir, ?string &$err = null, ?PDO $pdo = null, ?array $current = null): array
 {
     $mode = (string)($post['src_mode'] ?? 'file');
     $urlCol = $slug === 'sd_video' ? 'video_url' : 'file_url';
     $title = trim((string)($post['title'] ?? ''));
     $err = null;
 
-    if ($mode === 'keep') return [];
+    // Список файлов текущего материала: можно убрать отдельные файлы (чекбоксы «удалить»)
+    $remove = array_map('intval', (array)($post['remove_files'] ?? []));
+    $curFiles = ($current && $slug !== 'sd_video') ? packResourceFiles($current) : [];
+    $kept = [];
+    foreach ($curFiles as $i => $f) { if (!in_array($i, $remove, true)) $kept[] = $f; }
+
+    if ($mode === 'keep') {
+        if (!$remove || !$curFiles) return [];
+        return packFilesToFields($kept, $urlCol);   // только удаление выбранных файлов
+    }
 
     if ($mode === 'tg') {
         $tg = trim((string)($post['telegram_url'] ?? ''));
         if ($tg === '') { $err = 'Вставь ссылку на пост в Telegram.'; return []; }
-        return ['telegram_url' => $tg, $urlCol => '', 'file_id' => '', 'file_name' => ''];
+        return ['telegram_url' => $tg, $urlCol => '', 'file_id' => '', 'file_name' => '', 'files_json' => ''];
     }
 
     if ($mode === 'link') {
         $link = trim((string)($post['resource_link'] ?? ''));
         if ($link === '') { $err = 'Вставь ссылку на файл.'; return []; }
-        $out = [$urlCol => $link, 'telegram_url' => '', 'file_id' => '', 'file_name' => ''];
+        $out = [$urlCol => $link, 'telegram_url' => '', 'file_id' => '', 'file_name' => '', 'files_json' => ''];
         $gdId = extractGDriveFileId($link);
         if ($gdId) { $out['file_id'] = $gdId; $out['file_name'] = $title; }
         return $out;
     }
 
-    // file: 1) Cloudinary (постоянное хранилище) → 2) Google Drive.
+    // file / add: 1) Cloudinary (постоянное хранилище) → 2) Google Drive.
     // На локальный диск НЕ сохраняем — uploads/ стирается при деплое (файл «пропадал» после пуша).
-    if (empty($_FILES['resource_file']['name'])) { $err = 'Прикрепи файл или выбери «Ссылка».'; return []; }
-
-    $cloudErr = null;
-    $cl = uploadPackResourceFileCloudinary('resource_file', $pdo, $cloudErr);
-    if ($cl) {
-        return [$urlCol => $cl['url'], 'file_id' => '', 'file_name' => $cl['file_name'], 'telegram_url' => ''];
+    // Можно выбрать несколько файлов сразу (кроме видео — там один).
+    $uploads = packNormalizeUploads('resource_file');
+    if (!$uploads) {
+        $err = $mode === 'add' ? 'Выбери файлы, которые нужно добавить.' : 'Прикрепи файл или выбери «Ссылка».';
+        return [];
     }
+    if ($slug === 'sd_video') { $uploads = [$uploads[0]]; }
+    @set_time_limit(0);
 
-    $gd = function_exists('uploadToGoogleDriveDetailed')
-        ? uploadToGoogleDriveDetailed($_FILES['resource_file']['tmp_name'], basename((string)$_FILES['resource_file']['name']))
-        : null;
-    if ($gd) {
-        return [$urlCol => $gd['url'], 'file_id' => $gd['id'], 'file_name' => $gd['name'], 'telegram_url' => ''];
+    $new = []; $errors = [];
+    foreach ($uploads as $up) {
+        $cloudErr = null;
+        $cl = uploadPackUploadedToCloudinary($up, $pdo, $cloudErr);
+        if ($cl) { $new[] = ['url' => $cl['url'], 'name' => $cl['file_name'], 'id' => '']; continue; }
+        $gd = function_exists('uploadToGoogleDriveDetailed') && is_uploaded_file($up['tmp_name'])
+            ? uploadToGoogleDriveDetailed($up['tmp_name'], basename($up['name'])) : null;
+        if ($gd) { $new[] = ['url' => $gd['url'], 'name' => $gd['name'], 'id' => (string)($gd['id'] ?? '')]; continue; }
+        $errors[] = $cloudErr ?: (basename($up['name']) . ': не удалось загрузить');
     }
-    $err = '❌ Файл не загрузился в Cloudinary' . ($cloudErr ? " ({$cloudErr})" : '')
-         . '. Проверь ключи Cloudinary в «Ключи и API» (диагностика: /admin/storage_test.php) или вставь готовую ссылку. '
-         . 'На сервер файл не сохраняется — там он пропадает при деплое.';
-    return [];
+    if ($errors) {
+        // Частичная загрузка не сохраняется: либо все файлы, либо ничего — чтобы не было «половины семейства»
+        $err = '❌ Не загрузилось в Cloudinary: ' . implode('; ', array_slice($errors, 0, 3))
+             . '. Проверь ключи Cloudinary (диагностика: /admin/storage_test.php). На сервер файлы не сохраняются — там они пропадают при деплое.';
+        return [];
+    }
+    $all = $mode === 'add' ? array_merge($kept, $new) : $new;   // add — дописать к имеющимся, file — заменить всё
+    return packFilesToFields($all, $urlCol);
 }
