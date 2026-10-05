@@ -820,7 +820,8 @@ function resSetView(mode) {
         f.querySelector('[name=telegram_url]').value = d.telegram_url || '';
         f.querySelector('[name=resource_link]').value = d.link || '';
         f.querySelector('[name=resource_link]').placeholder = d.type === 'sd_video' ? 'Ссылка на видео: YouTube, Vimeo, Rutube, Google Drive, .mp4' : 'https://drive.google.com/file/d/…';
-        var fileInp = f.querySelector('[name=resource_file]');
+        var isVid = d.type === 'sd_video';
+        var fileInp = f.querySelector('[name="resource_file[]"]');
         if (d.accept) fileInp.setAttribute('accept', d.accept); else fileInp.removeAttribute('accept');
         f.querySelector('.rf-seg input[value=keep]').checked = true;
         // текущие файлы с чекбоксами «удалить» + кнопка «Добавить» (не для видео)
