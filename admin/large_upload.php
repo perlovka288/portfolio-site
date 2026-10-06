@@ -112,6 +112,7 @@ $maxMb = round(((int)($tokenRow['max_size'] ?? UPLOAD_TOKEN_MAX_BYTES)) / 1024 /
         button:disabled { opacity: .5; cursor: not-allowed; }
         .meta { font-size: 12px; color: #666; margin-top: 14px; line-height: 1.6; }
     </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
 <div class="card">

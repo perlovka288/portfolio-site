@@ -28,6 +28,7 @@ $kuiTitle  = 'Название раздела';
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/assets/kostlim-upgrade.css">
     <?php include __DIR__ . '/../includes/ui_head.php'; /* ← всегда последним */ ?>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body class="kui">
 <?php include __DIR__ . '/../includes/ui_page_start.php'; ?>

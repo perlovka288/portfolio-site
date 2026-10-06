@@ -37,6 +37,7 @@ if (!$isPackDesigner) {
     <title>Доступ закрыт | Kostlim Design</title>
     <link rel="icon" type="image/png" href="/assets/img/logo-64.png" sizes="16x16">
     <link rel="stylesheet" href="style.css">
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
     </head><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
         <div>
             <h1>🔒 Доступ закрыт</h1>
@@ -465,7 +466,7 @@ $iconPresets = packIconLabels();
            битой иконки браузера показываем плашку-заглушку, а не голый
            чёрный блок на всю ширину плитки (см. media-broken на img onerror). */
         .res-card-media.media-broken img { display:none; }
-        .res-card-media.media-broken::after { content:'🖼'; font-size:26px; opacity:.5; }
+        .res-card-media.media-broken::after { content:''; width:28px; height:28px; opacity:.5; background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2' ry='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21'/%3E%3C/svg%3E") center/contain no-repeat; }
         .res-card-body { padding:12px 14px 4px; flex:1; }
         .res-card-body h3 { margin:0 0 4px; font-size:14px; }
         .res-card-sub { color: var(--text2); font-size:12px; }

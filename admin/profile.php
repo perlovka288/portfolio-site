@@ -211,6 +211,7 @@ try { $pendingReviewsQuick = (int)$pdo->query("SELECT COUNT(*) FROM reviews WHER
         .two-cols { grid-template-columns: 1fr; }
     }
 </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
 <div class="profile-shell">

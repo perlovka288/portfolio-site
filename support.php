@@ -85,6 +85,7 @@ $themeEffects = $settings['theme_effects'] ?? 'glow';
 <link rel="stylesheet" href="style.css?v=<?= @filemtime(__DIR__ . '/style.css') ?: time() ?>">
 <?php include __DIR__ . '/includes/ui_head.php'; ?>
 <link rel="stylesheet" href="/assets/ppk-redesign.css?v=<?= @filemtime(__DIR__ . '/assets/ppk-redesign.css') ?: time() ?>">
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body class="kui theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?>">
 <?php

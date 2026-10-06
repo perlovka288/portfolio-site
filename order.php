@@ -61,7 +61,7 @@ if (!isOrdersAvailable($pdo)) {
         .box h1{font-size:20px;margin:0 0 12px;}
         .box p{color:#9a9aa6;line-height:1.6;font-size:14px;}
         .box a{display:inline-block;margin-top:20px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:800;font-size:13px;}
-    </style></head><body>
+    </style><?php @include __DIR__ . '/includes/icons_head.php'; ?></head><body>
     <div class="box">
         <div style="font-size:44px;margin-bottom:12px;">🌴</div>
         <h1>Приём заказов временно приостановлен</h1>

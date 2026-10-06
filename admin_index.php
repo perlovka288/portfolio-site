@@ -1407,6 +1407,7 @@ $imgbbKeySet       = imageStoreConfigured($pdo ?? null);   // теперь эт�
         @media (max-width: 1100px) { .admin-board { grid-template-columns: 1fr; } .admin-tabs { position: static; grid-template-columns: repeat(2,1fr); } .stats-grid { grid-template-columns: repeat(2,1fr); } .admin-layout { grid-template-columns: 1fr; } }
         @media (max-width: 640px) { .admin-shell { padding: 16px; } .admin-top { align-items: flex-start; flex-direction: column; } .admin-tabs { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr; } .two-cols { grid-template-columns: 1fr; } }
     </style>
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body>
 

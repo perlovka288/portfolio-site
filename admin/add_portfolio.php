@@ -159,6 +159,7 @@ render:
         .ap-preview-note strong { color: var(--text); }
         .ap-psd-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
     </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body class="at-root">
 <div class="at-page" style="max-width: 640px;">

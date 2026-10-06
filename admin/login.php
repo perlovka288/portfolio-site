@@ -114,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-bottom: 18px;
         }
     </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
     <div class="login-card">

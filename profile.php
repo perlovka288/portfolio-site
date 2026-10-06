@@ -1013,6 +1013,7 @@ body::before {
 .hidden { display: none !important; }
 </style>
 <?php include __DIR__ . '/includes/ui_head.php'; ?>
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?> kui">
 

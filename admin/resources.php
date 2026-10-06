@@ -127,6 +127,7 @@ $sdGuide = getResSetting($pdo, 'SD_INSTALL_GUIDE', '');
     ul{list-style:none;padding:0;} li{display:flex;justify-content:space-between;align-items:center;background:#121212;border:1px solid #222222;padding:10px 14px;border-radius:8px;margin-bottom:6px;}
     li span{opacity:.7;font-size:12px;margin-left:8px;}
 </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
 <p><a href="index.php">← Назад в админку</a></p>

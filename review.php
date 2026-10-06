@@ -140,6 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .back-link { display:inline-flex; align-items:center; gap:6px; color:#8a8a96; text-decoration:none; font-size:13px; font-weight:700; margin-bottom:20px; transition:.15s; }
         .back-link:hover { color:#fff; }
     </style>
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body>
 <div class="review-wrap">

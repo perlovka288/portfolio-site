@@ -141,6 +141,7 @@ body::before {
 </style>
 <link rel="stylesheet" href="assets/kostlim-upgrade.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-upgrade.css') ?: time() ?>">
 <?php include __DIR__ . '/includes/ui_head.php'; ?>
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body class="kui">
 <?php

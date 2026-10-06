@@ -59,6 +59,19 @@ if (!function_exists('kuiIcon')) {
             'plus'    => '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
             'ai'      => '<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
         ];
+        // Анимированные иконки из набора (assets/kostlim-icons.js): замочек пака, самолётик Telegram, меню «Ещё».
+        // Играют анимацию при наведении/нажатии на пункт меню. Обёртка display:contents — раскладку меню не меняет.
+        static $a = [
+            'lock'   => '<rect x="9" y="18" width="22" height="16" rx="3"/><path class="k-shackle" d="M14 18V13a6 6 0 0112 0v5"/><circle class="k-key" cx="20" cy="26" r="2" fill="currentColor" stroke="none"/>',
+            'unlock' => '<rect x="9" y="18" width="22" height="16" rx="3"/><path class="k-shackle2" d="M14 18V13a6 6 0 0112 0v2"/><circle class="k-key2" cx="20" cy="26" r="2" fill="currentColor" stroke="none"/>',
+            'tg'     => '<g class="k-plane"><path d="M34 6L16 20l-6-2L34 6z"/><path d="M34 6L22 34l-6-14"/><line x1="16" y1="20" x2="22" y2="34"/></g>',
+            'more'   => '<line class="k-m1" x1="10" y1="12" x2="30" y2="12" stroke-width="2.5"/><line class="k-m2" x1="10" y1="20" x2="30" y2="20" stroke-width="2.5"/><line class="k-m3" x1="10" y1="28" x2="30" y2="28" stroke-width="2.5"/>',
+        ];
+        $an = $n;
+        if ($n === 'ppk') { $an = !empty($GLOBALS['ppkHasAccess']) ? 'unlock' : 'lock'; }
+        if (isset($a[$an])) {
+            return '<span class="kei kei-a kei-nav kei-' . $an . '" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $a[$an] . '</svg></span>';
+        }
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' . ($i[$n] ?? '') . '</svg>';
     }
 }

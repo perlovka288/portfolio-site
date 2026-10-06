@@ -93,6 +93,7 @@ $sessions = $pdo->query("
         .tp-field label { display:block; font-size:12.5px; font-weight:700; margin-bottom:6px; color: var(--text); }
         .tp-field textarea { width:100%; box-sizing:border-box; min-height:80px; resize:vertical; }
     </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body style="padding:24px;max-width:900px;margin:0 auto;">
     <h1>🎮 ИИ-тренажёр клиентов</h1>

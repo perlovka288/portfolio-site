@@ -327,6 +327,7 @@ $kuiAdminTitle = 'Приват Пак';
         table { min-width:640px; }
     </style>
     <?php include __DIR__ . '/../includes/ui_head.php'; ?>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body class="kui kui-admin">
 <?php include __DIR__ . '/../includes/ui_admin_shell.php'; ?>

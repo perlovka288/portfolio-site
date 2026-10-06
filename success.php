@@ -39,6 +39,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Оплата прошла | Kostlim Design</title>
 <link rel="stylesheet" href="assets/pay.css?v=4">
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head><body class="receipt">
 <div class="ticket" id="ticket">
   <span class="cut l" id="cutL"></span><span class="cut r" id="cutR"></span>

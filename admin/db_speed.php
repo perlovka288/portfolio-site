@@ -40,7 +40,7 @@ body{margin:0;background:#080808;color:#eee;font:15px/1.6 system-ui,sans-serif;p
 h1{margin:0 0 16px;font-size:20px} .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
 .row span:first-child{color:#8a8a8a} .big{font-size:34px;font-weight:900;color:#fb923c} .v{margin-top:16px;padding:12px 14px;border-radius:12px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25)}
 a{color:#fb923c}
-</style></head><body><div class="c">
+</style><?php @include __DIR__ . '/../includes/icons_head.php'; ?></head><body><div class="c">
 <h1>Скорость базы данных</h1>
 <div class="big"><?= number_format($avg, 1) ?> мс <span style="font-size:14px;color:#8a8a8a;font-weight:500">на один запрос</span></div>
 <div class="v"><?= htmlspecialchars($verdict) ?></div>

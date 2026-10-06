@@ -19,7 +19,7 @@ if (!$isPackDesigner) {
     http_response_code(403);
     ?>
     <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Доступ закрыт | Kostlim Design</title><link rel="stylesheet" href="style.css"></head>
+    <title>Доступ закрыт | Kostlim Design</title><link rel="stylesheet" href="style.css"><?php @include __DIR__ . '/includes/icons_head.php'; ?></head>
     <body style="display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;">
         <div><h1>🔒 Доступ закрыт</h1><p>Личный планер клиентов доступен только владельцам PPK.</p><p><a href="privat_pak.php">← В Приват Пак</a></p></div>
     </body></html>

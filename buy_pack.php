@@ -61,6 +61,7 @@ function imgSrcBuy(?string $u): string { $u = trim((string)$u); return $u !== ''
         .bp-steps { margin: 10px 0 0; padding-left: 18px; color: #c9c9cf; font-size: 13.5px; line-height: 1.7; }
         .bp-link { word-break: break-all; font-family: monospace; font-size: 13px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.06); display: block; margin-top: 8px; color: #ffb067; }
     </style>
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head>
 <body class="kui">
 <?php

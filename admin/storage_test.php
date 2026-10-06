@@ -159,7 +159,7 @@ button{background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;border:0;bo
 .fl{display:block;font-size:12px;color:#8a8a96;margin-bottom:10px}.fl input{display:block;width:100%;box-sizing:border-box;margin-top:4px;background:#0b0b0f;border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;padding:11px 12px;font:14px inherit;font-family:inherit;outline:none}.fl input:focus{border-color:#fb923c}
 input.mask{-webkit-text-security:disc;text-security:disc}
 a{color:#fb923c}code{background:#1a1a22;padding:1px 6px;border-radius:6px;word-break:break-all}
-</style></head><body><div class="w">
+</style><?php @include __DIR__ . '/../includes/icons_head.php'; ?></head><body><div class="w">
 <h1>🖼 Диагностика загрузки картинок</h1>
 <div class="mut">Cloudinary — основное хранилище, ImgBB — запасное. Они работают вместе.</div>
 

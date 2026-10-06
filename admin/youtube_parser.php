@@ -156,6 +156,7 @@ if ($tableExists) {
 
         @media(max-width:700px) { .yt-form-grid { grid-template-columns:1fr 1fr; } }
     </style>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
 <div class="yt-wrap">

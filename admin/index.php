@@ -2458,6 +2458,7 @@ $imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
         .tg-checkbox { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 12.5px; color: #d8d8e8; font-weight: 700; }
     </style>
 <?php include __DIR__ . '/../includes/ui_head.php'; ?>
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body class="kui kui-admin">
 <?php

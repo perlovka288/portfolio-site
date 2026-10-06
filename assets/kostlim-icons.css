@@ -1,0 +1,288 @@
+/* Kostlim Icons — стили (см. assets/kostlim-icons.js). Анимации — из набора animated-state-icons, на чистом CSS. */
+.kei{display:inline-flex;align-items:center;justify-content:center;width:1.15em;height:1.15em;vertical-align:-.2em;line-height:1;flex:none;font-style:normal;font-weight:400;color:inherit;text-transform:none;letter-spacing:0}
+.kei:not(.kei-nav) svg{width:100%;height:100%;display:block;overflow:visible}
+.kei-nav{display:contents}
+.kei-nav svg{overflow:visible}
+.kei-l svg{transition:transform .2s cubic-bezier(.32,.72,0,1)}
+button .kei,.kui-btn .kei,.btn-panel .kei,.pm-btn .kei{margin-right:.05em}
+.kei-star svg{fill:currentColor}
+.kei-err{color:#f87171}
+.kei-heart-red .k-heart{fill:#ef4444;stroke:#ef4444}
+.kei-heart-orange .k-heart{fill:#f97316;stroke:#f97316}
+.kei-heart-white .k-heart{stroke:#f4f4f5}
+.kei-dot::before,.kei-dot-sm::before{content:"";display:block;width:.62em;height:.62em;border-radius:50%;background:var(--c,currentColor);box-shadow:0 0 .55em -.05em var(--c,transparent)}
+.kei-dot-sm::before{width:.4em;height:.4em;box-shadow:none}
+.kei-dot,.kei-dot-sm{width:.9em}
+.kei-new{width:auto;height:auto;padding:.18em .45em;border-radius:.4em;background:#f97316;color:#fff;font:800 .62em/1 Montserrat,sans-serif;letter-spacing:.04em;vertical-align:.12em}
+.kei-flag{width:auto;height:auto;padding:.14em .36em;border-radius:.35em;border:1px solid currentColor;font:800 .62em/1.1 Montserrat,sans-serif;vertical-align:.1em;opacity:.9}
+.kei-num{width:1.3em;height:1.3em;border-radius:50%;border:1.5px solid currentColor;font:800 .62em/1 Montserrat,sans-serif}
+
+/* ── разовые «статичные» состояния ── */
+.kei .k-bell{transform-origin:20px 6px}
+.kei .k-dot{transform:scale(0);transform-origin:28px 10px}
+.kei-bell-alert .k-dot{transform:scale(1)}
+.kei .k-w1,.kei .k-w2{transition:opacity .3s,transform .3s}
+.kei .k-mute{opacity:0;transition:opacity .25s}
+.kei-muted .k-mute{opacity:1}
+.kei-muted .k-w1,.kei-muted .k-w2{opacity:0}
+.kei .k-m1,.kei .k-m2,.kei .k-m3{transform-box:fill-box;transform-origin:center;transition:transform .35s cubic-bezier(.32,.72,0,1),opacity .2s}
+.kei .k-knob{transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
+.kei .k-heart{transform-origin:20px 22px;transition:fill .2s,stroke .2s}
+.kei .k-plane,.kei .k-arrow,.kei .k-shackle,.kei .k-shackle2,.kei .k-key,.kei .k-key2,.kei .k-pupil,.kei .k-play,.kei .k-x,.kei .k-ring{transform-origin:20px 20px}
+.kei .k-play{transform-origin:21px 20px}
+.kei .k-shackle2{transition:transform .35s cubic-bezier(.32,.72,0,1)}
+@media (prefers-reduced-motion:no-preference){
+.kei-l:hover svg,
+a:hover .kei-l svg,
+button:hover .kei-l svg,
+button:active .kei-l svg,
+label:hover .kei-l svg,
+summary:hover .kei-l svg,
+[role="button"]:hover .kei-l svg{transform:scale(1.14) rotate(-4deg)}
+.kei-a:hover .k-check,
+a:hover .kei-a .k-check,
+button:hover .kei-a .k-check,
+button:active .kei-a .k-check,
+label:hover .kei-a .k-check,
+summary:hover .kei-a .k-check,
+[role="button"]:hover .kei-a .k-check,
+.admin-tab:hover .kei-a .k-check,
+.kui-nav a:hover .kei-a .k-check,
+.kei-live .k-check{animation:kei-draw 1.6s ease-in-out infinite}
+.kei-a:hover .k-ring,
+a:hover .kei-a .k-ring,
+button:hover .kei-a .k-ring,
+button:active .kei-a .k-ring,
+label:hover .kei-a .k-ring,
+summary:hover .kei-a .k-ring,
+[role="button"]:hover .kei-a .k-ring,
+.admin-tab:hover .kei-a .k-ring,
+.kui-nav a:hover .kei-a .k-ring,
+.kei-live .k-ring{animation:kei-ring 1.6s ease-in-out infinite}
+.kei-a:hover .k-x,
+a:hover .kei-a .k-x,
+button:hover .kei-a .k-x,
+button:active .kei-a .k-x,
+label:hover .kei-a .k-x,
+summary:hover .kei-a .k-x,
+[role="button"]:hover .kei-a .k-x,
+.admin-tab:hover .kei-a .k-x,
+.kui-nav a:hover .kei-a .k-x,
+.kei-live .k-x{animation:kei-x 1.4s cubic-bezier(.32,.72,0,1) infinite}
+.kei-a:hover .k-m1,
+a:hover .kei-a .k-m1,
+button:hover .kei-a .k-m1,
+button:active .kei-a .k-m1,
+label:hover .kei-a .k-m1,
+summary:hover .kei-a .k-m1,
+[role="button"]:hover .kei-a .k-m1,
+.admin-tab:hover .kei-a .k-m1,
+.kui-nav a:hover .kei-a .k-m1,
+.kei-live .k-m1{transform:translateY(8px) rotate(45deg)}
+.kei-a:hover .k-m2,
+a:hover .kei-a .k-m2,
+button:hover .kei-a .k-m2,
+button:active .kei-a .k-m2,
+label:hover .kei-a .k-m2,
+summary:hover .kei-a .k-m2,
+[role="button"]:hover .kei-a .k-m2,
+.admin-tab:hover .kei-a .k-m2,
+.kui-nav a:hover .kei-a .k-m2,
+.kei-live .k-m2{opacity:0;transform:scaleX(0)}
+.kei-a:hover .k-m3,
+a:hover .kei-a .k-m3,
+button:hover .kei-a .k-m3,
+button:active .kei-a .k-m3,
+label:hover .kei-a .k-m3,
+summary:hover .kei-a .k-m3,
+[role="button"]:hover .kei-a .k-m3,
+.admin-tab:hover .kei-a .k-m3,
+.kui-nav a:hover .kei-a .k-m3,
+.kei-live .k-m3{transform:translateY(-8px) rotate(-45deg)}
+.kei-a:hover .k-play,
+a:hover .kei-a .k-play,
+button:hover .kei-a .k-play,
+button:active .kei-a .k-play,
+label:hover .kei-a .k-play,
+summary:hover .kei-a .k-play,
+[role="button"]:hover .kei-a .k-play,
+.admin-tab:hover .kei-a .k-play,
+.kui-nav a:hover .kei-a .k-play,
+.kei-live .k-play{animation:kei-pulse .9s ease-in-out infinite}
+.kei-a:hover .k-pause,
+a:hover .kei-a .k-pause,
+button:hover .kei-a .k-pause,
+button:active .kei-a .k-pause,
+label:hover .kei-a .k-pause,
+summary:hover .kei-a .k-pause,
+[role="button"]:hover .kei-a .k-pause,
+.admin-tab:hover .kei-a .k-pause,
+.kui-nav a:hover .kei-a .k-pause,
+.kei-live .k-pause{animation:kei-pulse .9s ease-in-out infinite;transform-origin:20px 20px}
+.kei-a:hover .k-shackle,
+a:hover .kei-a .k-shackle,
+button:hover .kei-a .k-shackle,
+button:active .kei-a .k-shackle,
+label:hover .kei-a .k-shackle,
+summary:hover .kei-a .k-shackle,
+[role="button"]:hover .kei-a .k-shackle,
+.admin-tab:hover .kei-a .k-shackle,
+.kui-nav a:hover .kei-a .k-shackle,
+.kei-live .k-shackle{animation:kei-lift 2s ease-in-out infinite}
+.kei-a:hover .k-key,
+a:hover .kei-a .k-key,
+button:hover .kei-a .k-key,
+button:active .kei-a .k-key,
+label:hover .kei-a .k-key,
+summary:hover .kei-a .k-key,
+[role="button"]:hover .kei-a .k-key,
+.admin-tab:hover .kei-a .k-key,
+.kui-nav a:hover .kei-a .k-key,
+.kei-live .k-key{animation:kei-key 2s ease-in-out infinite}
+.kei-a:hover .k-shackle2,
+a:hover .kei-a .k-shackle2,
+button:hover .kei-a .k-shackle2,
+button:active .kei-a .k-shackle2,
+label:hover .kei-a .k-shackle2,
+summary:hover .kei-a .k-shackle2,
+[role="button"]:hover .kei-a .k-shackle2,
+.admin-tab:hover .kei-a .k-shackle2,
+.kui-nav a:hover .kei-a .k-shackle2,
+.kei-live .k-shackle2{transform:translateY(3px)}
+.kei-a:hover .k-lines,
+a:hover .kei-a .k-lines,
+button:hover .kei-a .k-lines,
+button:active .kei-a .k-lines,
+label:hover .kei-a .k-lines,
+summary:hover .kei-a .k-lines,
+[role="button"]:hover .kei-a .k-lines,
+.admin-tab:hover .kei-a .k-lines,
+.kui-nav a:hover .kei-a .k-lines,
+.kei-live .k-lines{animation:kei-fade 1.8s ease-in-out infinite}
+.kei-a:hover .k-copied,
+a:hover .kei-a .k-copied,
+button:hover .kei-a .k-copied,
+button:active .kei-a .k-copied,
+label:hover .kei-a .k-copied,
+summary:hover .kei-a .k-copied,
+[role="button"]:hover .kei-a .k-copied,
+.admin-tab:hover .kei-a .k-copied,
+.kui-nav a:hover .kei-a .k-copied,
+.kei-live .k-copied{animation:kei-draw2 1.8s ease-in-out infinite}
+.kei-a:hover .k-bell,
+a:hover .kei-a .k-bell,
+button:hover .kei-a .k-bell,
+button:active .kei-a .k-bell,
+label:hover .kei-a .k-bell,
+summary:hover .kei-a .k-bell,
+[role="button"]:hover .kei-a .k-bell,
+.admin-tab:hover .kei-a .k-bell,
+.kui-nav a:hover .kei-a .k-bell,
+.kei-live .k-bell{animation:kei-bell 1.1s ease-in-out infinite}
+.kei-a:hover .k-dot,
+a:hover .kei-a .k-dot,
+button:hover .kei-a .k-dot,
+button:active .kei-a .k-dot,
+label:hover .kei-a .k-dot,
+summary:hover .kei-a .k-dot,
+[role="button"]:hover .kei-a .k-dot,
+.admin-tab:hover .kei-a .k-dot,
+.kui-nav a:hover .kei-a .k-dot,
+.kei-live .k-dot{animation:kei-dotpop 1.1s ease-in-out infinite}
+.kei-a:hover .k-heart,
+a:hover .kei-a .k-heart,
+button:hover .kei-a .k-heart,
+button:active .kei-a .k-heart,
+label:hover .kei-a .k-heart,
+summary:hover .kei-a .k-heart,
+[role="button"]:hover .kei-a .k-heart,
+.admin-tab:hover .kei-a .k-heart,
+.kui-nav a:hover .kei-a .k-heart,
+.kei-live .k-heart{animation:kei-beat .9s ease-in-out infinite;fill:#ef4444;stroke:#ef4444}
+.kei-a:hover .k-arrow,
+a:hover .kei-a .k-arrow,
+button:hover .kei-a .k-arrow,
+button:active .kei-a .k-arrow,
+label:hover .kei-a .k-arrow,
+summary:hover .kei-a .k-arrow,
+[role="button"]:hover .kei-a .k-arrow,
+.admin-tab:hover .kei-a .k-arrow,
+.kui-nav a:hover .kei-a .k-arrow,
+.kei-live .k-arrow{animation:kei-down 1s ease-in-out infinite}
+.kei-a:hover .k-plane,
+a:hover .kei-a .k-plane,
+button:hover .kei-a .k-plane,
+button:active .kei-a .k-plane,
+label:hover .kei-a .k-plane,
+summary:hover .kei-a .k-plane,
+[role="button"]:hover .kei-a .k-plane,
+.admin-tab:hover .kei-a .k-plane,
+.kui-nav a:hover .kei-a .k-plane,
+.kei-live .k-plane{animation:kei-fly 1.8s ease-in-out infinite}
+.kei-a:hover .k-knob,
+a:hover .kei-a .k-knob,
+button:hover .kei-a .k-knob,
+button:active .kei-a .k-knob,
+label:hover .kei-a .k-knob,
+summary:hover .kei-a .k-knob,
+[role="button"]:hover .kei-a .k-knob,
+.admin-tab:hover .kei-a .k-knob,
+.kui-nav a:hover .kei-a .k-knob,
+.kei-live .k-knob{transform:translateX(-16px)}
+.kei-a:hover .k-slash,
+a:hover .kei-a .k-slash,
+button:hover .kei-a .k-slash,
+button:active .kei-a .k-slash,
+label:hover .kei-a .k-slash,
+summary:hover .kei-a .k-slash,
+[role="button"]:hover .kei-a .k-slash,
+.admin-tab:hover .kei-a .k-slash,
+.kui-nav a:hover .kei-a .k-slash,
+.kei-live .k-slash{animation:kei-slash 2s ease-in-out infinite}
+.kei-a:hover .k-pupil,
+a:hover .kei-a .k-pupil,
+button:hover .kei-a .k-pupil,
+button:active .kei-a .k-pupil,
+label:hover .kei-a .k-pupil,
+summary:hover .kei-a .k-pupil,
+[role="button"]:hover .kei-a .k-pupil,
+.admin-tab:hover .kei-a .k-pupil,
+.kui-nav a:hover .kei-a .k-pupil,
+.kei-live .k-pupil{animation:kei-pupil 2s ease-in-out infinite}
+.kei-a:hover .k-w1,
+a:hover .kei-a .k-w1,
+button:hover .kei-a .k-w1,
+button:active .kei-a .k-w1,
+label:hover .kei-a .k-w1,
+summary:hover .kei-a .k-w1,
+[role="button"]:hover .kei-a .k-w1,
+.admin-tab:hover .kei-a .k-w1,
+.kui-nav a:hover .kei-a .k-w1,
+.kei-live .k-w1{animation:kei-wave 1.2s ease-in-out infinite}
+.kei-a:hover .k-w2,
+a:hover .kei-a .k-w2,
+button:hover .kei-a .k-w2,
+button:active .kei-a .k-w2,
+label:hover .kei-a .k-w2,
+summary:hover .kei-a .k-w2,
+[role="button"]:hover .kei-a .k-w2,
+.admin-tab:hover .kei-a .k-w2,
+.kui-nav a:hover .kei-a .k-w2,
+.kei-live .k-w2{animation:kei-wave 1.2s ease-in-out .15s infinite}
+}
+@keyframes kei-draw{0%{stroke-dashoffset:1}35%,100%{stroke-dashoffset:0}}
+@keyframes kei-draw2{0%,15%{stroke-dashoffset:1}45%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:1}}
+@keyframes kei-ring{0%{stroke-dasharray:.25 .75;transform:rotate(0)}35%,100%{stroke-dasharray:1 0;transform:rotate(360deg)}}
+@keyframes kei-x{0%{transform:rotate(0)}50%,100%{transform:rotate(90deg)}}
+@keyframes kei-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+@keyframes kei-lift{0%,100%{transform:translateY(0)}35%,70%{transform:translateY(-4px)}}
+@keyframes kei-key{0%,100%{transform:scale(1);opacity:1}35%,70%{transform:scale(.6);opacity:.4}}
+@keyframes kei-fade{0%,15%{opacity:1}30%,70%{opacity:0}85%,100%{opacity:1}}
+@keyframes kei-bell{0%,100%{transform:rotate(0)}15%{transform:rotate(9deg)}30%{transform:rotate(-9deg)}45%{transform:rotate(6deg)}60%{transform:rotate(-6deg)}75%{transform:rotate(3deg)}}
+@keyframes kei-dotpop{0%,100%{transform:scale(0)}20%{transform:scale(1.3)}35%,85%{transform:scale(1)}}
+@keyframes kei-beat{0%,100%{transform:scale(1)}30%{transform:scale(1.25)}60%{transform:scale(1)}}
+@keyframes kei-down{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+@keyframes kei-fly{0%{transform:none;opacity:1}45%{transform:translate(30px,-30px) scale(.5);opacity:0}46%{transform:translate(-14px,14px) scale(.5);opacity:0}100%{transform:none;opacity:1}}
+@keyframes kei-slash{0%,35%{opacity:0}50%,85%{opacity:1}100%{opacity:0}}
+@keyframes kei-pupil{0%,35%{transform:scale(1);opacity:1}50%,85%{transform:scale(.6);opacity:.2}100%{transform:scale(1);opacity:1}}
+@keyframes kei-wave{0%,100%{transform:translateX(0)}50%{transform:translateX(2px)}}

@@ -28,6 +28,7 @@ $plus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Оплата заказа #<?= $id ?> | Kostlim Design</title>
 <link rel="stylesheet" href="assets/pay.css?v=4">
+    <?php @include __DIR__ . '/includes/icons_head.php'; ?>
 </head><body>
 <div class="pc">
 <?php if ($state === 'bad'): ?>

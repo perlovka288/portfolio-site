@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kostlim Design | Portfolio</title>
     <link rel="stylesheet" href="/portfolio-site/style.css">
+    <?php @include __DIR__ . '/../includes/icons_head.php'; ?>
 </head>
 <body>
 
