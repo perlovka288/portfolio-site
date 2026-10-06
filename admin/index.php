@@ -2499,6 +2499,12 @@ $imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
             <button type="button" class="admin-tab"        data-tab="rules"      onclick="activateAdminTab('rules')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21H3V3h18v18zm-3-10H6"/></svg> Правила</button>
             <button type="button" class="admin-tab"        data-tab="ai-prompt"  onclick="activateAdminTab('ai-prompt')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> ИИ-промпт</button>
             <a href="resources.php" class="admin-tab" style="text-decoration:none;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Ресурсы пака</a>
+            <?php
+                // 🛡 Приват Пак: пользователи, покупки, чат, ключи (admin/ppk_manager.php). Бейдж — покупки, ждущие одобрения.
+                $ppkPendingBuys = 0;
+                try { $ppkPendingBuys = (int)$pdo->query("SELECT COUNT(*) FROM ppk_purchases WHERE status IN ('claimed','paid')")->fetchColumn(); } catch (Throwable $e) {}
+            ?>
+            <a href="ppk_manager.php" class="admin-tab" style="text-decoration:none;display:inline-flex;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg> Приват Пак<?php if ($ppkPendingBuys > 0): ?> <span style="background:#f97316;color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;"><?= $ppkPendingBuys ?></span><?php endif; ?></a>
 
             <div class="admin-tab-group-label">Система</div>
             <button type="button" class="admin-tab"        data-tab="keys"       onclick="activateAdminTab('keys')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> Ключи и API</button>
@@ -3836,6 +3842,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let savedTab = 'overview';
         try { savedTab = localStorage.getItem('admin_active_tab') || 'overview'; } catch (e) {}
         const knownTabs = ['overview','portfolio','price','orders','categories','promo','reviews','commands','rules','appeals','logs','ai-prompt','keys'];
+        try { var urlTab = new URLSearchParams(location.search).get('tab'); if (urlTab) savedTab = urlTab; } catch (e) {}
         if (!knownTabs.includes(savedTab)) savedTab = 'overview';
         activateAdminTab(savedTab);
     }

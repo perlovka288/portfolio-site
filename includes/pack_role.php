@@ -55,6 +55,8 @@ function ensurePackRoleSchema__run(PDO $pdo): bool
             first_seen TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )");
+        // когда человека в последний раз проверяли кнопкой «Просканировать чат»
+        $pdo->exec("ALTER TABLE pack_members ADD COLUMN IF NOT EXISTS scanned_at TIMESTAMP");
         return true;
     } catch (Throwable $e) {
         error_log('ensurePackRoleSchema error: ' . $e->getMessage());
@@ -66,21 +68,25 @@ function ensurePackRoleSchema__run(PDO $pdo): bool
 function ensurePackRoleSchema(PDO $pdo): void
 {
     if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
-    if (kuiSchemaDone('ensurePackRoleSchema_v2')) { return; }
+    if (kuiSchemaDone('ensurePackRoleSchema_v3')) { return; }
     // FIX: раньше «готово» отмечалось даже если CREATE TABLE упал — и больше не повторялось.
-    if (ensurePackRoleSchema__run($pdo)) { kuiSchemaMark('ensurePackRoleSchema_v2'); }
+    if (ensurePackRoleSchema__run($pdo)) { kuiSchemaMark('ensurePackRoleSchema_v3'); }
 }
 
 /** Запомнить/обновить участника приватной группы (и кэш проверки роли). */
-function packMemberUpsert(PDO $pdo, string $tgId, bool $isMember, array $user = [], string $status = '', string $source = ''): void
+function packMemberUpsert(PDO $pdo, string $tgId, bool $isMember, array $user = [], string $status = '', string $source = '', bool $markScanned = false): void
 {
     if ($tgId === '') return;
     ensurePackRoleSchema($pdo);
     try {
+        $scanCol = $markScanned ? ', scanned_at' : '';
+        $scanVal = $markScanned ? ', NOW()' : '';
+        $scanUpd = $markScanned ? 'scanned_at = NOW(),' : '';
         $pdo->prepare("
-            INSERT INTO pack_members (tg_id, username, first_name, status, is_member, source)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO pack_members (tg_id, username, first_name, status, is_member, source{$scanCol})
+            VALUES (?, ?, ?, ?, ?, ?{$scanVal})
             ON CONFLICT (tg_id) DO UPDATE SET
+                {$scanUpd}
                 username   = CASE WHEN EXCLUDED.username   <> '' THEN EXCLUDED.username   ELSE pack_members.username   END,
                 first_name = CASE WHEN EXCLUDED.first_name <> '' THEN EXCLUDED.first_name ELSE pack_members.first_name END,
                 status     = CASE WHEN EXCLUDED.status     <> '' THEN EXCLUDED.status     ELSE pack_members.status     END,

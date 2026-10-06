@@ -377,3 +377,104 @@ function ppkAutoDetectPayment(PDO $pdo, array $p): ?array
     }
     return null;
 }
+
+// ───────────── сканирование приватного чата ─────────────
+/**
+ * Telegram НЕ даёт боту список всех участников группы (в Bot API такого метода нет).
+ * Поэтому «сканирование» делает всё, что возможно:
+ *   1. getChatMemberCount — сколько людей в чате по данным Telegram;
+ *   2. getChatAdministrators — все админы чата;
+ *   3. getChatMember по КАЖДОМУ известному ID (кто входил на сайт, купил, получил ключ,
+ *      уже замечен ботом) — и фиксирует, в чате человек или нет.
+ * Тех, кто в чате, но ни разу не писал и не входил на сайт, бот увидеть не может —
+ * для них есть кнопка «Попросить участников отметиться» (ppkAskCheckin).
+ * За один проход проверяется ограниченное число людей (лимит Telegram и таймаут PHP);
+ * остаток добивается повторным нажатием.
+ *
+ * @return array{ok:bool,error:string,tg_count:int,admins:int,checked:int,in_chat:int,left:int,errors:int,remaining:int,known:int}
+ */
+function ppkScanChat(PDO $pdo, int $limit = 150, int $budgetSec = 22): array
+{
+    @set_time_limit($budgetSec + 30);
+    $t0 = microtime(true);
+    ensurePackRoleSchema($pdo);
+    $out = ['ok' => true, 'error' => '', 'tg_count' => 0, 'admins' => 0, 'checked' => 0, 'in_chat' => 0, 'left' => 0, 'errors' => 0, 'remaining' => 0, 'known' => 0];
+    $token = ppkBotToken($pdo); $chat = ppkChatId($pdo);
+    if ($token === '') return ['ok' => false, 'error' => 'BOT_TOKEN не задан (админка → «Ключи и API»)'] + $out;
+
+    $c = ppkTg($token, 'getChatMemberCount', ['chat_id' => $chat]);
+    if (empty($c['ok'])) {
+        return ['ok' => false, 'error' => (string)($c['description'] ?? 'ошибка Telegram') . ' — проверь chat_id и что бот добавлен в группу админом'] + $out;
+    }
+    $out['tg_count'] = (int)$c['result'];
+
+    // 2) админы группы
+    $a = ppkTg($token, 'getChatAdministrators', ['chat_id' => $chat]);
+    foreach ((array)($a['result'] ?? []) as $m) {
+        $u = (array)($m['user'] ?? []);
+        if (empty($u['id']) || !empty($u['is_bot'])) continue;
+        packMemberUpsert($pdo, (string)$u['id'], true, $u, (string)($m['status'] ?? 'administrator'), 'scan', true);
+        $out['admins']++;
+    }
+
+    // 3) все известные ID: ещё не проверенные (или проверенные давно) — первыми
+    $sql = "SELECT c.id FROM (
+                SELECT tg_id AS id FROM tg_links WHERE linked = TRUE AND tg_id IS NOT NULL AND tg_id <> ''
+                UNION SELECT tg_id FROM pack_members
+                UNION SELECT tg_id FROM ppk_manual_grants
+                UNION SELECT tg_id FROM ppk_purchases
+            ) c LEFT JOIN pack_members m ON m.tg_id = c.id
+            WHERE m.scanned_at IS NULL OR m.scanned_at < NOW() - INTERVAL '10 minutes'
+            ORDER BY m.scanned_at ASC NULLS FIRST, c.id
+            LIMIT " . max(1, $limit);
+    $ids = $pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($ids as $uid) {
+        if ((microtime(true) - $t0) > $budgetSec) break;
+        $uid = (string)$uid;
+        $r = ppkTg($token, 'getChatMember', ['chat_id' => $chat, 'user_id' => $uid]);
+        if (!empty($r['ok'])) {
+            $m = (array)$r['result'];
+            if (!empty($m['user']['is_bot'])) { continue; }
+            $in = packStatusIsMember($m);
+            packMemberUpsert($pdo, $uid, $in, (array)($m['user'] ?? []), (string)($m['status'] ?? ''), 'scan', true);
+            $out['checked']++; $in ? $out['in_chat']++ : $out['left']++;
+            continue;
+        }
+        $desc = (string)($r['description'] ?? '');
+        if (stripos($desc, 'Too Many Requests') !== false) { break; }          // лимит Telegram — продолжим следующим нажатием
+        if (stripos($desc, 'user not found') !== false || stripos($desc, 'PARTICIPANT_ID_INVALID') !== false) {
+            packMemberUpsert($pdo, $uid, false, [], 'left', 'scan', true);       // такого пользователя нет в чате
+            $out['checked']++; $out['left']++;
+        } else {
+            // непонятная ошибка по конкретному ID — помечаем проверенным, чтобы не зацикливаться на нём
+            try {
+                $pdo->prepare("INSERT INTO pack_members (tg_id, status, is_member, source, scanned_at) VALUES (?, 'error', FALSE, 'scan', NOW())
+                               ON CONFLICT (tg_id) DO UPDATE SET scanned_at = NOW()")->execute([$uid]);
+            } catch (Throwable $e) {}
+            $out['errors']++;
+        }
+    }
+
+    $rem = $pdo->query("SELECT COUNT(*) FROM (
+                SELECT tg_id AS id FROM tg_links WHERE linked = TRUE AND tg_id IS NOT NULL AND tg_id <> ''
+                UNION SELECT tg_id FROM pack_members UNION SELECT tg_id FROM ppk_manual_grants UNION SELECT tg_id FROM ppk_purchases
+            ) c LEFT JOIN pack_members m ON m.tg_id = c.id
+            WHERE m.scanned_at IS NULL OR m.scanned_at < NOW() - INTERVAL '10 minutes'")->fetchColumn();
+    $out['remaining'] = (int)$rem;
+    $out['known'] = (int)$pdo->query("SELECT COUNT(*) FROM pack_members WHERE is_member = TRUE")->fetchColumn();
+
+    try { ppkSetSetting($pdo, 'PPK_LAST_SCAN', json_encode(['t' => time()] + $out, JSON_UNESCAPED_UNICODE)); } catch (Throwable $e) {}
+    return $out;
+}
+
+/** Сообщение в приватную группу с кнопкой «Я в чате»: нажал — бот запомнил человека и доступ на сайте откроется. */
+function ppkAskCheckin(PDO $pdo): array
+{
+    $chat = ppkChatId($pdo);
+    $r = ppkTg(ppkBotToken($pdo), 'sendMessage', [
+        'chat_id' => $chat,
+        'text'    => "👋 Участники Приват Пака!\n\nНажмите кнопку ниже один раз — бот вас запомнит, и доступ к разделу Приват Пак на сайте откроется автоматически (заходите через Telegram-бота).",
+        'reply_markup' => json_encode(['inline_keyboard' => [[['text' => '✅ Я в чате — отметить меня', 'callback_data' => 'ppk_here']]]], JSON_UNESCAPED_UNICODE),
+    ]);
+    return ['ok' => !empty($r['ok']), 'error' => (string)($r['description'] ?? '')];
+}

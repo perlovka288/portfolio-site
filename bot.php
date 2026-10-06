@@ -160,6 +160,19 @@ if (isset($update['callback_query'])) {
 
     botLog("callback chat={$cal_chat_id} data={$callback_data}");
 
+    // ── ✅ «Я в чате» — участник приватной группы сам отмечается (доступно всем, не только админу) ──
+    if ($callback_data === 'ppk_here') {
+        $cbFrom = (array)($update['callback_query']['from'] ?? []);
+        if ((string)$cal_chat_id === (string)$packGroupChatId && !empty($cbFrom['id']) && empty($cbFrom['is_bot'])) {
+            try { packMemberUpsert($pdo, (string)$cbFrom['id'], true, $cbFrom, 'member', 'checkin'); } catch (Throwable $e) { botLog('ppk_here error: ' . $e->getMessage()); }
+            sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'show_alert' => 'true',
+                'text' => "✅ Готово, вы отмечены!\n\nЗаходите на сайт через Telegram — доступ к Приват Паку откроется автоматически."]);
+        } else {
+            sendTelegram($token, 'answerCallbackQuery', ['callback_query_id' => $callback_id, 'text' => 'Эта кнопка работает только в чате Приват Пака']);
+        }
+        exit;
+    }
+
     // ── Клиентские колбэки (просмотр своего заказа) ──
     // Переиспользуем текущее сообщение (editMessageText), а не шлём новое —
     // раньше каждый клик плодил новое сообщение, чат быстро зарастал.
