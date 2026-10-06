@@ -202,7 +202,14 @@ $turnstile_secret_key = getenv('TURNSTILE_SECRET_KEY') ?: 'ТВОЙ_СЕКРЕТ
 define('COOLDOWN_SECONDS', 300);
 
 $selected_service = $_POST['service'] ?? $_GET['service'] ?? '';
-$services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+// Услугу, помеченную «Сделать частью пака», нельзя заказать как дизайн: её покупают через buy_pack.php
+require_once __DIR__ . '/includes/ppk_purchase.php';
+ensurePricesPackSchema($pdo);
+try {
+    $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices WHERE is_pack = FALSE ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $services = $pdo->query("SELECT title, category_key, price_uan, price_rub FROM prices ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // ── TG: статус привязки для текущей сессии ──────────────────────
 $linkCode = null;

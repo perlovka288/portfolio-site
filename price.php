@@ -44,6 +44,8 @@ function imgSrc(string $val, string $base = 'uploads/'): string {
     return '/' . ltrim($base . $val, '/');
 }
 
+require_once __DIR__ . '/includes/ppk_purchase.php';
+ensurePricesPackSchema($pdo);   // prices.is_pack — услуга, помеченная как «Приват Пак»
 $stmt     = $pdo->query("SELECT * FROM prices ORDER BY id ASC");
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -178,11 +180,14 @@ body::before {
 
     <?php
         // 🛒 Покупка Приват Пака (кнопка ведёт на buy_pack.php; админу в TG придёт «клиент купил пак»)
-        require_once __DIR__ . '/includes/ppk_purchase.php';
         $__ppkHave   = !empty($isAdmin) || !empty($isPackDesigner);
         $__ppkPrices = [];
         try { $__ppkPrices = ppkPrices($pdo); } catch (Throwable $e) {}
+        // Если в прайсе есть карточка, помеченная «Сделать частью пака», покупка идёт с неё — отдельная плашка не нужна
+        $__ppkHasCard = false;
+        foreach ($services as $__s) { if (ppkTruthy($__s['is_pack'] ?? false)) { $__ppkHasCard = true; break; } }
     ?>
+    <?php if (!$__ppkHasCard || $__ppkHave): ?>
     <div class="kui-card accent" style="margin:0 0 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
         <div style="min-width:220px;flex:1">
             <b style="font-size:16px">🔒 Приват Пак</b>
@@ -197,6 +202,7 @@ body::before {
             <a class="kui-btn" href="buy_pack.php">🛒 Купить пак</a>
         <?php endif; ?>
     </div>
+    <?php endif; ?>
 
     <section class="price-grid-local">
     <?php foreach ($services as $service): ?>
@@ -236,10 +242,18 @@ body::before {
                     <span class="ef" data-field="rub" contenteditable="false"><?= (int)$service['price_rub'] ?></span> ₽
                     <small><span class="ef" data-field="uan" contenteditable="false"><?= (int)$service['price_uan'] ?></span> ₴</small>
                 </div>
+                <?php if (ppkTruthy($service['is_pack'] ?? false)): ?>
+                    <?php $__haveThis = !empty($isAdmin) || !empty($isPackDesigner); ?>
+                    <a href="<?= $__haveThis ? 'privat_pak.php' : 'buy_pack.php' ?>" class="service-order">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <?= $__haveThis ? 'Открыть пак' : 'Купить пак' ?>
+                    </a>
+                <?php else: ?>
                 <a href="order.php?service=<?= htmlspecialchars($service['category_key']) ?>" class="service-order">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     Заказать
                 </a>
+                <?php endif; ?>
             </div>
         </div>
     </article>

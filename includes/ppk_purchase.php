@@ -130,6 +130,39 @@ function ensurePpkPurchaseSchema(PDO $pdo): void
     if (ensurePpkPurchaseSchema__run($pdo)) { kuiSchemaMark('ensurePpkPurchaseSchema'); }
 }
 
+// ───────────── услуга прайса = «Приват Пак» ─────────────
+/** Колонка prices.is_pack: отметка «эта услуга — Приват Пак» (ставится галочкой в админке прайса). */
+function ensurePricesPackSchema(PDO $pdo): void
+{
+    if (!function_exists('kuiSchemaDone')) { require_once __DIR__ . '/schema_once.php'; }
+    if (kuiSchemaDone('ensurePricesPackSchema')) { return; }
+    try {
+        $pdo->exec("ALTER TABLE prices ADD COLUMN IF NOT EXISTS is_pack BOOLEAN NOT NULL DEFAULT FALSE");
+        kuiSchemaMark('ensurePricesPackSchema');
+    } catch (Throwable $e) { error_log('ensurePricesPackSchema: ' . $e->getMessage()); }
+}
+
+/** Значение булевой колонки из PDO: true/false, 't'/'f', 1/0. */
+function ppkTruthy($v): bool { return $v === true || $v === 1 || $v === '1' || $v === 't' || $v === 'true'; }
+
+/** Услуга прайса, помеченная как Приват Пак (или null). */
+function ppkPackService(PDO $pdo): ?array
+{
+    ensurePricesPackSchema($pdo);
+    try {
+        $r = $pdo->query("SELECT * FROM prices WHERE is_pack = TRUE ORDER BY id ASC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    } catch (Throwable $e) { return null; }
+}
+
+/** Пометить ровно одну услугу как Приват Пак (null — снять отметку со всех). */
+function ppkSetPackService(PDO $pdo, ?int $id): void
+{
+    ensurePricesPackSchema($pdo);
+    $pdo->exec("UPDATE prices SET is_pack = FALSE WHERE is_pack = TRUE");
+    if ($id) { $pdo->prepare("UPDATE prices SET is_pack = TRUE WHERE id = ?")->execute([$id]); }
+}
+
 // ───────────── цена ─────────────
 function ppkPrices(PDO $pdo): array
 {
@@ -137,6 +170,12 @@ function ppkPrices(PDO $pdo): array
     foreach (['UAH', 'RUB', 'USD'] as $c) {
         $v = (float)str_replace(',', '.', ppkSiteSetting($pdo, 'PPK_PRICE_' . $c));
         if ($v > 0) $out[$c] = $v;
+    }
+    // Цена карточки прайса, помеченной «Сделать частью пака», главнее: ₽ и ₴ берём оттуда
+    $svc = ppkPackService($pdo);
+    if ($svc) {
+        if ((int)$svc['price_rub'] > 0) $out['RUB'] = (float)$svc['price_rub'];
+        if ((int)$svc['price_uan'] > 0) $out['UAH'] = (float)$svc['price_uan'];
     }
     return $out;
 }

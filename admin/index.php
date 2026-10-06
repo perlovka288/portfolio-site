@@ -12,6 +12,8 @@ require_once __DIR__ . '/bot_commands.php';
 ensureBotCommandTables($pdo);
 ensureOrderFlowSchema($pdo);
 ensurePromoSchema($pdo);
+require_once __DIR__ . '/../includes/ppk_purchase.php';
+ensurePricesPackSchema($pdo);   // колонка prices.is_pack — отметка «Приват Пак»
 
 require_once __DIR__ . '/../includes/schema_once.php';
 try {
@@ -1498,6 +1500,9 @@ function renderServiceCardHtml(array $service): string
             <div><label><span class="ico">💵</span> Цена ₴</label><input type="number" name="prices[<?= $id ?>][price_uan]" value="<?= htmlspecialchars($service['price_uan']??'0') ?>"></div>
         </div>
         <hr class="divider">
+        <label class="tg-checkbox pack-toggle"><input type="checkbox" class="js-pack-toggle" name="prices[<?= $id ?>][is_pack]" value="1" <?= ppkTruthy($service['is_pack'] ?? false) ? 'checked' : '' ?>> 🔒 Сделать частью пака — это товар «Приват Пак»</label>
+        <div class="avatar-hint">С галочкой на странице прайса у этой услуги вместо «Заказать» будет кнопка «Купить пак» (оплата → одобрение → одноразовая ссылка в приватный чат). Цена ₽/₴ берётся отсюда. Галочка может стоять только на одной услуге.</div>
+        <hr class="divider">
         <label><span class="ico">🖼</span> Заменить обложку</label>
         <input type="file" name="price_images[<?= $id ?>]" accept="image/*">
         <div class="avatar-hint">Кнопка ниже сохраняет изменения по всем услугам сразу.</div>
@@ -1722,6 +1727,12 @@ if (isset($_POST['save_all_prices'])) {
             $priceSaveErrors[] = "#{$id}: " . $e->getMessage();
         }
     }
+    // «Сделать частью пака»: отмечена должна быть одна услуга (если отмечено несколько — берём первую)
+    try {
+        $packPick = null;
+        foreach (($_POST['prices'] ?? []) as $pid => $pdata) { if (!empty($pdata['is_pack'])) { $packPick = (int)$pid; break; } }
+        ppkSetPackService($pdo, $packPick);
+    } catch (Throwable $e) { $priceSaveErrors[] = 'пак: ' . $e->getMessage(); }
     $message = empty($priceSaveErrors)
         ? (!empty($GLOBALS['kuiImgWarn']) ? '⚠️ Прайс сохранён, но картинка НЕ загрузилась — причина ниже.' : '💾 Прайс-лист обновлен.')
         : '⚠️ Прайс обновлён частично. Не сохранено: ' . implode('; ', $priceSaveErrors);
@@ -1748,6 +1759,7 @@ if (isset($_POST['add_price_service'])) {
         try {
             $stmt->execute([$category_key, $title, $description, $price_rub, $price_uan, $features, $image]);
             $newServiceId = (int)$stmt->fetchColumn();
+            if (!empty($_POST['service_is_pack'])) { ppkSetPackService($pdo, $newServiceId); }
             $message = '✅ Новая услуга добавлена в прайс.';
         }
         catch (PDOException $e) { $message = '❌ Такой ключ услуги уже существует.'; }
@@ -3107,6 +3119,7 @@ $imgbbKeySet       = imageStoreConfigured($pdo);   // Cloudinary ИЛИ ImgBB
                                 <textarea name="service_description" placeholder="Коротко, что входит в услугу"></textarea>
                                 <label><span class="ico">⚡</span> Фичи</label>
                                 <input type="text" name="service_features" placeholder="Через | например: PSD-файл|2 правки|быстрая сдача">
+                                <label class="tg-checkbox"><input type="checkbox" name="service_is_pack" value="1"> 🔒 Сделать частью пака — это товар «Приват Пак»</label>
                                 <label><span class="ico">🖼</span> Обложка услуги</label>
                                 <input type="file" name="service_image" accept="image/*">
                                 <button type="submit" name="add_price_service" class="btn-panel" id="service-submit-btn">🟠 Добавить услугу</button>
@@ -3952,6 +3965,14 @@ document.addEventListener('click', function(e) {
         catch (e) { st.textContent = 'Ошибка: ' + (e.message || e); }
     };
 })();
+</script>
+<script>
+// «Сделать частью пака»: галочка может стоять только на одной услуге
+document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains('js-pack-toggle') || !t.checked) return;
+    document.querySelectorAll('.js-pack-toggle').forEach(function (c) { if (c !== t) c.checked = false; });
+});
 </script>
 </body>
 </html>
