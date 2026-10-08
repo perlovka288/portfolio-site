@@ -36,6 +36,18 @@ try {
 
 // Создаём таблицы лайков и отзывов, если нет (один раз на контейнер — без лишних запросов к БД)
 require_once __DIR__ . '/includes/schema_once.php';
+
+/**
+ * CSS-класс категории для фильтра. Один и тот же нормализатор используется и для кнопок-табов,
+ * и для карточек работ: раньше кнопка получала ключ как есть, а карточка — в нижнем регистре,
+ * и таб с заглавными буквами/пробелом в ключе показывал пустую сетку.
+ */
+function kuiCatClass($key): string
+{
+    $k = mb_strtolower(trim((string)$key), 'UTF-8');
+    return 'cat-' . preg_replace('/[^\p{L}\p{N}_-]+/u', '-', $k);
+}
+
 try {
     kuiSchemaOnce('index_likes_reviews', function () use ($pdo) {
         $pdo->exec("CREATE TABLE IF NOT EXISTS portfolio_likes (
@@ -825,6 +837,7 @@ body::after {
 </style>
 <?php include __DIR__ . '/includes/ui_head.php'; ?>
     <?php @include __DIR__ . '/includes/icons_head.php'; ?>
+    <link rel="stylesheet" href="assets/kostlim-testimonials.css?v=<?= @filemtime(__DIR__ . '/assets/kostlim-testimonials.css') ?: time() ?>">
 </head>
 <body class="theme-<?= htmlspecialchars($themePreset) ?> shape-<?= htmlspecialchars($themeShape) ?> density-<?= htmlspecialchars($themeDensity) ?> effects-<?= htmlspecialchars($themeEffects) ?> kui">
 
@@ -931,7 +944,7 @@ body::after {
     <div class="kui-tabs" id="kuiTabs">
         <button class="tab-btn active" onclick="filterPortfolio('all', event)">Все<sup><?= count($works) ?></sup></button>
         <?php foreach ($categories as $category): ?>
-            <button class="tab-btn" onclick="filterPortfolio('cat-<?= htmlspecialchars($category['category_key']) ?>', event)">
+            <button class="tab-btn" onclick="filterPortfolio('<?= htmlspecialchars(kuiCatClass($category['category_key'])) ?>', event)">
                 <?= htmlspecialchars($category['title']) ?><sup><?= (int)($kuiCounts[strtolower($category['category_key'])] ?? 0) ?></sup>
             </button>
         <?php endforeach; ?>
@@ -959,7 +972,7 @@ $fmtSitePrice = function (int $rub, int $uan, string $c) use ($__usdUah): string
             $ava_file  = $work['avatar_image'] ?? '';
             $key       = strtolower($work['category_key'] ?? '');
             $category  = $categoryMap[$key] ?? null;
-            $cat_class = 'cat-' . $key;
+            $cat_class = kuiCatClass($key);
             $isDesign  = !empty($category['is_design']) || in_array($key, ['design','design_pack','banner_avatar'], true);
             $width     = (int)($category['width_px'] ?? 0);
             $height    = (int)($category['height_px'] ?? 0);
@@ -1030,76 +1043,57 @@ $fmtSitePrice = function (int $rub, int $uan, string $c) use ($__usdUah): string
     </section>
 </main>
 
-<!-- ══════════════════ СЕКЦИЯ ОТЗЫВОВ ══════════════════ -->
-<section id="reviews" style="max-width:1200px;margin:0 auto;padding:60px 20px 40px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:32px;">
-        <div>
-            <h2 style="margin:0 0 6px;font-size:26px;font-weight:900;">⭐ Отзывы клиентов</h2>
-            <?php
-                $avgRating = 0; $totalReviews = count($reviews);
-                if ($totalReviews > 0) $avgRating = round(array_sum(array_column($reviews,'rating')) / $totalReviews, 1);
-            ?>
-            <?php if ($totalReviews > 0): ?>
-            <div style="display:flex;align-items:center;gap:8px;color:#8a8a96;font-size:14px;">
-                <span style="color:#f97316;font-size:18px;text-shadow:0 0 12px rgba(249,115,22,0.6);letter-spacing:2px;font-weight:bold;"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
-                <strong style="color:#fff;"><?= $avgRating ?></strong>
-                <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
-            </div>
-            <?php endif; ?>
-        </div>
-        <a href="review.php" id="leaveReviewBtn" onclick="return handleReviewClick(event)" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#fb923c,#f97316);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:800;font-size:13px;box-shadow:0 8px 24px rgba(249,115,22,.3);">
-            ✍️ Оставить отзыв
+<!-- ══════════════════ СЕКЦИЯ ОТЗЫВОВ (стиль testimonials-6: вертикальные бесконечные ленты) ══════════════════ -->
+<?php
+    $avgRating = 0; $totalReviews = count($reviews);
+    if ($totalReviews > 0) $avgRating = round(array_sum(array_column($reviews, 'rating')) / $totalReviews, 1);
+?>
+<section id="reviews" class="kt-section" data-kt>
+    <div class="kt-head">
+        <div class="kt-pill"><span data-kei="star"></span> Отзывы</div>
+        <h2 class="kt-title">Что говорят клиенты</h2>
+        <?php if ($totalReviews > 0): ?>
+        <p class="kt-sub">
+            <span class="kt-avg"><?= str_repeat('★', (int)round($avgRating)) . str_repeat('☆', 5 - (int)round($avgRating)) ?></span>
+            <strong><?= $avgRating ?></strong>
+            <span>· <?= $totalReviews ?> отзыв<?= $totalReviews === 1 ? '' : ($totalReviews < 5 ? 'а' : 'ов') ?></span>
+        </p>
+        <?php else: ?>
+        <p class="kt-sub">Здесь появятся отзывы клиентов.</p>
+        <?php endif; ?>
+        <a href="review.php" id="leaveReviewBtn" onclick="return handleReviewClick(event)" class="kt-cta">
+            <span data-kei="pen-line"></span> Оставить отзыв
         </a>
     </div>
 
     <?php if (empty($reviews)): ?>
-        <div style="text-align:center;padding:60px 20px;color:#555568;">
-            <div style="font-size:40px;margin-bottom:12px;">💬</div>
+        <div class="kt-empty">
+            <div style="margin-bottom:12px;font-size:40px;"><span data-kei="message-circle"></span></div>
             <div style="font-size:16px;font-weight:700;margin-bottom:6px;">Пока нет отзывов</div>
             <div style="font-size:13px;">Будьте первым, кто оставит отзыв!</div>
         </div>
     <?php else: ?>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
-        <?php foreach ($reviews as $rv): ?>
-            <div style="background:#111116;border:1px solid #20202c;border-radius:16px;padding:20px;position:relative;transition:.2s;" onmouseover="this.style.borderColor='rgba(249,115,22,.3)'" onmouseout="this.style.borderColor='#20202c'">
-                <?php if ($isAdmin): ?>
-                    <a href="?delete_review=<?= (int)$rv['id'] ?>" onclick="return confirm('Удалить отзыв?')" style="position:absolute;top:12px;right:12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:4px 8px;color:#ef4444;font-size:11px;font-weight:700;text-decoration:none;">✕ Удалить</a>
-                <?php endif; ?>
-                <!-- Профиль -->
-                <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-                    <?php if (!empty($rv['tg_photo_url'])): ?>
-                         <img loading="lazy" decoding="async" src="<?= htmlspecialchars(imgSrc((string)($rv['tg_photo_url'] ?? ''))) ?>" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid rgba(249,115,22,.4);flex-shrink:0;"
-                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                         <div style="display:none;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
-                            <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
-                         </div>
-                    <?php else: ?>
-                        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;">
-                            <?= mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1)) ?>
-                        </div>
-                    <?php endif; ?>
-                    <div style="min-width:0;">
-                        <div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                            <?= htmlspecialchars($rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id'])) ?>
-                        </div>
-                        <?php if (!empty($rv['tg_username'])): ?>
-                        <div style="font-size:12px;color:#8a8a96;">@<?= htmlspecialchars($rv['tg_username']) ?></div>
-                        <?php endif; ?>
+        <div class="kt-source">
+        <?php foreach ($reviews as $rv):
+            $rvName  = $rv['tg_first_name'] ?: ('Клиент #' . $rv['order_id']);
+            $rvLetter = mb_strtoupper(mb_substr($rv['tg_first_name'] ?: ($rv['tg_username'] ?: '?'), 0, 1));
+            $rvRate  = max(0, min(5, (int)$rv['rating']));
+        ?>
+            <figure class="kt-card">
+                <?php if ($isAdmin): ?><a class="kt-del" href="?delete_review=<?= (int)$rv['id'] ?>" onclick="return confirm('Удалить отзыв?')">Удалить</a><?php endif; ?>
+                <div class="kt-stars" aria-label="Оценка: <?= $rvRate ?> из 5"><?php for ($st = 1; $st <= 5; $st++): ?><span class="<?= $st <= $rvRate ? 'on' : '' ?>">★</span><?php endfor; ?></div>
+                <blockquote><?= nl2br(htmlspecialchars($rv['text'])) ?></blockquote>
+                <figcaption>
+                    <span class="kt-ava"><?= htmlspecialchars($rvLetter) ?><?php if (!empty($rv['tg_photo_url'])): ?><img loading="lazy" decoding="async" alt="" src="<?= htmlspecialchars(imgSrc((string)$rv['tg_photo_url'])) ?>" onerror="this.remove()"><?php endif; ?></span>
+                    <div class="kt-who">
+                        <cite><?= htmlspecialchars($rvName) ?></cite>
+                        <span><?= !empty($rv['tg_username']) ? '@' . htmlspecialchars($rv['tg_username']) . ' · ' : '' ?><?= date('d.m.Y', strtotime($rv['created_at'])) ?></span>
                     </div>
-                    <!-- Звёзды -->
-                    <div style="margin-left:auto;flex-shrink:0;">
-                        <?php for($s=1;$s<=5;$s++): ?>
-                            <span style="font-size:18px;color:<?= $s <= $rv['rating'] ? '#f97316' : '#2a2a38' ?>;<?= $s <= $rv['rating'] ? 'text-shadow:0 0 12px rgba(249,115,22,0.6);font-weight:bold;' : '' ?>">★</span>
-                        <?php endfor; ?>
-                    </div>
-                </div>
-                <!-- Текст -->
-                <div style="font-size:13px;color:#c8c8d8;line-height:1.65;word-break:break-word;"><?= nl2br(htmlspecialchars($rv['text'])) ?></div>
-                <!-- Дата -->
-                <div style="margin-top:12px;font-size:11px;color:#555568;"><?= date('d.m.Y', strtotime($rv['created_at'])) ?></div>
-            </div>
+                </figcaption>
+            </figure>
         <?php endforeach; ?>
         </div>
+        <div class="kt-cols" aria-label="Отзывы клиентов"></div>
     <?php endif; ?>
 </section>
 
@@ -1398,8 +1392,9 @@ function checkLinked() {
 
 // ── Фильтрация портфолио ──
 function filterPortfolio(category, event) {
+    var clicked = event && (event.currentTarget || (event.target && event.target.closest && event.target.closest('.tab-btn')));
     document.querySelectorAll('.tab-btn').forEach(function(btn){ btn.classList.remove('active'); });
-    event.currentTarget.classList.add('active');
+    if (clicked) clicked.classList.add('active');
     document.querySelectorAll('.filter-item').forEach(function(item) {
         item.style.display = (category === 'all' || item.classList.contains(category)) ? 'flex' : 'none';
     });
@@ -1538,5 +1533,6 @@ window.__geoKnown = <?= json_encode($siteCurKnown) ?>;
 })();
 </script>
 <script src="/assets/geo.js"></script>
+<script src="assets/kostlim-testimonials.js?v=<?= @filemtime(__DIR__ . '/assets/kostlim-testimonials.js') ?: time() ?>"></script>
 </body>
 </html>
